@@ -1,0 +1,11 @@
+*.c
+*.o
+*.so
+*.pyc
+__pychache__/
+*.pdf
+
+*.pkl
+myDiffQP/my_package.egg-info/
+
+myScenarios/my_package.egg-info/
