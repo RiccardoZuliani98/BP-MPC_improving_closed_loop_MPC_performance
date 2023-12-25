@@ -2,6 +2,7 @@ from casadi import *
 from datetime import datetime
 import pickle
 import time
+import os
 
 def closedLoop(QP,problem,verbose=1):
 
@@ -214,6 +215,10 @@ def pack(simOut,problem):
   
   # get time and date
   time_str = datetime.now().strftime("%d-%m-%Y-%H:%M:%S")
+
+  # create simulations directory
+  if not os.path.exists('Simulations'): 
+    os.makedirs('Simulations') 
 
   # file name
   file_name = 'Simulations/' + problem['name'] + '.pkl'

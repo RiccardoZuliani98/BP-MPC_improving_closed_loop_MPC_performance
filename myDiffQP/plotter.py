@@ -4,7 +4,14 @@ import matplotlib.pyplot as plt
 # import casadi
 from casadi import *
 
+# import os
+import os
+
 def closedLoopPlots(data,plot_params,saveFig=False,figName=''):
+
+    # create plot directory directory
+    if not os.path.exists('Figures'): 
+        os.makedirs('Figures') 
 
     # save colors
     violet = (0.4940, 0.1840, 0.5560)
@@ -118,6 +125,10 @@ def closedLoopPlots(data,plot_params,saveFig=False,figName=''):
         plt.savefig('Figures/' + figName + '_time_plot.pdf')
 
 def iterPlot(gd,gd_2,plot_params,saveFig=False,figName=''):
+
+    # create plot directory directory
+    if not os.path.exists('Figures'): 
+        os.makedirs('Figures') 
 
     # get costs
     cost_gd = gd['cost']
