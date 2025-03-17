@@ -23,7 +23,6 @@ class scenario:
         self.__dim = {}
         self.__dyn = dynamics(MSX)
         self.__QP = QP(MSX)
-        self.__mpc = MPC()
         self.__upperLevel = upperLevel(MSX)
         self.__compTimes = {}
 
@@ -378,10 +377,6 @@ class scenario:
 
     ### MPC -----------------------------------------------------------------
 
-    @property
-    def mpc(self):
-        return self.__mpc
-    
     def makeMPC(self,N,cost,cst,p=None,pf=None,model=None,options={}):
 
         """
@@ -441,51 +436,11 @@ class scenario:
         # get symbolic variable type
         MSX = self.__MSX
 
-        # add to model
-        self.mpc._MPC__set_N(N)         # set function will handle checking if N > 0 and integer
-        self.mpc._MPC__set_cost(cost)   # set function will remove extra entries
-        self.mpc._MPC__set_cst(cst)     # set function will remove extra entries
-
-        ### EXTRACT PARAMETERS ----------------------------------------------
-
         # add horizon of MPC to dimensions
         self.__addDim({'N': self.mpc.N})
-
-        # check if linear slack penalty is passed
-        if 's_lin' in self.mpc.cost:
-
-            # if penalty is greater than 0, set slack mode to true
-            if self.mpc.cost['s_lin'] > 0:
-                self.mpc._MPC__updateOptions({'slack':True})
-            
-            # if penalty is negative, raise exception
-            elif self.mpc.cost['s_lin'] < 0:
-                raise Exception('Linear slack penalty must be nonnegative.')
-            
-        # check if quadratic slack penalty is passed
-        if 's_quad' in self.mpc.cost:
-
-            # if penalty is greater than 0, set slack mode to true
-            if self.mpc.cost['s_quad'] > 0:
-                self.mpc._MPC__updateOptions({'slack':True})
-
-            # if penalty is negative, raise exception
-            elif self.mpc.cost['s_quad'] < 0:
-                raise Exception('Quadratic slack penalty must be nonnegative.')
-
-        # extract options
-        self.mpc._MPC__updateOptions(options)
-
-        # if Hx_e is passed, set slack mode to true
-        if 'Hx_e' in self.mpc.cst:
-            self.mpc._MPC__updateOptions({'slack':True})
         
         # obtain number of slack variables
         if self.mpc.options['slack']:
-            # check if slack matrix is passed
-            if 'Hx_e' not in self.mpc.cst:
-                # if not, set as identity matrix
-                self.mpc._MPC__set_cst(self.mpc.cst | {'Hx_e':MSX.eye(self.mpc.cst['Hx'].shape[0])})
             # add number of slack variables
             self.__addDim({'eps': self.mpc.cst['Hx_e'].shape[0]})
         else:
@@ -550,7 +505,7 @@ class scenario:
             u_ref = self.mpc.cost['u_ref']
         else:
             u_ref = MSX(n['u']*n['N'],1)
-        
+
 
         ### CREATE SPARSE MPC ----------------------------------------------
 
@@ -664,220 +619,6 @@ class scenario:
         # create conservative jacobian
         self.__makeConsJac(gamma=self.mpc.options['jac_gamma'],tol=self.mpc.options['jac_tol'],compile=self.mpc.options['compile_jac'])
 
-    def __makeSparseMPC(self,A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu,Hx_e=None):
-
-        """
-        This function creates the sparse MPC formulation.
-        
-        The inputs are:
-        
-            - A_list, B_list, c_list: lists of matrices A, B, and c such that x[t+1] = A[t]@x[t] + B[t]@u[t] + c[t]
-            - Qx, Qn, Ru, x_ref, u_ref: matrices defining the cost function (x-x_ref)'blkdiag(Qx,Qn)x(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
-            - Hx, Hu, hx, hu, Hx_e: polyhedral constraints Hx*x + Hx_e*e <= hx, Hu*u <= hu, where e are the slack variables
-        
-        Note that if Hx_e is not passed, but the slack option is enabled, it is set to the identity matrix.
-        Note that x and u are of dimension (n_x*N,1) and (n_u*N,1) respectively (i.e. they contain all time-steps).
-        
-        This function additionally parses the slack penalties if in slack mode (default is quadratic penalty = 1 and linear 
-        penalty = 0).
-        
-        The function returns the matrices G, g, F, f, Q, Qinv=inv(Q), and the dictionary idx. The matrices constitute the MPC as follows
-
-            min 1/2 y'Qy + q'y
-            s.t. Gy <= g
-                 Fy = y
-        
-        whereas idx is a dictionary containing the indexing of the output optimization variables of the QP.
-        This function sets up the following keys in idx:
-
-            - 'u': range of all inputs
-            - 'x': range of all states
-            - 'y': range of all state-input variables
-            - 'eps': range of all slack variables (if present)
-            - 'u0': range of first input
-            - 'u1': range of second input
-            - 'x_shift': states shifted by one time-step (last state repeated)
-            - 'u_shift': inputs shifted by one time-step (last input repeated)
-            - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
-
-        """
-
-        # get symbolic variable type
-        MSX = self.__MSX
-
-        # extract dimensions
-        n = self.dim
-
-        # extract options
-        opt = self.mpc.options
-
-        if opt['slack']:
-
-            # if ('s_lin' not in self.mpc.cost) and ('s_quad' not in self.mpc.cost):
-                # raise Exception('Slack variables are enabled, but no slack penalties are provided.')
-
-            # linear penalty
-            try:
-                s_lin = MSX(self.mpc.cost['s_lin'])
-            except:
-                s_lin = MSX(0) # default value
-                pass
-
-            # quadratic penalty
-            try:
-                s_quad = MSX(self.mpc.cost['s_quad'])
-            except:
-                print('Quadratic slack penalty not provided, defaulting to 1.')
-                s_quad = MSX(1) # default value
-                pass
-
-            # check dimensions
-            if s_lin.shape[0] != 1:
-                raise Exception('Linear slack penalty must be a scalar.')
-            if s_quad.shape[0] != 1:
-                raise Exception('Quadratic slack penalty must be a scalar.')
-
-            # add columns associated to input and slack variables
-            Hx = hcat([Hx,MSX(Hx.shape[0],n['N']*n['u']),-Hx_e])
-
-            # add columns associated to state and slack variables
-            Hu = hcat([MSX(Hu.shape[0],n['N']*n['x']),Hu,MSX(Hu.shape[0],n['eps'])])
-
-            # add nonnegativity constraints on slack variables
-            He = hcat([MSX(n['eps'],n['N']*(n['x']+n['u'])),-MSX.eye(n['eps'])])
-            he = MSX(n['eps'],1)
-
-            # create inequality constraint matrices
-            try:
-                G = cse(sparsify(vcat([Hx,Hu,He])))
-                g = cse(sparsify(vcat([hx,hu,he])))
-            except:
-                G = vcat([Hx,Hu,He])
-                g = vcat([hx,hu,he])
-
-        else:
-
-            # add columns associated to input and slack variables
-            Hx = hcat([Hx,MSX(Hx.shape[0],n['N']*n['u'])])
-
-            # add columns associated to state and slack variables
-            Hu = hcat([MSX(Hu.shape[0],n['N']*n['x']),Hu])
-                
-            # create inequality constraint matrices
-            try:
-                G = cse(sparsify(vcat([Hx,Hu])))
-                g = cse(sparsify(vcat([hx,hu])))
-            except:
-                G = vcat([Hx,Hu])
-                g = vcat([hx,hu])
-
-        
-        ### CREATE EQUALITY CONSTRAINTS ------------------------------------
-
-        # preallocate equality constraint matrices
-        F = MSX(n['N']*n['x'],n['N']*(n['x']+n['u'])+n['eps'])
-        f = MSX(n['N']*n['x'],1)
-
-        # construct matrix
-        for i in range(n['N']):
-        
-            # negative identity for next state
-            F[i*n['x']:(i+1)*n['x'],i*n['x']:(i+1)*n['x']] = -MSX.eye(n['x'])
-
-            # A matrix multiplying current state
-            if i > 0:
-                F[i*n['x']:(i+1)*n['x'],(i-1)*n['x']:i*n['x']] = A_list[i]
-
-            # B matrix multiplying current input
-            F[i*n['x']:(i+1)*n['x'],n['N']*n['x']+i*n['u']:n['N']*n['x']+(i+1)*n['u']] = B_list[i]
-
-            # affine term 
-            f[i*n['x']:(i+1)*n['x']] = c_list[i]
-
-        # sparsify F and f
-        try:
-            F = cse(sparsify(F))
-            f = cse(sparsify(f))
-        except:
-            pass
-
-
-        ### CREATE COST -----------------------------------------------------
-
-        # construct state cost by stacking Qx and Qn
-        Q = blockcat(Qx,MSX((n['N']-1)*n['x'],n['x']),MSX(n['x'],(n['N']-1)*n['x']),Qn)
-
-        # add input cost
-        Q = blockcat(Q,MSX(n['N']*n['x'],n['N']*n['u']),MSX(n['N']*n['u'],n['N']*n['x']),Ru)
-
-        # append cost applied to slack variable
-        if opt['slack']:
-            Q = blockcat(Q,MSX(Q.shape[0],n['eps']),MSX(n['eps'],Q.shape[0]),s_quad*MSX.eye(n['eps']))
-
-        # inverse of quadratic cost matrix
-        Qinv = inv(Q)
-
-        # create linear part of the cost
-        if opt['slack']:
-            q = vcat([(-x_ref.T@blockcat(Qx,MSX(n['x']*(n['N']-1),n['x']),MSX(n['x'],n['x']*(n['N']-1)),Qn)).T,(-u_ref.T@Ru).T,s_lin*MSX.ones(n['eps'],1)])
-        else:
-            q = vcat([(-x_ref.T@blockcat(Qx,MSX(n['x']*(n['N']-1),n['x']),MSX(n['x'],n['x']*(n['N']-1)),Qn)).T,(-u_ref.T@Ru).T])
-
-        # sparsify Q and q
-        try:
-            Q = cse(sparsify(Q))
-            Qinv = cse(sparsify(Qinv))
-            q = cse(sparsify(q))
-        except:
-            pass
-
-
-        ### CREATE INDEX DICTIONARY ----------------------------------------
-
-        # store output variable indices
-        idx = dict()
-        
-        # range of all inputs
-        idx['u'] = range(n['x']*n['N'],(n['x']+n['u'])*n['N'])
-        
-        # range of all states
-        idx['x'] = range(0,n['x']*n['N'])
-        
-        # range of all state-input variables
-        idx['y'] = range(0,(n['x']+n['u'])*n['N'])
-        
-        # range of all slack variables
-        if opt['slack']:
-            idx['eps'] = range((n['x']+n['u'])*n['N'],(n['x']+n['u'])*n['N']+n['eps'])
-            idx_e = np.arange(n['eps']) + n['N'] * (n['x'] + n['u'])
-            idx_e_shifted = np.hstack([idx_e[n['eps']:], idx_e[:n['eps']]])
-
-        # first input
-        idx['u0'] = range(n['x']*n['N'],n['x']*n['N']+n['u'])
-
-        # second input
-        idx['u1'] = range(n['x']*n['N']+n['u'],n['x']*n['N']+2*n['u'])
-
-        # Generate indices for x and u in y
-        idx_x = np.arange(n['N'] * n['x'])
-        idx_u = np.arange(n['N'] * n['u']) + n['N'] * n['x']
-        
-        # Shift x and u indices
-        idx_x_shifted = np.hstack([idx_x[n['x']:], idx_x[-n['x']:]])
-        idx_u_shifted = np.hstack([idx_u[n['u']:], idx_u[-n['u']:]])
-        
-        # Combine the shifted indices
-        if opt['slack']:
-            idx_shifted = np.hstack([idx_x_shifted, idx_u_shifted, idx_e_shifted])
-        else:
-            idx_shifted = np.hstack([idx_x_shifted, idx_u_shifted])
-
-        # create shifted indices
-        idx['x_shift'] = idx_x_shifted
-        idx['u_shift'] = idx_u_shifted
-        idx['y_shift'] = idx_shifted
-    
-        return G,g,F,f,Q,Qinv,q,idx
 
     def __makeDenseMPC(self,A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu):
         """
@@ -963,166 +704,6 @@ class scenario:
         out = {'G_x':G_x,'G_u':G_u,'g_c':g_c,'Qx':Qx,'Ru':Ru,'x_ref':x_ref,'u_ref':u_ref,'Hx':Hx,'Hu':Hu,'hx':hx,'hu':hu}
 
         return out
-
-    def __createMPCLinearizations(self):
-
-        """
-        This function constructs the prediction model for the MPC problem. There are multiple options:
-
-            1. A custom time-invariant linear model can be passed (through self.mpc.model, which contains
-               the matrices A, B, and c). In this case, opt['linearization'] is set to 'none'.
-
-            2. If the model is affine, then A,B,c are the true nominal dynamics of the system, this happens
-               if self.model.type == 'affine', and we set opt['linearization'] to 'none'.
-               
-            2. The model can be linearized around the initial state (opt['linearization'] = 'initial_state').
-               In this case, the linearization trajectory is a single input u_lin.
-
-            3. (default) The model can be linearized along a trajectory (opt['linearization'] = 'trajectory').
-               In this case y_lin contains the state-input trajectory along which the dynamics are linearized.
-
-        The function returns three list A_list,B_list,c_list, such that the linearized dynamics at time-step t
-        are given by  x[t+1] = A_list[t]@x[t] + B_list[t]@u[t] + c_list[t].
-
-        Note that c_list[0] contains additionally the effect -A_list[0]@x0 of the initial state x0.
-        """
-
-        # get symbolic variable type
-        MSX = self.__MSX
-
-        # extract dimensions
-        n = self.dim
-
-        # extract options
-        opt = self.mpc.options
-
-        # extract symbolic variables
-        x = self.param['x']
-
-        # extract dynamics
-        fd = self.dyn.f_nom
-        A = self.dyn.A_nom
-        B = self.dyn.B_nom
-
-        # if user passed a custom affine model, use it
-        if self.mpc.model is not None:
-            
-            # extract matrices
-            A_mat = self.mpc.model['A']
-            B_mat = self.mpc.model['B']
-            if 'c' in self.mpc.model:
-                c_mat = self.mpc.model['c']
-            else:
-                c_mat = MSX(n['x'],1)
-
-            # check dimensions
-            if A_mat.shape[0] != n['x'] or A_mat.shape[1] != n['x']:
-                raise Exception('A must have as many rows and columns as x.')
-            if B_mat.shape[0] != n['x'] or B_mat.shape[1] != n['u']:
-                raise Exception('B must have as many rows as x and as many columns as u.')
-            if c_mat.shape[0] != n['x']:
-                raise Exception('c must have as many rows as x.')
-
-            # stack in list
-            A_list = [A_mat] * n['N']
-            B_list = [B_mat] * n['N']
-            c_list = [c_mat] * n['N']
-
-            # patch first entry
-            c_list[0] = - A_mat@x
-
-            self.mpc._MPC__updateOptions({'linearization':'none'})
-
-        # if model is affine, compute exact dynamics
-        elif self.dyn.type == 'affine':
-
-            # extract nominal symbolic parameters and their names
-            p_nom_names = self.dyn.param_nominal.keys()
-            
-            # extract nominal values of nominal parameters
-            p_init_nom = [self.dyn.init[i] if self.dyn.init[i] is not None else DM(self.dim[i], 1) for i in p_nom_names]
-
-            # get nominal state and input
-            x_nom = self.dyn.init['x'] if self.dyn.init['x'] is not None else DM(self.dim['x'], 1)
-            u_nom = self.dyn.init['u'] if self.dyn.init['u'] is not None else DM(self.dim['u'], 1)
-
-            # create nominal dynamics f(x,u) = Ax + bu + c
-            A_mat = A(*p_init_nom)
-            B_mat = B(*p_init_nom)
-            c_mat = -(fd(*p_init_nom) - A_mat@x_nom - B_mat@u_nom)
-
-            # stack in list
-            A_list = [A_mat] * n['N']
-            B_list = [B_mat] * n['N']
-            c_list = [c_mat] * n['N']
-
-            # patch first entry of c_list
-            c_list[0] = c_list[0] - A_mat@x
-
-            self.mpc._MPC__updateOptions({'linearization':'none'})
-
-        # if mode is 'initial_state', linearize around the initial state
-        elif opt['linearization'] == 'initial_state':
-
-            # linearization trajectory is a single input
-            y_lin = MSX.sym('y_lin',n['u'],1)
-            u_lin = y_lin
-
-            # save in mpc
-            self.QP._QP__set_y_lin(y_lin)
-
-            # compute derivatives
-            A_lin = A(x,u_lin)
-            B_lin = B(x,u_lin)
-            c_lin = - ( fd(x,u_lin) - A_lin@x - B_lin@u_lin )
-
-            # stack in list
-            A_list = [A_lin] * n['N']
-            B_list = [B_lin] * n['N']
-            c_list = [c_lin] * n['N']
-                
-        # if mode is 'trajectory', linearize along a trajectory (similar to real-time iteration)
-        elif opt['linearization'] == 'trajectory':
-
-            # create symbolic variable for linearization trajectory
-            y_lin = MSX.sym('y_lin',(n['x']+n['u'])*n['N'],1)
-
-            # save in mpc
-            self.QP._QP__set_y_lin(y_lin)
-
-            # extract linearization input and state
-            x_lin = y_lin[:n['N']*n['x']]
-            u_lin = y_lin[n['N']*n['x']:]
-
-            # preallocate matrices
-            A_list = []
-            B_list = []
-            c_list = []
-
-            # construct matrix
-            for i in range(n['N']):
-            
-                # extract current linearization point
-                x_i = x_lin[i*n['x']:(i+1)*n['x']]
-                u_i = u_lin[i*n['u']:(i+1)*n['u']]
-                
-                # distinguish between i=0 for initial condition
-                if i > 0:
-                    A_i = A(x_i,u_i)
-                    A_list.append(A_i)
-                    B_i = B(x_i,u_i)
-                    B_list.append(B_i)
-                    c_i = - ( fd(x_i,u_i) - A_i@x_i - B_i@u_i )
-                    c_list.append(c_i)
-                else:
-                    A_i = A(x,u_i)
-                    A_list.append(A_i)
-                    B_i = B(x,u_i)
-                    B_list.append(B_i)
-                    c_i = - ( fd(x,u_i) - A_i@x - B_i@u_i ) - A_i@x
-                    c_list.append(c_i)
-
-        return A_list, B_list, c_list
 
 
     ### QP ------------------------------------------------------------------
