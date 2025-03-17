@@ -5,16 +5,82 @@ class MPC:
     # type of symbolic variable used (either SX or MX)
     __MSX = None
 
-    # dimension dictionary, it should contain the entries listed below
+    # dimension dictionary
     __dim = {}
 
-    # keys allowed for dim dictionary
+    # keys allowed in dim dictionary
     __allowed_dim_keys = ['N','u','x']
 
-    # horizon of MPC (positive integer)
-    __N = None
+    # dynamics dictionary
+    __dyn = {}
+    
+    # keys allowed in dyn dictionary
+    __allowed_dyn_keys = ['A','B','c']
 
-    def __init__(self,MSX,dim,N):
+    # cost dictionary
+    __cost = {}
+
+    # keys allowed in cost dictionary
+    __allowed_cost_keys = ['Qx','Ru','Se','qx','ru','se']
+
+    # constraints dictionary
+    __cst = {}
+
+    # keys allowed in constraint dictionary
+    __allowed_cst_keys = ['Hx','Hx_e','Hu','hx','hu']
+
+    def __init__(self,N=None,model=None,cost=None,cst=None,MSX=SX):
+
+        """
+        Constructor of the MPC class.
+
+        INPUTS (all optional):
+
+            * N: horizon of the MPC, positive integer
+
+            * model: model definition, dictionary containing entries
+
+                - A: list of matrices (of length N) or a single matrix (n_x,n_x)
+                - B: list of matrices (of length N) or a single matrix (n_x,n_u)
+                - c: list of matrices (of length N) or a single matrix (n_x,1) [optional, defaults to 0]
+            
+                where the dynamics are given by x[t+1] = A[t]x[t] + B[t]u[t] + c[t], or (in the time-invariant case) by
+                x[t+1] = Ax[t] + Bu[t] + c.
+
+            * cost: cost definition, dictionary with keys
+                
+                - 'Qx': state stage cost, list of matrices (of length N) or single matrix (n_x,n_x)
+                - 'Qn': terminal state cost matrix (n_x,n_x) [optional, defaults to Qx]
+                - 'Ru': input stage cost, list of matrices (of length N) or single matrix (n_u,n_u)
+                - 'x_ref': state reference, list of vectors (of length N) or single vector (n_x,1) [optional, defaults to 0]
+                - 'u_ref': reference input, list of vectors (of length N) or single vector (n_u,1) [optional, defaults to 0]
+                - 's_lin': linear penalty on slack variables, nonnegative scalar [optional, defaults to 0]
+                - 's_quad': quadratic penalty on slack variables, positive scalar [optional, defaults to 0]
+
+              where the stage cost is given by
+              
+              (x[t]-x_ref[t])'Qx[t](x[t]-x_ref[t]) + (u[t]-u_ref[t])'Ru[t](u[t]-u_ref[t]) + s_lin*e[t] + s_quad*e[t]**2
+              
+              Note: Qn is disregarded if Qx is a list.
+            
+            * cst: constraints definition, dictionary with keys
+            
+                - 'Hx': list of matrices (length N) or single matrix (=,n_x)
+                - 'hx': list of vectors (length N) or single vector (=,1)
+                - 'Hx_e': list of matrices (length N) or single matrix (=,n_eps) [optional, defaults to zero]
+                - 'Hu': list of matrices (length N) or single matrix (-,n_u)
+                - 'hu': list of vectors (length N) or single vector (-,1)
+              
+                where the constraints at each time-step are
+              
+                    Hx[t]*x[t] <= hx[t] - Hx_e[t]*e[t],
+                    Hu[t]*u[t] <= hu[t],
+                    
+                where e are the slack variables.
+
+            * MSX: type of symbolic variable to use (either SX or MX) [optional, defaults to SX]
+
+        """
 
         # check that MSX is of the appropriate type
         if MSX == 'SX':
@@ -24,11 +90,94 @@ class MPC:
         else:
             raise Exception('MSX must be either SX or MX.')
         
-        # add dimensions
-        self.__add_to_dim(dim)
+        # gather inputs that are not None (except MSX)
+        allowed_inputs = ['N','model','cost','cst']
+        inputs = {k:v for k,v in locals().items() if k in allowed_inputs and v is not None}
 
-        # add horizon
-        self.__set_N(N)
+        # call update function
+        self.updateMPC(**inputs)
+        
+
+    def updateMPC(self,N=None,model=None,cost=None,cst=None):
+
+        """
+        Updates the MPC ingredients contained in the MPC class object.
+
+        INPUTS:
+
+            * N: horizon of the MPC, positive integer
+
+            * model: model definition, dictionary containing entries
+
+                - A: list of matrices (of length N) or a single matrix (n_x,n_x)
+                - B: list of matrices (of length N) or a single matrix (n_x,n_u)
+                - c: list of matrices (of length N) or a single matrix (n_x,1) [optional, defaults to 0]
+            
+                where the dynamics are given by x[t+1] = A[t]x[t] + B[t]u[t] + c[t], or (in the time-invariant case) by
+                x[t+1] = Ax[t] + Bu[t] + c.
+
+            * cost: cost definition, dictionary with keys
+                
+                - 'Qx': state stage cost, list of matrices (of length N) or single matrix (n_x,n_x)
+                - 'Qn': terminal state cost matrix (n_x,n_x) [optional, defaults to Qx]
+                - 'Ru': input stage cost, list of matrices (of length N) or single matrix (n_u,n_u)
+                - 'x_ref': state reference, list of vectors (of length N) or single vector (n_x,1) [optional, defaults to 0]
+                - 'u_ref': reference input, list of vectors (of length N) or single vector (n_u,1) [optional, defaults to 0]
+                - 's_lin': linear penalty on slack variables, nonnegative scalar [optional, defaults to 0]
+                - 's_quad': quadratic penalty on slack variables, positive scalar [optional, defaults to 0]
+
+              where the stage cost is given by
+              
+              (x[t]-x_ref[t])'Qx[t](x[t]-x_ref[t]) + (u[t]-u_ref[t])'Ru[t](u[t]-u_ref[t]) + s_lin*e[t] + s_quad*e[t]**2
+              
+              Note: Qn is disregarded if Qx is a list.
+            
+            * cst: constraints definition, dictionary with keys
+            
+                - 'Hx': list of matrices (length N) or single matrix (=,n_x)
+                - 'hx': list of vectors (length N) or single vector (=,1)
+                - 'Hx_e': list of matrices (length N) or single matrix (=,n_eps) [optional, defaults to zero]
+                - 'Hu': list of matrices (length N) or single matrix (-,n_u)
+                - 'hu': list of vectors (length N) or single vector (-,1)
+              
+                where the constraints at each time-step are
+              
+                    Hx[t]*x[t] <= hx[t] - Hx_e[t]*e[t],
+                    Hu[t]*u[t] <= hu[t],
+                    
+                where e are the slack variables.
+
+        """
+
+        # set all attributes
+
+        if N is not None:
+            self.__set_N(N)
+
+        if model is not None:
+            self.__set_model(model)
+
+        if cost is not None:
+            self.__set_cost(cost)
+
+        if cst is not None:
+            self.__set_cst(cst)
+
+        # check that dimensions match
+        self.__checkDimensions()
+        
+
+    def __checkDimensions(self):
+
+        """
+        This function checks if the dimensions of the properties: dynamics, cost, csts are consistent.
+        If not, it throws an error. This function is called automatically whenever dynamics, cost, csts
+        are updated.
+        """
+
+        #TODO
+
+        pass
 
     def generate_linear_MPC(self):
 
@@ -65,7 +214,7 @@ class MPC:
     def __MPC_to_sparse_QP(self,A_list,B_list,c_list,Qx,Qn,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
 
         """
-        INTERNAL FUNCTION, NOT TO BE USED BY THE USER.
+        INTERNAL FUNCTION, NOT TO BE CALLED BY THE USER.
 
         This function takes in the ingredients of a problem of the form
 
@@ -327,8 +476,18 @@ class MPC:
         return self.__N
     
     def __set_N(self, value):
-        if (not isinstance(value,int)) or value <= 0:
+
+        # convert to int
+        try:
+            value = int(value)
+        except:
+            raise Exception('Conversion failed, N must be an integer.')
+
+        # check if value is positive
+        if value <= 0:
             raise Exception('N must be an positive integer.')
+        
+        # assign
         self.__N = value
 
     @property
@@ -346,24 +505,6 @@ class MPC:
 
         # update options dictionary
         self.__dim = self.__dim | value
-
-
-    @property
-    def options(self):
-        return self.__options
-    
-    def __updateOptions(self, value):
-
-        # check if value is a dictionary
-        if not isinstance(self.__cost, dict):
-            raise Exception('Options must be a dictionary.')
-        
-        # remove keys that are not allowed
-        value = {k:v for k,v in value.items() if k in self.__allowed_keys['options']}
-
-        # update options dictionary
-        self.__options = self.__options | value
-
 
     # overwrite the __dir__ method
     def __dir__(self):
