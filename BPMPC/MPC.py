@@ -5,29 +5,80 @@ class MPC:
     # type of symbolic variable used (either SX or MX)
     __MSX = None
 
-    # dimension dictionary
+    """
+    Dimension dictionary with keys
+
+        - N: horizon of the MPC, positive integer
+        - u: number of inputs, positive integer
+        - x: number of states, positive integer
+        - eps: number of slack variables, positive integer [optional, defaults to 0]
+
+    """
     __dim = {}
 
-    # keys allowed in dim dictionary
-    __allowed_dim_keys = ['N','u','x']
+    """
+    Model dictionary with entries
 
-    # dynamics dictionary
-    __dyn = {}
-    
-    # keys allowed in dyn dictionary
-    __allowed_dyn_keys = ['A','B','c']
+        - A: list of matrices (of length N) or a single matrix (n_x,n_x)
+        - B: list of matrices (of length N) or a single matrix (n_x,n_u)
+        - c: list of matrices (of length N) or a single matrix (n_x,1) [optional, defaults to 0]
+            
+    where the dynamics are given by x[t+1] = A[t]x[t] + B[t]u[t] + c[t], or (in the time-invariant case) by
+    x[t+1] = Ax[t] + Bu[t] + c.
+    """
+    __model = {}
 
-    # cost dictionary
+    """
+    Cost dictionary with keys
+                
+        - 'Qx': state stage cost, list of matrices (of length N) or single matrix (n_x,n_x)
+        - 'Qn': terminal state cost matrix (n_x,n_x) [optional, defaults to Qx]
+        - 'Ru': input stage cost, list of matrices (of length N) or single matrix (n_u,n_u)
+        - 'x_ref': state reference, list of vectors (of length N) or single vector (n_x,1) [optional, defaults to 0]
+        - 'u_ref': reference input, list of vectors (of length N) or single vector (n_u,1) [optional, defaults to 0]
+        - 's_lin': linear penalty on slack variables, nonnegative scalar [optional, defaults to 0]
+        - 's_quad': quadratic penalty on slack variables, positive scalar [optional, defaults to 0]
+
+    where the stage cost is given by
+        
+        (x[t]-x_ref[t])'Qx[t](x[t]-x_ref[t]) + (u[t]-u_ref[t])'Ru[t](u[t]-u_ref[t]) + s_lin*e[t] + s_quad*e[t]**2
+        
+    Note: Qn is disregarded if Qx is a list.
+    """
     __cost = {}
 
-    # keys allowed in cost dictionary
-    __allowed_cost_keys = ['Qx','Ru','Se','qx','ru','se']
-
-    # constraints dictionary
+    """
+     Constraints dictionary with keys
+    
+        - 'Hx': list of matrices (length N) or single matrix (=,n_x)
+        - 'hx': list of vectors (length N) or single vector (=,1)
+        - 'Hx_e': list of matrices (length N) or single matrix (=,n_eps) [optional, defaults to zero]
+        - 'Hu': list of matrices (length N) or single matrix (-,n_u)
+        - 'hu': list of vectors (length N) or single vector (-,1)
+        
+    where the constraints at each time-step are
+        
+        Hx[t]*x[t] <= hx[t] - Hx_e[t]*e[t],
+        Hu[t]*u[t] <= hu[t],
+            
+    where e are the slack variables.
+    """
     __cst = {}
 
-    # keys allowed in constraint dictionary
-    __allowed_cst_keys = ['Hx','Hx_e','Hu','hx','hu']
+    # keys allowed in dictionaries
+    __allowed_keys = {'dim':['N','u','x','eps','cst_x','cst_u'],
+                      'model':['A','B','c'],
+                      'cost':['Qx','Ru','Se','qx','ru','se'],
+                      'cst':['Hx','Hx_e','Hu','hx','hu']}
+    
+    # expected dimensions
+    __expected_dimensions = {'model':{'A':['x','x'],'B':['x','u'],'c':['x','one']},
+                             'cost':{'Qx':['x','x'],'Ru':['u','u'],'Qn':['x','x'],'x_ref':['x','one'],'u_ref':['u','one']},
+                             'cst':{'Hx':['cst_x','x'],'Hx_e':['cst_x','eps'],'Hu':['cst_u','u'],'hx':['cst_x','one'],'hu':['cst_u','one']}}
+    
+    # allowed inputs to __init__ and updateMPC
+    allowed_inputs = ['N','model','cost','cst']
+
 
     def __init__(self,N=None,model=None,cost=None,cst=None,MSX=SX):
 
@@ -38,7 +89,7 @@ class MPC:
 
             * N: horizon of the MPC, positive integer
 
-            * model: model definition, dictionary containing entries
+            * model: model definition, dictionary with keys
 
                 - A: list of matrices (of length N) or a single matrix (n_x,n_x)
                 - B: list of matrices (of length N) or a single matrix (n_x,n_u)
@@ -91,13 +142,11 @@ class MPC:
             raise Exception('MSX must be either SX or MX.')
         
         # gather inputs that are not None (except MSX)
-        allowed_inputs = ['N','model','cost','cst']
-        inputs = {k:v for k,v in locals().items() if k in allowed_inputs and v is not None}
+        inputs = {k:v for k,v in locals().items() if k in self.allowed_inputs and v is not None}
 
         # call update function
         self.updateMPC(**inputs)
         
-
     def updateMPC(self,N=None,model=None,cost=None,cst=None):
 
         """
@@ -166,51 +215,91 @@ class MPC:
         # check that dimensions match
         self.__checkDimensions()
         
-
     def __checkDimensions(self):
 
         """
         This function checks if the dimensions of the properties: dynamics, cost, csts are consistent.
         If not, it throws an error. This function is called automatically whenever dynamics, cost, csts
-        are updated.
+        are updated. It also updates the dimension dictionary.
         """
 
-        #TODO
+        # get all nonempty attributes
+        nonempty_attr = [v for v in self.allowed_inputs if getattr(self,v)]
 
-        pass
-
-    def generate_linear_MPC(self):
-
-        # if user passed a custom affine model, use it
-        if model is not None:
+        # loop through nonempty attributes
+        for v in nonempty_attr:
             
-            # extract matrices
-            A_mat = model['A']
-            B_mat = model['B']
-            if 'c' in model:
-                c_mat = model['c']
-            else:
-                c_mat = MSX(n_x,1)
+            # loop through keys within each attribute
+            for w in self.__allowed_keys[v]:
 
-            # check dimensions
-            if A_mat.shape[0] != n_x or A_mat.shape[1] != n_x:
-                raise Exception('A must have as many rows and columns as x.')
-            if B_mat.shape[0] != n_x or B_mat.shape[1] != n_u:
-                raise Exception('B must have as many rows as x and as many columns as u.')
-            if c_mat.shape[0] != n_x:
-                raise Exception('c must have as many rows as x.')
+                # extract what dimensions are expected
+                expected_dim = self.__expected_dimensions[v][w]
 
-            # stack in list
-            A_list = [A_mat] * N
-            B_list = [B_mat] * N
-            c_list = [c_mat] * N
+                # check correctness of dimensions
+                for dim, val in zip(expected_dim,getattr(self,v)[w].shape):
 
-            # patch first entry
-            c_list[0] = - A_mat@x
+                    # val should be a list of length N
+                    if isinstance(val,list):
+                        if len(val) != self.N:
+                            raise Exception('Attribute {} must have a list of length N.'.format(v))
+                    else:
+                        raise Exception('Attribute {} must have a list of length N.'.format(v))
 
-        pass
+                    # check if dimension should be one
+                    if dim == 'one':
+                        if all([v != 1 for v in val]):
+                            raise Exception('Attribute {} must have a scalar value.'.format(v))
+
+                    # check if dimension is present
+                    elif dim not in self.dim:
+                        
+                        # if not, add it
+                        self.__add_to_dim({dim:val})
+
+                    # otherwise, check if it matches existing dimensions
+                    else:
+                        if all([v != val for v in self.dim[dim]]):
+                            raise Exception('Attribute {} must have the right dimensions.'.format(v))
     
+    @property
+    def N(self):
+        return self.__N
     
+    def __set_N(self, value):
+
+        # convert to int
+        try:
+            value = int(value)
+        except:
+            raise Exception('Conversion failed, N must be an integer.')
+
+        # check if value is positive
+        if value <= 0:
+            raise Exception('N must be an positive integer.')
+        
+        # assign
+        self.__N = value
+
+    @property
+    def dim(self):
+        return self.__dim
+    
+    def __add_to_dim(self, value):
+
+        # check if value is a dictionary
+        if not isinstance(self.__cost, dict):
+            raise Exception('Dimensions must be passed as a dictionary.')
+        
+        # remove keys that are not allowed
+        value = {k:v for k,v in value.items() if k in self.__allowed_keys['dim']}
+
+        # update options dictionary
+        self.__dim = self.__dim | value
+
+    @property
+    def model(self):
+        return self.__model
+
     def __MPC_to_sparse_QP(self,A_list,B_list,c_list,Qx,Qn,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
 
         """
@@ -469,42 +558,37 @@ class MPC:
         idx['y_shift'] = idx_shifted
 
         return G,g,F,f,Q,Qinv,q,idx
-    
 
-    @property
-    def N(self):
-        return self.__N
-    
-    def __set_N(self, value):
+    def generate_linear_MPC(self):
 
-        # convert to int
-        try:
-            value = int(value)
-        except:
-            raise Exception('Conversion failed, N must be an integer.')
+        # if user passed a custom affine model, use it
+        if model is not None:
+            
+            # extract matrices
+            A_mat = model['A']
+            B_mat = model['B']
+            if 'c' in model:
+                c_mat = model['c']
+            else:
+                c_mat = MSX(n_x,1)
 
-        # check if value is positive
-        if value <= 0:
-            raise Exception('N must be an positive integer.')
-        
-        # assign
-        self.__N = value
+            # check dimensions
+            if A_mat.shape[0] != n_x or A_mat.shape[1] != n_x:
+                raise Exception('A must have as many rows and columns as x.')
+            if B_mat.shape[0] != n_x or B_mat.shape[1] != n_u:
+                raise Exception('B must have as many rows as x and as many columns as u.')
+            if c_mat.shape[0] != n_x:
+                raise Exception('c must have as many rows as x.')
 
-    @property
-    def dim(self):
-        return self.__dim
-    
-    def __add_to_dim(self, value):
+            # stack in list
+            A_list = [A_mat] * N
+            B_list = [B_mat] * N
+            c_list = [c_mat] * N
 
-        # check if value is a dictionary
-        if not isinstance(self.__cost, dict):
-            raise Exception('Dimensions must be passed as a dictionary.')
-        
-        # remove keys that are not allowed
-        value = {k:v for k,v in value.items() if k in self.__allowed_dim_keys}
+            # patch first entry
+            c_list[0] = - A_mat@x
 
-        # update options dictionary
-        self.__dim = self.__dim | value
+        pass
 
     # overwrite the __dir__ method
     def __dir__(self):
