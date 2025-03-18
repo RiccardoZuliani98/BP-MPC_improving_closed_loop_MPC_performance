@@ -374,6 +374,35 @@ class scenario:
         if compile:
             self.__compTimes = self.__compTimes | comp_time_dict
 
+    def linearize(self,N,linearization='trajectory'):
+
+        """
+        This function constructs the prediction model for the MPC problem. There are multiple options:
+
+            1. If the model is affine, then A,B,c are the true nominal dynamics of the system, this happens
+               if self.model.type == 'affine'.
+               
+            2. The model can be linearized around the initial state (linearization = 'initial_state').
+               In this case, the linearization trajectory is a single input u_lin.
+
+            3. (default) The model can be linearized along a trajectory (linearization = 'trajectory').
+               In this case y_lin contains the state-input trajectory along which the dynamics are linearized.
+
+        The function returns three list A_list,B_list,c_list, such that the linearized dynamics at time-step t
+        are given by  x[t+1] = A_list[t]@x[t] + B_list[t]@u[t] + c_list[t]. It also returns y_lin, the symbolic
+        parameter used in the linearization.
+
+        Note that c_list[0] contains additionally the effect -A_list[0]@x0 of the initial state x0.
+
+        The inputs are
+
+            * N: horizon of the MPC
+
+            * linearization: type of chosen linearization (default is 'trajectory')
+
+        """
+
+        return self.dyn._dynamics__createMPCLinearizations(N,linearization)
 
     ### MPC -----------------------------------------------------------------
 

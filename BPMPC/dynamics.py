@@ -330,17 +330,17 @@ class dynamics:
         B = self.B_nom
 
         # if model is affine, compute exact dynamics
-        if self.dyn.type == 'affine':
+        if self.type == 'affine':
 
             # extract nominal symbolic parameters and their names
-            p_nom_names = self.dyn.param_nominal.keys()
+            p_nom_names = self.param_nominal.keys()
             
             # extract nominal values of nominal parameters
-            p_init_nom = [self.dyn.init[i] if self.dyn.init[i] is not None else DM(self.dim[i], 1) for i in p_nom_names]
+            p_init_nom = [self.init[i] if self.init[i] is not None else DM(self.dim[i], 1) for i in p_nom_names]
 
             # get nominal state and input
-            x_nom = self.dyn.init['x'] if self.dyn.init['x'] is not None else DM(self.dim['x'], 1)
-            u_nom = self.dyn.init['u'] if self.dyn.init['u'] is not None else DM(self.dim['u'], 1)
+            x_nom = self.init['x'] if self.init['x'] is not None else DM(self.dim['x'], 1)
+            u_nom = self.init['u'] if self.init['u'] is not None else DM(self.dim['u'], 1)
 
             # create nominal dynamics f(x,u) = Ax + bu + c
             A_mat = A(*p_init_nom)

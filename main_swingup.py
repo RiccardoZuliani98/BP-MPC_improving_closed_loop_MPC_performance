@@ -43,6 +43,9 @@ R_true = 1e-6
 # mpc horizon
 N = 11
 
+# create linearizations for MPC
+A_list,B_list,c_list,y_lin = mod.linearize(N)
+
 # constraints are simple bounds on state and input
 x_max = vertcat(5,5,inf,inf)
 x_min = -x_max
