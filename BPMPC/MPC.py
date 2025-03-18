@@ -19,49 +19,46 @@ class MPC:
     """
     Model dictionary with entries
 
-        - A: list of matrices (of length N) or a single matrix (n_x,n_x)
-        - B: list of matrices (of length N) or a single matrix (n_x,n_u)
-        - c: list of matrices (of length N) or a single matrix (n_x,1) [optional, defaults to 0]
+        - A: list of length N of matrices (n_x,n_x)
+        - B: list of length N of matrices (n_x,n_u)
+        - x0: symbolic variable representing the initial state (n_x,1)
+        - c: list of length N of matrices (n_x,1) [optional, defaults to 0]
             
-    where the dynamics are given by x[t+1] = A[t]x[t] + B[t]u[t] + c[t], or (in the time-invariant case) by
-    x[t+1] = Ax[t] + Bu[t] + c.
+    where the dynamics are given by x[t+1] = A[t]x[t] + B[t]u[t] + c[t], with x[0] = x0.
     """
     __model = {}
 
     """
     Cost dictionary with keys
                 
-        - 'Qx': state stage cost, list of matrices (of length N) or single matrix (n_x,n_x)
-        - 'Qn': terminal state cost matrix (n_x,n_x) [optional, defaults to Qx]
-        - 'Ru': input stage cost, list of matrices (of length N) or single matrix (n_u,n_u)
-        - 'x_ref': state reference, list of vectors (of length N) or single vector (n_x,1) [optional, defaults to 0]
-        - 'u_ref': reference input, list of vectors (of length N) or single vector (n_u,1) [optional, defaults to 0]
+        - 'Qx': state stage cost, list of length N of matrices (n_x,n_x)
+        - 'Ru': input stage cost, list of length N of matrices (n_u,n_u)
+        - 'x_ref': state reference, list of length N of vectors (n_x,1) [optional, defaults to 0]
+        - 'u_ref': reference input, list of length N of vectors (n_u,1) [optional, defaults to 0]
         - 's_lin': linear penalty on slack variables, nonnegative scalar [optional, defaults to 0]
         - 's_quad': quadratic penalty on slack variables, positive scalar [optional, defaults to 0]
 
     where the stage cost is given by
         
         (x[t]-x_ref[t])'Qx[t](x[t]-x_ref[t]) + (u[t]-u_ref[t])'Ru[t](u[t]-u_ref[t]) + s_lin*e[t] + s_quad*e[t]**2
-        
-    Note: Qn is disregarded if Qx is a list.
     """
     __cost = {}
 
     """
      Constraints dictionary with keys
     
-        - 'Hx': list of matrices (length N) or single matrix (=,n_x)
-        - 'hx': list of vectors (length N) or single vector (=,1)
-        - 'Hx_e': list of matrices (length N) or single matrix (=,n_eps) [optional, defaults to zero]
-        - 'Hu': list of matrices (length N) or single matrix (-,n_u)
-        - 'hu': list of vectors (length N) or single vector (-,1)
+        - 'Hx': list of length N of matrices (=,n_x)
+        - 'hx': list of length N of vectors (=,1)
+        - 'Hx_e': list of length N of matrices (=,n_eps) [optional, defaults to zero]
+        - 'Hu': list of length N of matrices (-,n_u)
+        - 'hu': list of length N of vectors (-,1)
         
     where the constraints at each time-step are
         
         Hx[t]*x[t] <= hx[t] - Hx_e[t]*e[t],
         Hu[t]*u[t] <= hu[t],
             
-    where e are the slack variables.
+    where e[t] denotes the slack variables.
     """
     __cst = {}
 
@@ -260,25 +257,6 @@ class MPC:
                     else:
                         if all([v != val for v in self.dim[dim]]):
                             raise Exception('Attribute {} must have the right dimensions.'.format(v))
-    
-    @property
-    def N(self):
-        return self.__N
-    
-    def __set_N(self, value):
-
-        # convert to int
-        try:
-            value = int(value)
-        except:
-            raise Exception('Conversion failed, N must be an integer.')
-
-        # check if value is positive
-        if value <= 0:
-            raise Exception('N must be an positive integer.')
-        
-        # assign
-        self.__N = value
 
     @property
     def dim(self):
@@ -296,9 +274,525 @@ class MPC:
         # update options dictionary
         self.__dim = self.__dim | value
 
+    def __set_N(self, value):
+
+        # convert to int
+        try:
+            value = int(value)
+        except:
+            raise Exception('Conversion failed, N must be an integer.')
+
+        # check if value is positive
+        if value <= 0:
+            raise Exception('N must be an positive integer.')
+        
+        # assign
+        self.__add_to_dim({'N':value})
+
     @property
     def model(self):
         return self.__model
+    
+    def __set_model(self, model):
+
+        """
+        This function sets the cost dictionary. The input must be a dictionary with keys
+
+            - A: list of matrices (of length N) or a single matrix (n_x,n_x)
+            - B: list of matrices (of length N) or a single matrix (n_x,n_u)
+            - x0: symbolic variable representing the initial state (n_x,1)
+            - c: list of matrices (of length N) or a single matrix (n_x,1) [optional, defaults to 0]
+
+        """
+
+        # extract matrices
+        A_mat = model['A']
+        B_mat = model['B']
+
+        # check if a list is passed
+        if isinstance(A_mat,list):
+
+            # update horizon of the MPC
+            self.__set_N(len(A_mat))
+
+            # convert to chosen symbolic variable type
+            try:
+                A_mat = [self.MSX(A) for A in A_mat]
+            except:
+                raise Exception('A must be a list of matrices')
+            
+            # update state dimension
+            self.__add_to_dim({'x':A_mat[0].shape[0]})
+
+        else:
+
+            # convert to chosen symbolic variable type
+            try:
+                A_mat = self.MSX(A_mat)
+            except:
+                raise Exception('A must be a matrix.')
+            
+            # update state dimension
+            self.__add_to_dim({'x':A_mat.shape[0]})
+
+            # if A is passed as a single value then the MPC must have a horizon
+            if 'N' not in self.dim:
+                raise Exception('N must be passed if A is a single matrix.')
+
+            # create list of A matrices
+            A_mat = [A_mat] * self.N
+
+        # check if B is passed as list
+        if isinstance(B_mat,list):
+
+            # check that length is correct
+            if len(B_mat) != self.N:
+                raise Exception('B must be a list of length N.')
+            try:
+                B_mat = [self.MSX(B) for B in B_mat]
+            except:
+                raise Exception('B must be a list of matrices')
+            
+            # update input dimension
+            self.__add_to_dim({'u':B_mat[0].shape[1]})
+
+        else:
+
+            # convert to chosen symbolic variable type
+            try:
+                B_mat = self.MSX(B_mat)
+            except:
+                raise Exception('B must be a matrix.')
+            B_mat = [B_mat] * self.N
+
+            # update input dimension
+            self.__add_to_dim({'u':B_mat.shape[1]})
+
+        # check if c is passed
+        if 'c' in model:
+
+            # extract c
+            c_mat = model['c']
+
+            # check if c is passed as list
+            if isinstance(c_mat,list):
+
+                # check that length is correct
+                if len(c_mat) != self.N:
+                    raise Exception('c must be a list of length N.')
+                try:
+                    c_mat = [self.MSX(c) for c in c_mat]
+                except:
+                    raise Exception('c must be a list of vectors')
+            
+            else:
+                try:
+                    c_mat = self.MSX(c_mat)
+                except:
+                    raise Exception('c must be a vector.')
+                c_mat = [c_mat] * self.N
+
+        else:
+            c_mat = [self.MSX(self.dim['x'],1)] * self.N
+
+        # extract initial state
+        if 'x0' in model:
+            x0 = model['x0']
+
+            # check dimension
+            if x0.shape[0] != self.dim['x']:
+                raise Exception('Initial state must have the right dimension.')
+        else:
+            raise Exception('Initial state must be passed.')
+
+        # patch first entry
+        c_mat[0] = - A_mat@x0
+
+        # store matrices
+        self.__model = {'A':A_mat,'B':B_mat,'c':c_mat,'x0':x0}
+
+    @property
+    def cost(self):
+        return self.__cost
+    
+    def __set_cost(self, value):
+
+        """
+        This function sets the cost dictionary. The input must be a dictionary with specific combinations of keys.
+        It must contain either
+
+            - 'Qx': stage cost, matrix (n_x,n_x)
+            - 'Qn': terminal cost, matrix (n_x,n_x) [optional, defaults to Qx]
+            - 'Ru': input cost, matrix (n_u,n_u)
+            - 'x_ref': state reference, vector (n_x,1) [optional, defaults to 0]
+            - 'u_ref': input reference, vector (n_u,1) [optional, defaults to 0]
+            - 'c_lin': linear penalty on slack variables, scalar [optional]
+            - 'c_quad': quadratic penalty on slack variables, scalar [optional]
+        
+        or
+
+            - 'Qx': stage cost, list of matrices (of length N)
+            - 'Ru': input cost, list of matrices (of length N)
+            - 'x_ref': state reference, list of vectors (of length N) [optional, defaults to 0]
+            - 'u_ref': input reference, list of vectors (of length N) [optional, defaults to 0]
+            - 'c_lin': linear penalty on slack variables, scalar [optional]
+            - 'c_quad': quadratic penalty on slack variables, scalar [optional]
+
+        """
+        
+        # check that value is a dictionary
+        if not isinstance(value, dict):
+            raise Exception('Cost must be passed as a dictionary.')
+        
+        # check if Qx is passed as value or as list
+        if 'Qx' in value:
+            Qx = value['Qx']
+            if isinstance(Qx,list):
+
+                # update horizon of the MPC
+                self.__set_N(len(Qx))
+
+                # if Qx is passed as list, Qn should not be passed
+                if 'Qn' in value:
+                    raise Exception('Qn must not be passed if Qx is a list.')
+                
+                # convert Qx to chosen symbolic variable type
+                try:
+                    Qx = [self.MSX(Q) for Q in Qx]
+                except:
+                    raise Exception('Qx must be a list of matrices')
+                
+                # update state dimension
+                self.__add_to_dim({'x':Qx[0].shape[0]})
+
+            else:
+
+                # convert Qx to chosen symbolic variable type
+                try:
+                    Qx = self.MSX(Qx)
+                except:
+                    raise Exception('Qx must be a matrix.')
+                
+                # update state dimension
+                self.__add_to_dim({'x':Qx.shape[0]})
+
+                # if Qx is passed as a single value then the MPC must have a horizon
+                if 'N' not in self.dim:
+                    raise Exception('N must be passed if Qx is a single matrix.')
+
+                # check if Qn is passed
+                if 'Qn' in value:
+                    
+                    # Qn must be a matrix
+                    Qn = value['Qn']
+                    try:
+                        Qn = self.MSX(Qn)
+                    except:
+                        raise Exception('Qn must be a matrix.')
+
+                    # create list of Qx matrices including terminal cost
+                    Qx = [Qx] * (self.N-1)
+                    Qx.append(Qn)
+                
+                # if Qn is not passed assume Qn = Qx
+                else:
+                    Qx = [Qx] * self.N
+
+        else:
+            raise Exception('Qx must be passed.')
+
+        pass
+        
+        if 'Ru' in value:
+            Ru = value['Ru']
+            if isinstance(Ru,list):
+
+                # check that length is correct
+                if len(Ru) != self.N:
+                    raise Exception('Ru must be a list of length N.')
+                try:
+                    Ru = [self.MSX(R) for R in Ru]
+                except:
+                    raise Exception('Ru must be a list of matrices')
+                
+                # update input dimension
+                self.__add_to_dim({'u':Ru[0].shape[0]})
+
+            else:
+                try:
+                    Ru = self.MSX(Ru)
+                except:
+                    raise Exception('Ru must be a matrix.')
+                Ru = [Ru] * self.N
+
+                # update input dimension
+                self.__add_to_dim({'u':Ru.shape[0]})
+        
+        else:
+            raise Exception('Ru must be passed.')
+        
+        # check if x_ref is passed
+        if 'x_ref' in value:
+            x_ref = value['x_ref']
+            if isinstance(x_ref,list):
+                if len(x_ref) != self.N:
+                    raise Exception('x_ref must be a list of length N.')
+                try:
+                    x_ref = [self.MSX(x) for x in x_ref]
+                except:
+                    raise Exception('x_ref must be a list of vectors')
+            else:
+                try:
+                    x_ref = self.MSX(x_ref)
+                except:
+                    raise Exception('x_ref must be a vector.')
+                x_ref = [x_ref] * self.N
+
+        else:
+            x_ref = [self.MSX(self.dim['x'],1)] * self.N
+
+        # check if u_ref is passed
+        if 'u_ref' in value:
+            u_ref = value['u_ref']
+            if isinstance(u_ref,list):
+                if len(u_ref) != self.N:
+                    raise Exception('u_ref must be a list of length N.')
+                try:
+                    u_ref = [self.MSX(u) for u in u_ref]
+                except:
+                    raise Exception('u_ref must be a list of vectors')
+            else:
+                try:
+                    u_ref = self.MSX(u_ref)
+                except:
+                    raise Exception('u_ref must be a vector.')
+                u_ref = [u_ref] * self.N
+        
+        else:
+            u_ref = [self.MSX(self.dim['u'],1)] * self.N
+
+        # check if s_lin is passed
+        if 's_lin' in value:
+            s_lin = value['s_lin']
+            try:
+                s_lin = self.MSX(s_lin)
+            except:
+                raise Exception('s_lin must be a scalar.')
+
+        # check if s_quad is passed
+        if 's_quad' in value:
+            s_quad = value['s_quad']
+            try:
+                s_quad = self.MSX(s_quad)
+            except:
+                raise Exception('s_quad must be a scalar.')
+
+    @property
+    def cst(self):
+        return self.__cst
+    
+    def __set_cst(self, value):
+        
+        """
+        This functions sets up the constraint dictionary. The input must be a dictionary with keys
+            
+            - 'Hx': list of matrices (length N) or single matrix (=,n_x)
+            - 'hx': list of vectors (length N) or single vector (=,1)
+            - 'Hx_e': list of matrices (length N) or single matrix (=,n_eps) [optional, defaults to zero]
+            - 'Hu': list of matrices (length N) or single matrix (-,n_u)
+            - 'hu': list of vectors (length N) or single vector (-,1)
+            
+            where the constraints at each time-step are
+            
+                Hx[t]*x[t] <= hx[t] - Hx_e[t]*e[t],
+                Hu[t]*u[t] <= hu[t],
+                
+            where e are the slack variables.
+        """
+
+        # check that value is a dictionary
+        if not isinstance(value, dict):
+            raise Exception('Constraints must be passed as a dictionary.')
+        
+        # check if Hx is passed as value or as list
+        if 'Hx' in value:
+
+            # extract matrices
+            Hx = value['Hx']
+
+            # check if a list is passed
+            if isinstance(Hx,list):
+
+                # update horizon of the MPC
+                self.__set_N(len(Hx))
+
+                # convert to chosen symbolic variable type
+                try:
+                    Hx = [self.MSX(H) for H in Hx]
+                except:
+                    raise Exception('Hx must be a list of matrices')
+                
+                # update state dimension
+                self.__add_to_dim({'x':Hx[0].shape[1]})
+
+                # check if hx is passed
+                if 'hx' not in value:
+                    raise Exception('hx must be passed with Hx.')
+                
+                # check that hx is a list
+                if not isinstance(value['hx'],list):
+                    raise Exception('hx must be a list of vectors.')
+                
+                # check that list has correct dimension
+                if len(value['hx']) != self.N:
+                    raise Exception('hx must be a list of length N.')
+                
+                # extract vectors
+                hx = value['hx']
+
+                # check that hx can be converted to correct symbolic type
+                try:
+                    hx = [self.MSX(h) for h in hx]
+                except:
+                    raise Exception('hx must be a list of vectors')
+
+            else:
+
+                # convert to chosen symbolic variable type
+                try:
+                    Hx = self.MSX(Hx)
+                except:
+                    raise Exception('Hx must be a matrix.')
+                
+                # update state dimension
+                self.__add_to_dim({'x':Hx.shape[1]})
+
+                # if Hx is passed as a single value then the MPC must have a horizon
+                if 'N' not in self.dim:
+                    raise Exception('N must be passed if Hx is a single matrix.')
+
+                # create list of Hx matrices
+                Hx = [Hx] * self.N
+
+                # check if hx is passed
+                if 'hx' not in value:
+                    raise Exception('hx must be passed with Hx.')
+                
+                # check that hx is a single matrix
+                try:
+                    hx = self.MSX(value['hx'])
+                except:
+                    raise Exception('hx must be a vector.')
+
+        # check if Hx_e is passed
+        if 'Hx_e' in value:
+
+            # extract matrices
+            Hx_e = value['Hx_e']
+
+            # check if a list is passed
+            if isinstance(Hx_e,list):
+
+                # update horizon of the MPC
+                self.__set_N(len(Hx_e))
+
+                # convert to chosen symbolic variable type
+                try:
+                    Hx_e = [self.MSX(H) for H in Hx_e]
+                except:
+                    raise Exception('Hx_e must be a list of matrices')
+                
+                # update state dimension
+                self.__add_to_dim({'eps':Hx_e[0].shape[1]})
+
+            else:
+
+                # convert to chosen symbolic variable type
+                try:
+                    Hx_e = self.MSX(Hx_e)
+                except:
+                    raise Exception('Hx_e must be a matrix.')
+                
+                # update state dimension
+                self.__add_to_dim({'eps':Hx_e.shape[1]})
+
+                # if Hx is passed as a single value then the MPC must have a horizon
+                if 'N' not in self.dim:
+                    raise Exception('N must be passed if Hx_e is a single matrix.')
+
+                # create list of Hx matrices
+                Hx_e = [Hx_e] * self.N
+
+        # check if Hu is passed
+        if 'Hu' in value:
+            
+            # extract matrices
+            Hu = value['Hu']
+
+            # check if a list is passed
+            if isinstance(Hu,list):
+
+                # update horizon of the MPC
+                self.__set_N(len(Hu))
+
+                # convert to chosen symbolic variable type
+                try:
+                    Hu = [self.MSX(H) for H in Hu]
+                except:
+                    raise Exception('Hu must be a list of matrices')
+                
+                # update input dimension
+                self.__add_to_dim({'u':Hu[0].shape[1]})
+
+                # check if hu is passed
+                if 'hu' not in value:
+                    raise Exception('hu must be passed with Hu.')
+                
+                # check that hu is a list
+                if not isinstance(value['hu'],list):
+                    raise Exception('hu must be a list of vectors.')
+                
+                # check that list has correct dimension
+                if len(value['hu']) != self.N:
+                    raise Exception('hu must be a list of length N.')
+                
+                # extract vectors
+                hu = value['hu']
+
+                # check that hu can be converted to correct symbolic type
+                try:
+                    hu = [self.MSX(h) for h in hu]
+                except:
+                    raise Exception('hu must be a list of vectors')
+
+            else:
+
+                # convert to chosen symbolic variable type
+                try:
+                    Hu = self.MSX(Hu)
+                except:
+                    raise Exception('Hu must be a matrix.')
+                
+                # update input dimension
+                self.__add_to_dim({'u':Hu.shape[1]})
+
+                # if Hu is passed as a single value then the MPC must have a horizon
+                if 'N' not in self.dim:
+                    raise Exception('N must be passed if Hu is a single matrix.')
+
+                # create list of Hu matrices
+                Hu = [Hu] * self.N
+
+                # check if hu is passed
+                if 'hu' not in value:
+                    raise Exception('hu must be passed with Hu.')
+                
+                # check that hu is a single matrix
+                try:
+                    hu = self.MSX(value['hu'])
+                except:
+                    raise Exception('hu must be a vector.')
+
 
     def __MPC_to_sparse_QP(self,A_list,B_list,c_list,Qx,Qn,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
 
@@ -558,37 +1052,6 @@ class MPC:
         idx['y_shift'] = idx_shifted
 
         return G,g,F,f,Q,Qinv,q,idx
-
-    def generate_linear_MPC(self):
-
-        # if user passed a custom affine model, use it
-        if model is not None:
-            
-            # extract matrices
-            A_mat = model['A']
-            B_mat = model['B']
-            if 'c' in model:
-                c_mat = model['c']
-            else:
-                c_mat = MSX(n_x,1)
-
-            # check dimensions
-            if A_mat.shape[0] != n_x or A_mat.shape[1] != n_x:
-                raise Exception('A must have as many rows and columns as x.')
-            if B_mat.shape[0] != n_x or B_mat.shape[1] != n_u:
-                raise Exception('B must have as many rows as x and as many columns as u.')
-            if c_mat.shape[0] != n_x:
-                raise Exception('c must have as many rows as x.')
-
-            # stack in list
-            A_list = [A_mat] * N
-            B_list = [B_mat] * N
-            c_list = [c_mat] * N
-
-            # patch first entry
-            c_list[0] = - A_mat@x
-
-        pass
 
     # overwrite the __dir__ method
     def __dir__(self):
