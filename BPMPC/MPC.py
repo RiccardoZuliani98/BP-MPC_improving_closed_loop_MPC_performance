@@ -416,7 +416,7 @@ class MPC:
             raise Exception('Initial state must be passed.')
 
         # patch first entry
-        c_mat[0] = - A_mat[0]@x0
+        # c_mat[0] = - A_mat[0]@x0
 
         # store matrices
         self.__model = {'A':A_mat,'B':B_mat,'c':c_mat,'x0':x0}

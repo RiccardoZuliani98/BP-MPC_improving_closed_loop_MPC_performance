@@ -469,7 +469,7 @@ class scenario:
         # check if a model was passed
         if model is None:
             A_list, B_list, c_list, y_lin = self.linearize(N,linearization=options['linearization'])
-            model = {'A':A_list,'B':B_list,'c':c_list,'y_lin':y_lin,'x0':self.init['x']}
+            model = {'A':A_list,'B':B_list,'c':c_list,'y_lin':y_lin,'x0':self.param['x']}
 
         # extract y_lin from model if present
         if 'y_lin' in model:
@@ -628,7 +628,7 @@ class scenario:
 
                     min 1/2 y'Qy + q'y
                     s.t. Gy <= g
-                         Fy = y
+                         Fy = f
 
                 - A,lba,uba,Q,q in the stacked mode, where the QP is formulated as
 
