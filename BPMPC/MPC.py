@@ -846,7 +846,6 @@ class MPC:
         B_list = self.__model['B']
         c_list = self.__model['c']
         Qx = self.__cost['Qx']
-        Qn = self.__cost['Qn']
         Ru = self.__cost['Ru']
         if x_ref in self.__cost:
             x_ref = self.__cost['x_ref']
@@ -874,9 +873,9 @@ class MPC:
             s_quad = None
         
         # call internal function
-        return self.__MPC2QP(A_list,B_list,c_list,Qx,Qn,Ru,Hx,hx,Hu,hu,Hx_e,x_ref,u_ref,s_lin,s_quad)
+        return self.__MPC2QP(A_list,B_list,c_list,Qx,Ru,Hx,hx,Hu,hu,Hx_e,x_ref,u_ref,s_lin,s_quad)
 
-    def MPC2QP(self,A_list,B_list,c_list,Qx,Qn,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
+    def MPC2QP(self,A_list,B_list,c_list,Qx,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
 
         """
         INTERNAL FUNCTION, NOT TO BE CALLED BY THE USER.
@@ -926,10 +925,35 @@ class MPC:
             - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
 
         """
-        #TODO: Hx and Qx are now stage-wise, I need to first convert them to a single matrix
 
+        def matrixify(M_list,MSX):
+
+            # get dimensions
+            N = len(M_list)
+            n_col = M_list[0].shape[1]
+            n_row = M_list[0].shape[0]
+
+            # pad matrices with zeros
+            M_list_pad = [ vcat([MSX(i*n_row,n_col),M_list[i],MSX((N-i-1)*n_row,n_col)]) for i in range(N) ]
+
+            # stack horizontally
+            return hcat(M_list_pad)
+        
         # get symbolic variable type
         MSX = self.__MSX
+
+        # convert into matrices
+        Qx = matrixify(Qx,MSX)
+        Ru = matrixify(Ru,MSX)
+        Hx = matrixify(Hx,MSX)
+        Hu = matrixify(Hu,MSX)
+        hx = vcat(hx)
+        hu = vcat(hu)
+
+        if x_ref is not None:
+            x_ref = vcat(x_ref)
+        if u_ref is not None:
+            u_ref = vcat(u_ref)
 
         # initialize slack to False
         slack = False
@@ -959,6 +983,7 @@ class MPC:
         # check if Hx_e was passed 
         if Hx_e is not None:
             slack = True
+            Hx_e = matrixify(Hx_e,MSX)
             Hx_e = MSX(Hx_e)
 
         # if slack is passed, then ensure Hx_e is not None
@@ -1062,7 +1087,7 @@ class MPC:
         ### CREATE COST -----------------------------------------------------
 
         # construct state cost by stacking Qx and Qn
-        Q = blockcat(Qx,MSX((n['N']-1)*n['x'],n['x']),MSX(n['x'],(n['N']-1)*n['x']),Qn)
+        Q = Qx
 
         # add input cost
         Q = blockcat(Q,MSX(n['N']*n['x'],n['N']*n['u']),MSX(n['N']*n['u'],n['N']*n['x']),Ru)
@@ -1076,9 +1101,9 @@ class MPC:
 
         # create linear part of the cost
         if slack:
-            q = vcat([(-x_ref.T@blockcat(Qx,MSX(n['x']*(n['N']-1),n['x']),MSX(n['x'],n['x']*(n['N']-1)),Qn)).T,(-u_ref.T@Ru).T,s_lin*MSX.ones(n['eps'],1)])
+            q = vcat([-x_ref.T@Qx.T,(-u_ref.T@Ru).T,s_lin*MSX.ones(n['eps'],1)])
         else:
-            q = vcat([(-x_ref.T@blockcat(Qx,MSX(n['x']*(n['N']-1),n['x']),MSX(n['x'],n['x']*(n['N']-1)),Qn)).T,(-u_ref.T@Ru).T])
+            q = vcat([-x_ref.T@Qx.T,(-u_ref.T@Ru).T])
 
         # sparsify Q and q
         try:
