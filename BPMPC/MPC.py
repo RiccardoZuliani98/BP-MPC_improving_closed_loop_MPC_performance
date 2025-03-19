@@ -926,6 +926,7 @@ class MPC:
             - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
 
         """
+        #TODO: Hx and Qx are now stage-wise, I need to first convert them to a single matrix
 
         # get symbolic variable type
         MSX = self.__MSX

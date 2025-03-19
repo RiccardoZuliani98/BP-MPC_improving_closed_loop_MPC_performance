@@ -479,9 +479,6 @@ class scenario:
         # create QP ingredients
         G,g,F,f,Q,Qinv,q,idx,denseQP = mpc.MPC2QP()
 
-        # create dense MPC ingredients
-        # dense_qp = mpc.MPC_to_dense_QP()
-
         # create QP
         self.makeQP(G,g,F,f,Q,Qinv,q,idx,y_lin,denseQP,p,pf,options)
 
