@@ -1160,11 +1160,11 @@ class MPC:
         idx['y_shift'] = idx_shifted
 
         # create dense QP
-        denseQP = self.__makeDenseMPC(self,A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu)
+        denseQP = self.__makeDenseMPC(self,A_list,B_list,c_list,Qx,Ru,x_ref,u_ref,Hx,Hu,hx,hu)
 
         return G,g,F,f,Q,Qinv,q,idx,denseQP
     
-    def __makeDenseMPC(self,A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu):
+    def __makeDenseMPC(self,A_list,B_list,c_list,Qx,Ru,x_ref,u_ref,Hx,Hu,hx,hu):
         """
         Create a dictionary with all the ingredients needed to solve the MPC problem in dense form.
         
@@ -1243,9 +1243,6 @@ class MPC:
         # then multiply by G_c from the right
         c_t = -vcat(c_list)
         g_c = G_c@c_t
-
-        # attach terminal cost to state cost matrix
-        Qx = blockcat(Qx,MSX((n['N']-1)*n['x'],n['x']),MSX(n['x'],(n['N']-1)*n['x']),Qn)
 
         # create dictionary
         out = {'G_x':G_x,'G_u':G_u,'g_c':g_c,'Qx':Qx,'Ru':Ru,'x_ref':x_ref,'u_ref':u_ref,'Hx':Hx,'Hu':Hu,'hx':hx,'hu':hu}
