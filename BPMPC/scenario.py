@@ -462,9 +462,13 @@ class scenario:
                 
         """
 
+        # check if linearization option was passed
+        if 'linearization' not in options:
+            options['linearization'] = 'trajectory'
+
         # check if a model was passed
         if model is None:
-            A_list, B_list, c_list, y_lin = self.linearize(N,linearization=options['trajectory'])
+            A_list, B_list, c_list, y_lin = self.linearize(N,linearization=options['linearization'])
             model = {'A':A_list,'B':B_list,'c':c_list,'y_lin':y_lin,'x0':self.init['x']}
 
         # extract y_lin from model if present
@@ -474,7 +478,11 @@ class scenario:
             y_lin = None
 
         # create MPC class
-        mpc = MPC(N,model,cost,cst,self.__MSX)
+        if self.__MSX == SX:
+            MSX = 'SX'
+        if self.__MSX == MX:
+            MSX = 'MX'
+        mpc = MPC(N,model,cost,cst,MSX)
         
         # create QP ingredients
         G,g,F,f,Q,Qinv,q,idx,denseQP = mpc.MPC2QP()
@@ -509,7 +517,7 @@ class scenario:
             self.__addDim({'eps': 0})
         
         # add horizon of MPC to dimensions
-        self.__addDim({'N': int(len(idx['eps']) / self.dim['x'])})
+        self.__addDim({'N': int(len(idx['x']) / self.dim['x'])})
 
         # save dimensions in variable with shorter name for simplicity
         n = self.dim
@@ -521,7 +529,7 @@ class scenario:
 
         # equality constraints can be enforced by setting lba=uba
         uba = vcat([g,f])
-        lba = vcat([-inf*self.MSX.ones(g.shape),f])
+        lba = vcat([-inf*self.__MSX.ones(g.shape),f])
 
         # sparsify
         try:
@@ -588,13 +596,13 @@ class scenario:
         self.QP._QP__updateIdx({'out':idx})
 
         # primal optimization variables
-        self.QP._QP__set_y(self.MSX.sym('y',q.shape[0]-n['eps'],1))
+        self.QP._QP__set_y(self.__MSX.sym('y',q.shape[0]-n['eps'],1))
 
         # dual optimization variables (inequality constraints)
-        self.QP._QP__set_lam(self.MSX.sym('lam',g.shape[0],1))
+        self.QP._QP__set_lam(self.__MSX.sym('lam',g.shape[0],1))
 
         # dual optimization variables (equality constraints)
-        self.QP._QP__set_mu(self.MSX.sym('mu',f.shape[0],1))
+        self.QP._QP__set_mu(self.__MSX.sym('mu',f.shape[0],1))
 
         # dual optimization variable (all constraints)
         self.QP._QP__set_z(vcat([self.QP.lam,self.QP.mu]))
@@ -603,11 +611,10 @@ class scenario:
         self.__addDim({k: v.shape[0] for k, v in self.QP.param.items()})
 
         # create QP
-        #TODO: options are now stored in QP
-        self.__makeQP(p=p,pf=pf,mode=self.mpc.options['qp_mode'],solver=self.mpc.options['solver'],warmstart=self.mpc.options['warmstart'],compile=self.mpc.options['compile_qp_sparse'])
+        self.__makeQP(p=p,pf=pf,mode=self.QP.options['qp_mode'],solver=self.QP.options['solver'],warmstart=self.QP.options['warmstart'],compile=self.QP.options['compile_qp_sparse'])
 
         # create conservative jacobian
-        self.__makeConsJac(gamma=self.mpc.options['jac_gamma'],tol=self.mpc.options['jac_tol'],compile=self.mpc.options['compile_jac'])
+        self.__makeConsJac(gamma=self.QP.options['jac_gamma'],tol=self.QP.options['jac_tol'],compile=self.QP.options['compile_jac'])
 
     def __makeQP(self,p=None,pf=None,mode='stacked',solver='qpoases',warmstart='x_lam_mu',compile=False):
         
@@ -1198,10 +1205,10 @@ class scenario:
                     raise Exception('Indexing function idx_p does not return the correct dimension.')
 
         # get indices of y required for next MPC call
-        if self.mpc.options['linearization'] == 'trajectory':
+        if self.QP.options['linearization'] == 'trajectory':
             y_idx = lambda t: self.QP.idx['out']['y']
             self.upperLevel._upperLevel__updateIdx({'y_next':y_idx})
-        elif self.mpc.options['linearization'] == 'initial_state':
+        elif self.QP.options['linearization'] == 'initial_state':
             y_idx = lambda t: self.QP.idx['out']['u1']
             self.upperLevel._upperLevel__updateIdx({'y_next':y_idx})
         
@@ -1233,7 +1240,7 @@ class scenario:
             J_p = DM.eye(self.dim['p'])[self.upperLevel.idx['p'](t),:]
 
             # get entries o y
-            if self.mpc.options['linearization'] == 'trajectory' or self.mpc.options['linearization'] == 'initial_state':
+            if self.QP.options['linearization'] == 'trajectory' or self.QP.options['linearization'] == 'initial_state':
                 J_y = J_y_p[self.upperLevel.idx['y_next'](t),:]
             else:
                 J_y = DM(0,self.dim['p'])
@@ -1788,7 +1795,7 @@ class scenario:
         # Note that any one of these variables may also be None if it was not passed.
 
         # under the "trajectory" linearization mode, we need y_lin to be a trajectory
-        if self.mpc.options['linearization'] == 'trajectory':
+        if self.QP.options['linearization'] == 'trajectory':
             
             # if adaptive mode is used, copy x and u to create y_lin
             if (out['y_lin'] is None) or (out['y_lin']=='adaptive'):
@@ -1815,7 +1822,7 @@ class scenario:
                     out['y_lin'] = [out['y_lin']] * max_length
 
         # under the "initial_state" linearization mode, we need y_lin to be a single input
-        if self.mpc.options['linearization'] == 'initial_state':
+        if self.QP.options['linearization'] == 'initial_state':
             
             # check if y_lin is not passed
             if out['y_lin'] is None:

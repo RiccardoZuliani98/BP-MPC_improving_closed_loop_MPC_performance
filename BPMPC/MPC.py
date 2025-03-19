@@ -65,19 +65,19 @@ class MPC:
     # keys allowed in dictionaries
     __allowed_keys = {'dim':['N','u','x','eps','cst_x','cst_u'],
                       'model':['A','B','c'],
-                      'cost':['Qx','Ru','Se','qx','ru','se'],
+                      'cost':['Qx','Ru','x_ref','u_ref','s_lin','s_quad'],
                       'cst':['Hx','Hx_e','Hu','hx','hu']}
     
     # expected dimensions
     __expected_dimensions = {'model':{'A':['x','x'],'B':['x','u'],'c':['x','one']},
-                             'cost':{'Qx':['x','x'],'Ru':['u','u'],'Qn':['x','x'],'x_ref':['x','one'],'u_ref':['u','one']},
+                             'cost':{'Qx':['x','x'],'Ru':['u','u'],'x_ref':['x','one'],'u_ref':['u','one'],'s_lin':['one','one'],'s_quad':['one','one']},
                              'cst':{'Hx':['cst_x','x'],'Hx_e':['cst_x','eps'],'Hu':['cst_u','u'],'hx':['cst_x','one'],'hu':['cst_u','one']}}
     
     # allowed inputs to __init__ and updateMPC
-    allowed_inputs = ['N','model','cost','cst']
+    allowed_inputs = ['model','cost','cst']
 
 
-    def __init__(self,N=None,model=None,cost=None,cst=None,MSX=SX):
+    def __init__(self,N=None,model=None,cost=None,cst=None,MSX='SX'):
 
         """
         Constructor of the MPC class.
@@ -230,15 +230,24 @@ class MPC:
             # loop through keys within each attribute
             for w in self.__allowed_keys[v]:
 
+                if w not in getattr(self,v):
+                    continue
+
                 # extract what dimensions are expected
                 expected_dim = self.__expected_dimensions[v][w]
 
                 # check correctness of dimensions
-                for dim, val in zip(expected_dim,getattr(self,v)[w].shape):
+                for i in range(2):
+
+                    # extract expected dimension (string)
+                    dim = expected_dim[i]
+
+                    # extract actual dimension (list of integers)
+                    val = [elem.shape[i] for elem in getattr(self,v)[w]]
 
                     # val should be a list of length N
                     if isinstance(val,list):
-                        if len(val) != self.N:
+                        if len(val) != self.dim['N']:
                             raise Exception('Attribute {} must have a list of length N.'.format(v))
                     else:
                         raise Exception('Attribute {} must have a list of length N.'.format(v))
@@ -252,11 +261,11 @@ class MPC:
                     elif dim not in self.dim:
                         
                         # if not, add it
-                        self.__add_to_dim({dim:val})
+                        self.__add_to_dim({dim:val[0]})
 
                     # otherwise, check if it matches existing dimensions
                     else:
-                        if all([v != val for v in self.dim[dim]]):
+                        if all([v != self.dim[dim] for v in val]):
                             raise Exception('Attribute {} must have the right dimensions.'.format(v))
 
     @property
@@ -318,7 +327,7 @@ class MPC:
 
             # convert to chosen symbolic variable type
             try:
-                A_mat = [self.MSX(A) for A in A_mat]
+                A_mat = [self.__MSX(A) for A in A_mat]
             except:
                 raise Exception('A must be a list of matrices')
             
@@ -329,7 +338,7 @@ class MPC:
 
             # convert to chosen symbolic variable type
             try:
-                A_mat = self.MSX(A_mat)
+                A_mat = self.__MSX(A_mat)
             except:
                 raise Exception('A must be a matrix.')
             
@@ -347,10 +356,10 @@ class MPC:
         if isinstance(B_mat,list):
 
             # check that length is correct
-            if len(B_mat) != self.N:
+            if len(B_mat) != self.dim['N']:
                 raise Exception('B must be a list of length N.')
             try:
-                B_mat = [self.MSX(B) for B in B_mat]
+                B_mat = [self.__MSX(B) for B in B_mat]
             except:
                 raise Exception('B must be a list of matrices')
             
@@ -361,7 +370,7 @@ class MPC:
 
             # convert to chosen symbolic variable type
             try:
-                B_mat = self.MSX(B_mat)
+                B_mat = self.__MSX(B_mat)
             except:
                 raise Exception('B must be a matrix.')
             B_mat = [B_mat] * self.N
@@ -379,22 +388,22 @@ class MPC:
             if isinstance(c_mat,list):
 
                 # check that length is correct
-                if len(c_mat) != self.N:
+                if len(c_mat) != self.dim['N']:
                     raise Exception('c must be a list of length N.')
                 try:
-                    c_mat = [self.MSX(c) for c in c_mat]
+                    c_mat = [self.__MSX(c) for c in c_mat]
                 except:
                     raise Exception('c must be a list of vectors')
             
             else:
                 try:
-                    c_mat = self.MSX(c_mat)
+                    c_mat = self.__MSX(c_mat)
                 except:
                     raise Exception('c must be a vector.')
-                c_mat = [c_mat] * self.N
+                c_mat = [c_mat] * self.dim['N']
 
         else:
-            c_mat = [self.MSX(self.dim['x'],1)] * self.N
+            c_mat = [self.__MSX(self.dim['x'],1)] * self.dim['N']
 
         # extract initial state
         if 'x0' in model:
@@ -407,7 +416,7 @@ class MPC:
             raise Exception('Initial state must be passed.')
 
         # patch first entry
-        c_mat[0] = - A_mat@x0
+        c_mat[0] = - A_mat[0]@x0
 
         # store matrices
         self.__model = {'A':A_mat,'B':B_mat,'c':c_mat,'x0':x0}
@@ -459,7 +468,7 @@ class MPC:
                 
                 # convert Qx to chosen symbolic variable type
                 try:
-                    Qx = [self.MSX(Q) for Q in Qx]
+                    Qx = [self.__MSX(Q) for Q in Qx]
                 except:
                     raise Exception('Qx must be a list of matrices')
                 
@@ -470,7 +479,7 @@ class MPC:
 
                 # convert Qx to chosen symbolic variable type
                 try:
-                    Qx = self.MSX(Qx)
+                    Qx = self.__MSX(Qx)
                 except:
                     raise Exception('Qx must be a matrix.')
                 
@@ -487,17 +496,17 @@ class MPC:
                     # Qn must be a matrix
                     Qn = value['Qn']
                     try:
-                        Qn = self.MSX(Qn)
+                        Qn = self.__MSX(Qn)
                     except:
                         raise Exception('Qn must be a matrix.')
 
                     # create list of Qx matrices including terminal cost
-                    Qx = [Qx] * (self.N-1)
+                    Qx = [Qx] * (self.dim['N']-1)
                     Qx.append(Qn)
                 
                 # if Qn is not passed assume Qn = Qx
                 else:
-                    Qx = [Qx] * self.N
+                    Qx = [Qx] * self.dim['N']
 
         else:
             raise Exception('Qx must be passed.')
@@ -509,10 +518,10 @@ class MPC:
             if isinstance(Ru,list):
 
                 # check that length is correct
-                if len(Ru) != self.N:
+                if len(Ru) != self.dim['N']:
                     raise Exception('Ru must be a list of length N.')
                 try:
-                    Ru = [self.MSX(R) for R in Ru]
+                    Ru = [self.__MSX(R) for R in Ru]
                 except:
                     raise Exception('Ru must be a list of matrices')
                 
@@ -521,73 +530,85 @@ class MPC:
 
             else:
                 try:
-                    Ru = self.MSX(Ru)
+                    Ru = self.__MSX(Ru)
                 except:
                     raise Exception('Ru must be a matrix.')
-                Ru = [Ru] * self.N
+                Ru = [Ru] * self.dim['N']
 
                 # update input dimension
-                self.__add_to_dim({'u':Ru.shape[0]})
+                self.__add_to_dim({'u':Ru[0].shape[0]})
         
         else:
             raise Exception('Ru must be passed.')
-        
+
+        # update cost
+        self.__cost = {'Qx':Qx,'Ru':Ru}
+
         # check if x_ref is passed
         if 'x_ref' in value:
             x_ref = value['x_ref']
             if isinstance(x_ref,list):
-                if len(x_ref) != self.N:
+                if len(x_ref) != self.dim['N']:
                     raise Exception('x_ref must be a list of length N.')
                 try:
-                    x_ref = [self.MSX(x) for x in x_ref]
+                    x_ref = [self.__MSX(x) for x in x_ref]
                 except:
                     raise Exception('x_ref must be a list of vectors')
             else:
                 try:
-                    x_ref = self.MSX(x_ref)
+                    x_ref = self.__MSX(x_ref)
                 except:
                     raise Exception('x_ref must be a vector.')
-                x_ref = [x_ref] * self.N
+                x_ref = [x_ref] * self.dim['N']
 
         else:
-            x_ref = [self.MSX(self.dim['x'],1)] * self.N
+            x_ref = [self.__MSX(self.dim['x'],1)] * self.dim['N']
 
         # check if u_ref is passed
         if 'u_ref' in value:
             u_ref = value['u_ref']
             if isinstance(u_ref,list):
-                if len(u_ref) != self.N:
+                if len(u_ref) != self.dim['N']:
                     raise Exception('u_ref must be a list of length N.')
                 try:
-                    u_ref = [self.MSX(u) for u in u_ref]
+                    u_ref = [self.__MSX(u) for u in u_ref]
                 except:
                     raise Exception('u_ref must be a list of vectors')
             else:
                 try:
-                    u_ref = self.MSX(u_ref)
+                    u_ref = self.__MSX(u_ref)
                 except:
                     raise Exception('u_ref must be a vector.')
-                u_ref = [u_ref] * self.N
+                u_ref = [u_ref] * self.dim['N']
         
         else:
-            u_ref = [self.MSX(self.dim['u'],1)] * self.N
+            u_ref = [self.__MSX(self.dim['u'],1)] * self.dim['N']
+
+        # update cost
+        self.__cost = self.__cost | {'x_ref':x_ref,'u_ref':u_ref}
 
         # check if s_lin is passed
         if 's_lin' in value:
             s_lin = value['s_lin']
             try:
-                s_lin = self.MSX(s_lin)
+                s_lin = self.__MSX(s_lin)
             except:
                 raise Exception('s_lin must be a scalar.')
+            
+            # update cost
+            self.__cost = self.__cost | {'s_lin':s_lin}
 
         # check if s_quad is passed
         if 's_quad' in value:
             s_quad = value['s_quad']
             try:
-                s_quad = self.MSX(s_quad)
+                s_quad = self.__MSX(s_quad)
             except:
                 raise Exception('s_quad must be a scalar.')
-
+            
+            # update cost
+            self.__cost = self.__cost | {'s_quad':s_quad}
+            
     @property
     def cst(self):
         return self.__cst
@@ -611,6 +632,9 @@ class MPC:
             where e are the slack variables.
         """
 
+        # empty existing constraints
+        self.__cst = {}
+
         # check that value is a dictionary
         if not isinstance(value, dict):
             raise Exception('Constraints must be passed as a dictionary.')
@@ -629,7 +653,7 @@ class MPC:
 
                 # convert to chosen symbolic variable type
                 try:
-                    Hx = [self.MSX(H) for H in Hx]
+                    Hx = [self.__MSX(H) for H in Hx]
                 except:
                     raise Exception('Hx must be a list of matrices')
                 
@@ -653,7 +677,7 @@ class MPC:
 
                 # check that hx can be converted to correct symbolic type
                 try:
-                    hx = [self.MSX(h) for h in hx]
+                    hx = [self.__MSX(h) for h in hx]
                 except:
                     raise Exception('hx must be a list of vectors')
 
@@ -661,7 +685,7 @@ class MPC:
 
                 # convert to chosen symbolic variable type
                 try:
-                    Hx = self.MSX(Hx)
+                    Hx = self.__MSX(Hx)
                 except:
                     raise Exception('Hx must be a matrix.')
                 
@@ -673,7 +697,7 @@ class MPC:
                     raise Exception('N must be passed if Hx is a single matrix.')
 
                 # create list of Hx matrices
-                Hx = [Hx] * self.N
+                Hx = [Hx] * self.dim['N']
 
                 # check if hx is passed
                 if 'hx' not in value:
@@ -681,9 +705,14 @@ class MPC:
                 
                 # check that hx is a single matrix
                 try:
-                    hx = self.MSX(value['hx'])
+                    hx = self.__MSX(value['hx'])
                 except:
                     raise Exception('hx must be a vector.')
+                
+                hx = [hx] * self.dim['N']
+                
+            # store matrices
+            self.__cst = self.__cst | {'Hx':Hx,'hx':hx}
 
         # check if Hx_e is passed
         if 'Hx_e' in value:
@@ -699,7 +728,7 @@ class MPC:
 
                 # convert to chosen symbolic variable type
                 try:
-                    Hx_e = [self.MSX(H) for H in Hx_e]
+                    Hx_e = [self.__MSX(H) for H in Hx_e]
                 except:
                     raise Exception('Hx_e must be a list of matrices')
                 
@@ -710,7 +739,7 @@ class MPC:
 
                 # convert to chosen symbolic variable type
                 try:
-                    Hx_e = self.MSX(Hx_e)
+                    Hx_e = self.__MSX(Hx_e)
                 except:
                     raise Exception('Hx_e must be a matrix.')
                 
@@ -722,7 +751,10 @@ class MPC:
                     raise Exception('N must be passed if Hx_e is a single matrix.')
 
                 # create list of Hx matrices
-                Hx_e = [Hx_e] * self.N
+                Hx_e = [Hx_e] * self.dim['N']
+
+            # store matrices
+            self.__cst = self.__cst | {'Hx_e':Hx_e}
 
         # check if Hu is passed
         if 'Hu' in value:
@@ -738,7 +770,7 @@ class MPC:
 
                 # convert to chosen symbolic variable type
                 try:
-                    Hu = [self.MSX(H) for H in Hu]
+                    Hu = [self.__MSX(H) for H in Hu]
                 except:
                     raise Exception('Hu must be a list of matrices')
                 
@@ -754,7 +786,7 @@ class MPC:
                     raise Exception('hu must be a list of vectors.')
                 
                 # check that list has correct dimension
-                if len(value['hu']) != self.N:
+                if len(value['hu']) != self.dim['N']:
                     raise Exception('hu must be a list of length N.')
                 
                 # extract vectors
@@ -762,7 +794,7 @@ class MPC:
 
                 # check that hu can be converted to correct symbolic type
                 try:
-                    hu = [self.MSX(h) for h in hu]
+                    hu = [self.__MSX(h) for h in hu]
                 except:
                     raise Exception('hu must be a list of vectors')
 
@@ -770,7 +802,7 @@ class MPC:
 
                 # convert to chosen symbolic variable type
                 try:
-                    Hu = self.MSX(Hu)
+                    Hu = self.__MSX(Hu)
                 except:
                     raise Exception('Hu must be a matrix.')
                 
@@ -782,7 +814,7 @@ class MPC:
                     raise Exception('N must be passed if Hu is a single matrix.')
 
                 # create list of Hu matrices
-                Hu = [Hu] * self.N
+                Hu = [Hu] * self.dim['N']
 
                 # check if hu is passed
                 if 'hu' not in value:
@@ -790,9 +822,14 @@ class MPC:
                 
                 # check that hu is a single matrix
                 try:
-                    hu = self.MSX(value['hu'])
+                    hu = self.__MSX(value['hu'])
                 except:
                     raise Exception('hu must be a vector.')
+                
+                hu = [hu] * self.dim['N']
+                
+            # store matrices
+            self.__cst = self.__cst | {'Hu':Hu,'hu':hu}
 
     def MPC2QP(self):
 
@@ -847,11 +884,11 @@ class MPC:
         c_list = self.__model['c']
         Qx = self.__cost['Qx']
         Ru = self.__cost['Ru']
-        if x_ref in self.__cost:
+        if 'x_ref' in self.__cost:
             x_ref = self.__cost['x_ref']
         else:
             x_ref = None
-        if u_ref in self.__cost:
+        if 'u_ref' in self.__cost:
             u_ref = self.__cost['u_ref']
         else:
             u_ref = None
@@ -875,7 +912,7 @@ class MPC:
         # call internal function
         return self.__MPC2QP(A_list,B_list,c_list,Qx,Ru,Hx,hx,Hu,hu,Hx_e,x_ref,u_ref,s_lin,s_quad)
 
-    def MPC2QP(self,A_list,B_list,c_list,Qx,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
+    def __MPC2QP(self,A_list,B_list,c_list,Qx,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
 
         """
         INTERNAL FUNCTION, NOT TO BE CALLED BY THE USER.
@@ -925,6 +962,8 @@ class MPC:
             - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
 
         """
+
+        #TODO: check dimensions
 
         def matrixify(M_list,MSX):
 
@@ -991,7 +1030,10 @@ class MPC:
             Hx_e = MSX.eye(Hx.shape[0])
 
         # add slack dimension to dimension vector
-        self.__add_to_dim({'eps':Hx_e.shape[1]})
+        if slack:
+            self.__add_to_dim({'eps':Hx_e.shape[1]})
+        else:
+            self.__add_to_dim({'eps':0})
 
         # extract dimensions
         n = self.dim
@@ -1097,13 +1139,14 @@ class MPC:
             Q = blockcat(Q,MSX(Q.shape[0],n['eps']),MSX(n['eps'],Q.shape[0]),s_quad*MSX.eye(n['eps']))
 
         # inverse of quadratic cost matrix
-        Qinv = inv_minor(Q) #inv(Q)
+        # Qinv = inv_minor(Q)
+        Qinv = inv(Q)
 
         # create linear part of the cost
         if slack:
-            q = vcat([-x_ref.T@Qx.T,(-u_ref.T@Ru).T,s_lin*MSX.ones(n['eps'],1)])
+            q = vcat([-Qx@x_ref,-Ru@u_ref,s_lin*MSX.ones(n['eps'],1)])
         else:
-            q = vcat([-x_ref.T@Qx.T,(-u_ref.T@Ru).T])
+            q = vcat([-Qx@x_ref,-Ru@u_ref])
 
         # sparsify Q and q
         try:
@@ -1160,7 +1203,7 @@ class MPC:
         idx['y_shift'] = idx_shifted
 
         # create dense QP
-        denseQP = self.__makeDenseMPC(self,A_list,B_list,c_list,Qx,Ru,x_ref,u_ref,Hx,Hu,hx,hu)
+        denseQP = self.__makeDenseMPC(A_list,B_list,c_list,Qx,Ru,x_ref,u_ref,Hx,Hu,hx,hu)
 
         return G,g,F,f,Q,Qinv,q,idx,denseQP
     

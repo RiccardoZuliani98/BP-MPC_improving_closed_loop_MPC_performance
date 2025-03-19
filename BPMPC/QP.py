@@ -174,9 +174,22 @@ class QP:
 
 
         """
-        Options dictionary
+        Options dictionary. Possible keys are:
+
+            - 'linearization': 'trajectory', 'state' or 'none' (default is 'trajectory')
+            - 'slack': True or False (default is False)
+            - 'qp_mode': 'stacked' or 'separate' (default is 'stacked')
+            - 'solver': 'qpoases','osqp','cplex','gurobi','daqp','qrqp' (default is 'qpoases')
+            - 'warmstart': 'x_lam_mu' (warmstart both primal and dual variables) or 'x' (warmstart only 
+                        primal variables) (default is 'x_lam_mu')
+            - 'jac_tol': tolerance below which multipliers are considered zero (default is 8)
+            - 'jac_gamma': stepsize in optimality condition used to apply the IFT (default is 0.001)
+            - 'compile_qp_sparse': True or False (default is False)
+            - 'compile_jac': True or False (default is False)
         """
-        self.__options = {}
+        self.__options = {'linearization':'trajectory','slack':False,'qp_mode':'stacked','solver':'qpoases',
+                          'warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,'compile_qp_sparse':False,
+                          'compile_jac':False}
 
         
         """
@@ -345,7 +358,7 @@ class QP:
     def __updateOptions(self, value):
 
         # check if value is a dictionary
-        if not isinstance(self.__cost, dict):
+        if not isinstance(value, dict):
             raise Exception('Options must be a dictionary.')
         
         # remove keys that are not allowed
