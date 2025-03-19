@@ -462,98 +462,69 @@ class scenario:
                 
         """
 
-        # get symbolic variable type
-        MSX = self.__MSX
+        # check if a model was passed
+        if model is None:
+            A_list, B_list, c_list, y_lin = self.linearize(N,linearization=options['trajectory'])
+            model = {'A':A_list,'B':B_list,'c':c_list,'y_lin':y_lin,'x0':self.init['x']}
 
-        # add horizon of MPC to dimensions
-        self.__addDim({'N': self.mpc.N})
-        
-        # obtain number of slack variables
-        if self.mpc.options['slack']:
-            # add number of slack variables
-            self.__addDim({'eps': self.mpc.cst['Hx_e'].shape[0]})
+        # extract y_lin from model if present
+        if 'y_lin' in model:
+            y_lin = model['y_lin']
         else:
-            # if no constraint softening is used, set number of slack variables to zero
+            y_lin = None
+
+        # create MPC class
+        mpc = MPC(N,model,cost,cst,self.__MSX)
+        
+        # create QP ingredients
+        G,g,F,f,Q,Qinv,q,idx,denseQP = mpc.MPC2QP()
+
+        # create dense MPC ingredients
+        # dense_qp = mpc.MPC_to_dense_QP()
+
+        # create QP
+        self.makeQP(G,g,F,f,Q,Qinv,q,idx,y_lin,denseQP,p,pf,options)
+
+
+    ### QP ------------------------------------------------------------------
+    
+    @property
+    def QP(self):
+        return self.__QP
+    
+    def makeQP(self,G,g,F,f,Q,Qinv,q,idx,y_lin,denseQP,p=None,pf=None,options={}):
+
+        # update options
+        self.QP._QP__updateOptions(options)
+
+        # add initial state to QP variables
+        x = self.param['x']
+        self.QP._QP__set_x(x)
+
+        # add y_lin to QP variables
+        if y_lin is not None:
+            self.QP._QP__set_y_lin(y_lin)
+
+        # check if slack variables are present
+        if 'eps' in idx:
+            self.__addDim({'eps': len(idx['eps'])})
+        else:
             self.__addDim({'eps': 0})
-            # set Hx_e to None
-            Hx_e = None
+        
+        # add horizon of MPC to dimensions
+        self.__addDim({'N': int(len(idx['eps']) / self.dim['x'])})
 
         # save dimensions in variable with shorter name for simplicity
         n = self.dim
 
-        # extract symbolic variables
-        x = self.param['x']
-        self.QP._QP__set_x(x)
-
-        # extract constraints
-        Hx = MSX(self.mpc.cst['Hx'])
-        hx = MSX(self.mpc.cst['hx'])
-        Hu = MSX(self.mpc.cst['Hu'])
-        hu = MSX(self.mpc.cst['hu'])
-
-        # check dimensions
-        if Hx.shape[1] != n['N']*n['x']:
-            raise Exception('Hx must have as many columns as x.')
-        if hx.shape[0] != Hx.shape[0]:
-            raise Exception('hx must have as many rows as Hx.')
-        if Hu.shape[1] != n['N']*n['u']:
-            raise Exception('Hu must have as many columns as u.')
-        if hu.shape[0] != Hu.shape[0]:
-            raise Exception('hu must have as many rows as Hu.')
-
-        if self.mpc.options['slack']:
-            Hx_e = MSX(self.mpc.cst['Hx_e'])
-            if Hx_e.shape[0] != Hx.shape[0]:
-                raise Exception('Hx_e must have as many rows as Hx.')
-
-        # extract cost
-        Qx = MSX(self.mpc.cost['Qx'])
-        Ru = MSX(self.mpc.cost['Ru'])
-        Qn = MSX(self.mpc.cost['Qn'])
-
-        # check dimensions
-        if Qx.shape[0] != (n['N']-1)*n['x']:
-            raise Exception('Qx must have as many rows as x.')
-        if Qx.shape[1] != (n['N']-1)*n['x']:
-            raise Exception('Qx must have as many columns as x.')
-        if Ru.shape[0] != n['N']*n['u']:
-            raise Exception('Ru must have as many rows as u.')
-        if Ru.shape[1] != n['N']*n['u']:
-            raise Exception('Ru must have as many columns as u.')
-        if Qn.shape[0] != n['x']:
-            raise Exception('Qn must have as many rows as x.')
-        if Qn.shape[1] != n['x']:
-            raise Exception('Qn must have as many columns as x.')
-        
-        # extract reference
-        if 'x_ref' in self.mpc.cost:
-            x_ref = self.mpc.cost['x_ref']
-        else:
-            x_ref = MSX(n['x']*n['N'],1)
-        if 'u_ref' in self.mpc.cost:
-            u_ref = self.mpc.cost['u_ref']
-        else:
-            u_ref = MSX(n['u']*n['N'],1)
-
-
-        ### CREATE SPARSE MPC ----------------------------------------------
-
-        # check if a model was passed
-        if model is not None:
-            self.mpc._MPC__set_model(model)
-
-        # start by creating the linearizations
-        A_list,B_list,c_list = self.__createMPCLinearizations()
-
-        # create QP ingredients
-        G,g,F,f,Q,Qinv,q,idx = self.__makeSparseMPC(A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu,Hx_e)
+        #TODO: add dimension checks
 
         # stack all constraints together to match CasADi's conic interface
         A = vcat([G,F])
 
         # equality constraints can be enforced by setting lba=uba
         uba = vcat([g,f])
-        lba = vcat([-inf*MSX.ones(g.shape),f])
+        lba = vcat([-inf*self.MSX.ones(g.shape),f])
 
         # sparsify
         try:
@@ -562,14 +533,6 @@ class scenario:
             lba = cse(sparsify(lba))
         except:
             pass
-
-
-        ### CREATE DENSE MPC ------------------------------------------------
-
-        dense_qp = self.__makeDenseMPC(A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu)
-
-
-        ### CREATE DUAL MPC FORMULATION -------------------------------------
 
         try:
             # define Hessian of dual
@@ -612,7 +575,7 @@ class scenario:
         QP_dict['uba'] = uba
         QP_dict['H'] = H
         QP_dict['h'] = h
-        QP_dict['dense'] = dense_qp
+        QP_dict['dense'] = denseQP
 
 
         ### STORE IN MPC -----------------------------------------------------
@@ -628,13 +591,13 @@ class scenario:
         self.QP._QP__updateIdx({'out':idx})
 
         # primal optimization variables
-        self.QP._QP__set_y(MSX.sym('y',q.shape[0]-n['eps'],1))
+        self.QP._QP__set_y(self.MSX.sym('y',q.shape[0]-n['eps'],1))
 
         # dual optimization variables (inequality constraints)
-        self.QP._QP__set_lam(MSX.sym('lam',g.shape[0],1))
+        self.QP._QP__set_lam(self.MSX.sym('lam',g.shape[0],1))
 
         # dual optimization variables (equality constraints)
-        self.QP._QP__set_mu(MSX.sym('mu',f.shape[0],1))
+        self.QP._QP__set_mu(self.MSX.sym('mu',f.shape[0],1))
 
         # dual optimization variable (all constraints)
         self.QP._QP__set_z(vcat([self.QP.lam,self.QP.mu]))
@@ -643,103 +606,11 @@ class scenario:
         self.__addDim({k: v.shape[0] for k, v in self.QP.param.items()})
 
         # create QP
+        #TODO: options are now stored in QP
         self.__makeQP(p=p,pf=pf,mode=self.mpc.options['qp_mode'],solver=self.mpc.options['solver'],warmstart=self.mpc.options['warmstart'],compile=self.mpc.options['compile_qp_sparse'])
 
         # create conservative jacobian
         self.__makeConsJac(gamma=self.mpc.options['jac_gamma'],tol=self.mpc.options['jac_tol'],compile=self.mpc.options['compile_jac'])
-
-
-    def __makeDenseMPC(self,A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu):
-        """
-        Create a dictionary with all the ingredients needed to solve the MPC problem in dense form.
-        
-        The inputs are:
-            
-            - A_list, B_list, c_list: lists of matrices A, B, and c such that x[t+1] = A[t]@x[t] + B[t]@u[t] + c[t]
-            - Qx, Qn, Ru, x_ref, u_ref: matrices defining the cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
-            - Hx, Hu, hx, hu: polyhedral constraints Hx*x <= hx, Hu*u <= hu
-        
-        The output dictionary has keys:
-        
-            - 'G_x', 'G_u', 'g_c': matrices satisfying x = G_x*x0 + G_u*u + g_c
-            - 'Qx', 'Ru', 'x_ref', 'u_ref': cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
-            - 'Hx', 'Hu', 'hx', 'hu': polyhedral constraints Hx*x <= hx, Hu*u <= hu
-        """
-
-        # get symbolic variable type
-        MSX = self.__MSX
-
-        # extract dimensions
-        n = self.dim
-
-        # start by constructing matrices G_x and G_u, and vector g_c such that
-        # x = G_x*x_0 + G_u*u + g_c, where x = vec(x_1,x_2,...,x_N), 
-        # u = vec(u_0,u_1,...,u_N-1).
-        # To obtain g_c we need to multiply all the affine terms by a matrix
-        # similar to G_u, which we call G_c.
-        
-        # first initialize G_u with the zero matrix
-        G_u = MSX(n['x']*n['N'],n['u']*n['N'])
-
-        # initialize G_c
-        G_c = MSX(n['x']*n['N'],n['x']*n['N'])
-
-        # we will need a tall matrix that will replace the columns of G_u
-        # initially it is equal to a tall matrix full of zeros with an
-        # identity matrix at the bottom.
-        col = MSX.eye(n['N']*n['x'])[:,(n['N']-1)*n['x']:n['N']*n['x']]
-
-        # loop through all columns of G_u (t ranges from N-1 to 1)
-        for t in range(n['N']-1,0,-1):
-
-            # get matrices A and at time-step t
-            A_t = A_list[t]
-            B_t = B_list[t]
-
-            # update G_u matrix
-            G_u[:,t*n['u']:(t+1)*n['u']] = col@B_t
-
-            # update G_c matrix
-            G_c[:,t*n['x']:(t+1)*n['x']] = col
-
-            # update col by multiplying with A matrix and adding identity matrix
-            col = col@A_t + MSX.eye(n['N']*n['x'])[:,(t-1)*n['x']:t*n['x']]
-
-        # get linearized dynamics at time-step 0
-        A_0 = A_list[0]
-        B_0 = B_list[0]
-
-        # correct first entry of c_list
-        c_list[0] = c_list[0] + A_0@self.param['x']
-
-        # now we only miss the left-most column (use x0 instead of x[:n['x']])
-        G_u[:,:n['u']] = col@B_0
-
-        # same for G_c
-        G_c[:,:n['x']] = col
-
-        # matrix G_x is simply col@A_0
-        G_x = col@A_0
-
-        # to create g_c concatenate vertically the entries in the list c_t_list
-        # then multiply by G_c from the right
-        c_t = -vcat(c_list)
-        g_c = G_c@c_t
-
-        # attach terminal cost to state cost matrix
-        Qx = blockcat(Qx,MSX((n['N']-1)*n['x'],n['x']),MSX(n['x'],(n['N']-1)*n['x']),Qn)
-
-        # create dictionary
-        out = {'G_x':G_x,'G_u':G_u,'g_c':g_c,'Qx':Qx,'Ru':Ru,'x_ref':x_ref,'u_ref':u_ref,'Hx':Hx,'Hu':Hu,'hx':hx,'hu':hu}
-
-        return out
-
-
-    ### QP ------------------------------------------------------------------
-    
-    @property
-    def QP(self):
-        return self.__QP
 
     def __makeQP(self,p=None,pf=None,mode='stacked',solver='qpoases',warmstart='x_lam_mu',compile=False):
         

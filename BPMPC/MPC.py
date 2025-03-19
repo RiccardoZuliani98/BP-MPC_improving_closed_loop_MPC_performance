@@ -157,6 +157,7 @@ class MPC:
 
                 - A: list of matrices (of length N) or a single matrix (n_x,n_x)
                 - B: list of matrices (of length N) or a single matrix (n_x,n_u)
+                - x0: symbolic variable representing the initial state (n_x,1)
                 - c: list of matrices (of length N) or a single matrix (n_x,1) [optional, defaults to 0]
             
                 where the dynamics are given by x[t+1] = A[t]x[t] + B[t]u[t] + c[t], or (in the time-invariant case) by
@@ -793,8 +794,89 @@ class MPC:
                 except:
                     raise Exception('hu must be a vector.')
 
+    def MPC2QP(self):
 
-    def __MPC_to_sparse_QP(self,A_list,B_list,c_list,Qx,Qn,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
+        """
+        This function converts an MPC problem of the form
+
+        minimize      1/2 (x_N-x_r_N)^T Q_n (x_N-x_r_N)
+         x,u,e      + 1/2 \sum_{t=0}^{N-1} [ (x_t-x_r_t)^T Q_x (x_t-x_r_t) + (u_t-u_r_t)^T R_u (u_t-u_r_t) ]
+                    + 1/2 \sum_{t=0}^{N} [ c_lin e_t + c_quad e_t^T e_t ]
+
+        subject to  x_{t+1} = A_t x_t + B_t u_t + c_t,  t = 0,...,N-1,
+                    H_x x_t <= h_x - H_e e_t,           t = 0,...,N,
+                    H_u u_t <= h_u,                     t = 0,...,N-1,
+                    e_t >= 0,                           t = 0,...,N,
+                    x_0 = x,
+        
+        where x_t,u_t denote state and input at time t, N is the horizon of the MPC, e_t is a slack variable (which only affects certain)
+        states, as encoded in matrix H_e, and x is the current state of the system, to a QP of the form
+
+        minimize    1/2 y'Qy + q'y
+            
+        subject to  Gy <= g
+                    Fy = f
+
+        where y = col(x,u,e). The outputs are the matrices G, g, F, f, Q, Qinv=inv(Q), the dictionary idx containing the indexing of the output optimization variables of the QP. This function sets up the following keys in idx:
+
+            - 'u': range of all inputs
+            - 'x': range of all states
+            - 'y': range of all state-input variables
+            - 'eps': range of all slack variables (if present)
+            - 'u0': range of first input
+            - 'u1': range of second input
+            - 'x_shift': states shifted by one time-step (last state repeated)
+            - 'u_shift': inputs shifted by one time-step (last input repeated)
+            - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
+
+        """
+
+        # check that all ingredients are present
+        if not all([v in self.__cost for v in ['Qx','Ru']]):
+            raise Exception('Cost must be fully specified.')
+        
+        if not all([v in self.__cst for v in ['Hx','hx','Hu','hu']]):
+            raise Exception('Constraints must be fully specified.')
+        
+        if not all([v in self.__model for v in ['A','B','c']]):
+            raise Exception('Model must be fully specified.')
+        
+        # extract ingredients
+        A_list = self.__model['A']
+        B_list = self.__model['B']
+        c_list = self.__model['c']
+        Qx = self.__cost['Qx']
+        Qn = self.__cost['Qn']
+        Ru = self.__cost['Ru']
+        if x_ref in self.__cost:
+            x_ref = self.__cost['x_ref']
+        else:
+            x_ref = None
+        if u_ref in self.__cost:
+            u_ref = self.__cost['u_ref']
+        else:
+            u_ref = None
+        Hx = self.__cst['Hx']
+        Hu = self.__cst['Hu']
+        hx = self.__cst['hx']
+        hu = self.__cst['hu']
+        if 'Hx_e' in self.__cst:
+            Hx_e = self.__cst['Hx_e']
+        else:
+            Hx_e = None
+        if 's_lin' in self.__cost:
+            s_lin = self.__cost['s_lin']
+        else:
+            s_lin = None
+        if 's_quad' in self.__cost:
+            s_quad = self.__cost['s_quad']
+        else:
+            s_quad = None
+        
+        # call internal function
+        return self.__MPC2QP(A_list,B_list,c_list,Qx,Qn,Ru,Hx,hx,Hu,hu,Hx_e,x_ref,u_ref,s_lin,s_quad)
+
+    def MPC2QP(self,A_list,B_list,c_list,Qx,Qn,Ru,Hx,hx,Hu,hu,Hx_e=None,x_ref=None,u_ref=None,s_lin=None,s_quad=None):
 
         """
         INTERNAL FUNCTION, NOT TO BE CALLED BY THE USER.
@@ -830,7 +912,7 @@ class MPC:
         
         Note that if Hx_e is not passed, but the slack option is enabled, it is set to the identity matrix.
 
-        And the outputs are the matrices G, g, F, f, Q, Qinv=inv(Q), and the dictionary idx containing the indexing of the output optimization
+        And the outputs are the matrices G, g, F, f, Q, Qinv=inv(Q), the dictionary idx containing the indexing of the output optimization
         variables of the QP. This function sets up the following keys in idx:
 
             - 'u': range of all inputs
@@ -855,22 +937,22 @@ class MPC:
         if s_lin is not None:
 
             # if penalty is greater than 0, set slack mode to true
-            if self.cost['s_lin'] > 0:
+            if s_lin > 0:
                 slack = True
             
             # if penalty is negative, raise exception
-            elif self.cost['s_lin'] <= 0:
+            elif s_lin <= 0:
                 raise Exception('Linear slack penalty must be positive.')
             
         # check if quadratic slack penalty is passed
         if s_quad is not None:
 
             # if penalty is greater than 0, set slack mode to true
-            if self.cost['s_quad'] > 0:
+            if s_quad > 0:
                 slack = True
 
             # if penalty is negative, raise exception
-            elif self.cost['s_quad'] <= 0:
+            elif s_quad <= 0:
                 raise Exception('Quadratic slack penalty must be nonnegative.')
 
         # check if Hx_e was passed 
@@ -892,14 +974,14 @@ class MPC:
 
             # linear penalty
             try:
-                s_lin = MSX(self.mpc.cost['s_lin'])
+                s_lin = MSX(s_lin)
             except:
                 s_lin = MSX(0) # default value
                 pass
 
             # quadratic penalty
             try:
-                s_quad = MSX(self.mpc.cost['s_quad'])
+                s_quad = MSX(s_quad)
             except:
                 print('Quadratic slack penalty not provided, defaulting to 1.')
                 s_quad = MSX(1) # default value
@@ -1051,7 +1133,98 @@ class MPC:
         idx['u_shift'] = idx_u_shifted
         idx['y_shift'] = idx_shifted
 
-        return G,g,F,f,Q,Qinv,q,idx
+        # create dense QP
+        denseQP = self.__makeDenseMPC(self,A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu)
+
+        return G,g,F,f,Q,Qinv,q,idx,denseQP
+    
+    def __makeDenseMPC(self,A_list,B_list,c_list,Qx,Qn,Ru,x_ref,u_ref,Hx,Hu,hx,hu):
+        """
+        Create a dictionary with all the ingredients needed to solve the MPC problem in dense form.
+        
+        The inputs are:
+            
+            - A_list, B_list, c_list: lists of matrices A, B, and c such that x[t+1] = A[t]@x[t] + B[t]@u[t] + c[t]
+            - Qx, Qn, Ru, x_ref, u_ref: matrices defining the cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
+            - Hx, Hu, hx, hu: polyhedral constraints Hx*x <= hx, Hu*u <= hu
+        
+        The output dictionary has keys:
+        
+            - 'G_x', 'G_u', 'g_c': matrices satisfying x = G_x*x0 + G_u*u + g_c
+            - 'Qx', 'Ru', 'x_ref', 'u_ref': cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
+            - 'Hx', 'Hu', 'hx', 'hu': polyhedral constraints Hx*x <= hx, Hu*u <= hu
+        """
+
+        # get symbolic variable type
+        MSX = self.__MSX
+
+        # extract dimensions
+        n = self.dim
+
+        # extract initial condition
+        x0 = self.__model['x0']
+
+        # start by constructing matrices G_x and G_u, and vector g_c such that
+        # x = G_x*x_0 + G_u*u + g_c, where x = vec(x_1,x_2,...,x_N), 
+        # u = vec(u_0,u_1,...,u_N-1).
+        # To obtain g_c we need to multiply all the affine terms by a matrix
+        # similar to G_u, which we call G_c.
+        
+        # first initialize G_u with the zero matrix
+        G_u = MSX(n['x']*n['N'],n['u']*n['N'])
+
+        # initialize G_c
+        G_c = MSX(n['x']*n['N'],n['x']*n['N'])
+
+        # we will need a tall matrix that will replace the columns of G_u
+        # initially it is equal to a tall matrix full of zeros with an
+        # identity matrix at the bottom.
+        col = MSX.eye(n['N']*n['x'])[:,(n['N']-1)*n['x']:n['N']*n['x']]
+
+        # loop through all columns of G_u (t ranges from N-1 to 1)
+        for t in range(n['N']-1,0,-1):
+
+            # get matrices A and at time-step t
+            A_t = A_list[t]
+            B_t = B_list[t]
+
+            # update G_u matrix
+            G_u[:,t*n['u']:(t+1)*n['u']] = col@B_t
+
+            # update G_c matrix
+            G_c[:,t*n['x']:(t+1)*n['x']] = col
+
+            # update col by multiplying with A matrix and adding identity matrix
+            col = col@A_t + MSX.eye(n['N']*n['x'])[:,(t-1)*n['x']:t*n['x']]
+
+        # get linearized dynamics at time-step 0
+        A_0 = A_list[0]
+        B_0 = B_list[0]
+
+        # correct first entry of c_list
+        c_list[0] = c_list[0] + A_0@x0
+
+        # now we only miss the left-most column (use x0 instead of x[:n['x']])
+        G_u[:,:n['u']] = col@B_0
+
+        # same for G_c
+        G_c[:,:n['x']] = col
+
+        # matrix G_x is simply col@A_0
+        G_x = col@A_0
+
+        # to create g_c concatenate vertically the entries in the list c_t_list
+        # then multiply by G_c from the right
+        c_t = -vcat(c_list)
+        g_c = G_c@c_t
+
+        # attach terminal cost to state cost matrix
+        Qx = blockcat(Qx,MSX((n['N']-1)*n['x'],n['x']),MSX(n['x'],(n['N']-1)*n['x']),Qn)
+
+        # create dictionary
+        out = {'G_x':G_x,'G_u':G_u,'g_c':g_c,'Qx':Qx,'Ru':Ru,'x_ref':x_ref,'u_ref':u_ref,'Hx':Hx,'Hu':Hu,'hx':hx,'hu':hu}
+
+        return out
 
     # overwrite the __dir__ method
     def __dir__(self):

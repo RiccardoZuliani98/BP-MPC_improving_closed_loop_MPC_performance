@@ -294,7 +294,7 @@ class dynamics:
             1. If the model is affine, then A,B,c are the true nominal dynamics of the system, this happens
                if self.model.type == 'affine'.
                
-            2. The model can be linearized around the initial state (linearization = 'initial_state').
+            2. The model can be linearized around the initial state (linearization = 'state').
                In this case, the linearization trajectory is a single input u_lin.
 
             3. (default) The model can be linearized along a trajectory (linearization = 'trajectory').

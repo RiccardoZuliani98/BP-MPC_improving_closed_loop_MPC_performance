@@ -171,6 +171,19 @@ class QP:
         init contains the initial value of the QP variables, it can be set through __setInit.
         """
         self.__init = {'y_lin':None}
+
+
+        """
+        Options dictionary
+        """
+        self.__options = {}
+
+        
+        """
+        Allowed option keys
+        """
+        self.__allowed_options_keys = ['linearization','slack','qp_mode','solver','warmstart','jac_tol','jac_gamma']
+
         pass
 
     @property
@@ -326,12 +339,27 @@ class QP:
         }.items() if v is not None}
     
     @property
+    def options(self):
+        return self.__options
+
+    def __updateOptions(self, value):
+
+        # check if value is a dictionary
+        if not isinstance(self.__cost, dict):
+            raise Exception('Options must be a dictionary.')
+        
+        # remove keys that are not allowed
+        value = {k:v for k,v in value.items() if k in self.__allowed_options_keys}
+
+        # update options dictionary
+        self.__options = self.__options | value
+    
+    @property
     def init(self):
         return {k:v for k,v in self.__init.items()}
     
     def __setInit(self, value):
         self.__init = self.__init | self.__checkInit(value)
-        
 
     def __checkInit(self, value):
 

@@ -57,10 +57,10 @@ c_q = SX.sym('c_q',int(n['x']*(n['x']+1)/2),1)
 c_r = SX.sym('c_r',1,1)
 
 # stage cost (state)
-Qx = kron(SX.eye(N-1),Q_true)
+Qx = Q_true
 
 # stage cost (input)
-Ru = kron(SX.eye(N),c_r**2)#+1e-6)
+Ru = c_r**2#+1e-6
 
 # create parameter
 p = vcat([c_q,c_r])
@@ -76,13 +76,16 @@ c_quad = 5
 mpc_cost = {'Qx':Qx, 'Qn':Qn, 'Ru':Ru}
 
 # turn bounds into polyhedral constraints
-Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,N)
+Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
 mpc_cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # add to model
 mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
+
+#TODO create a function makeQP that is more "low level" than makeMPC
+# mod.makeQP(G,g,F,f,Q,q,options={'compile':compile_qp_dense})
 
 
 ### UPPER LEVEL -----------------------------------------------------------
