@@ -445,8 +445,8 @@ class MPC:
             - 'Ru': input cost, list of matrices (of length N)
             - 'x_ref': state reference, list of vectors (of length N) [optional, defaults to 0]
             - 'u_ref': input reference, list of vectors (of length N) [optional, defaults to 0]
-            - 'c_lin': linear penalty on slack variables, scalar [optional]
-            - 'c_quad': quadratic penalty on slack variables, scalar [optional]
+            - 'c_lin': linear penalty on slack variables, list of scalars (of length N) [optional]
+            - 'c_quad': quadratic penalty on slack variables, list of scalars (of length N) [optional]
 
         """
         
@@ -595,6 +595,8 @@ class MPC:
             except:
                 raise Exception('s_lin must be a scalar.')
             
+            s_lin = [s_lin] * self.dim['N']
+            
             # update cost
             self.__cost = self.__cost | {'s_lin':s_lin}
 
@@ -605,6 +607,8 @@ class MPC:
                 s_quad = self.__MSX(s_quad)
             except:
                 raise Exception('s_quad must be a scalar.')
+            
+            s_quad = [s_quad] * self.dim['N']
             
             # update cost
             self.__cost = self.__cost | {'s_quad':s_quad}
@@ -836,8 +840,8 @@ class MPC:
         """
         This function converts an MPC problem of the form
 
-        minimize      1/2 (x_N-x_r_N)^T Q_n (x_N-x_r_N)
-         x,u,e      + 1/2 \sum_{t=0}^{N-1} [ (x_t-x_r_t)^T Q_x (x_t-x_r_t) + (u_t-u_r_t)^T R_u (u_t-u_r_t) ]
+        minimize      1/2 (x_N-x_r_N)^T Qx[t] (x_N-x_r_N)
+         x,u,e      + 1/2 \sum_{t=0}^{N-1} [ (x_t-x_r_t)^T Qx[t] (x_t-x_r_t) + (u_t-u_r_t)^T Ru[t] (u_t-u_r_t) ]
                     + 1/2 \sum_{t=0}^{N} [ c_lin e_t + c_quad e_t^T e_t ]
 
         subject to  x_{t+1} = A_t x_t + B_t u_t + c_t,  t = 0,...,N-1,
@@ -1001,11 +1005,11 @@ class MPC:
         if s_lin is not None:
 
             # if penalty is greater than 0, set slack mode to true
-            if s_lin > 0:
+            if all([elem > 0 for elem in s_lin]):
                 slack = True
             
             # if penalty is negative, raise exception
-            elif s_lin <= 0:
+            elif any([elem <= 0 for elem in s_lin]):
                 raise Exception('Linear slack penalty must be positive.')
             
         # check if quadratic slack penalty is passed

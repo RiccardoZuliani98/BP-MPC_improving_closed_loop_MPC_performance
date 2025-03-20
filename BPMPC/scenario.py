@@ -1045,14 +1045,19 @@ class scenario:
             raise Exception('Parameter p_qp is required to compute conservative jacobian.')
             
         # turn to column vector
-        p = vcat(self.QP.param['p_qp'])
-        p_full = [p]
+        # p = vcat(self.QP.param['p_qp'])
+        # p_full = p
+        p_full = self.QP.param['p_qp']
 
         # check if pf was passed
-        if 'pf' in self.param:
-            pf = vcat(self.param['pf_t'])
+        if 'pf_t' in self.param:
+            # pf = vcat(self.param['pf_t'])
             # if so, add to p_full
-            p_full.append(pf)
+            # p_full.append(pf)
+            pf = self.param['pf_t']
+            p = vcat([param for param in p_full if not(depends_on(param, pf))])
+        else:
+            p = vcat(p_full)
 
         # turn p_full into column vector
         p_full = vcat(p_full)        
@@ -2157,8 +2162,6 @@ class scenario:
         return S, out_dict, qp_failed
 
     def closedLoop(self,init={},options={}):
-
-        #TODO: option to pick last p and not best p
 
         """
         This function runs the closed-loop optimization algorithm. The inputs are
