@@ -336,11 +336,11 @@ class dynamics:
             p_nom_names = self.param_nominal.keys()
             
             # extract nominal values of nominal parameters
-            p_init_nom = [self.init[i] if self.init[i] is not None else DM(self.dim[i], 1) for i in p_nom_names]
+            p_init_nom = [self.init[i] if self.init[i] is not None else DM(*self.param[i].shape) for i in p_nom_names]
 
             # get nominal state and input
-            x_nom = self.init['x'] if self.init['x'] is not None else DM(self.dim['x'], 1)
-            u_nom = self.init['u'] if self.init['u'] is not None else DM(self.dim['u'], 1)
+            x_nom = self.init['x'] if self.init['x'] is not None else DM(*self.param['x'].shape)
+            u_nom = self.init['u'] if self.init['u'] is not None else DM(*self.param['u'].shape)
 
             # create nominal dynamics f(x,u) = Ax + bu + c
             A_mat = A(*p_init_nom)
@@ -354,6 +354,9 @@ class dynamics:
 
             # patch first entry of c_list
             c_list[0] = c_list[0] - A_mat@x
+
+            # no linearization here
+            y_lin = None
 
         # if mode is 'initial_state', linearize around the initial state
         elif linearization == 'initial_state':

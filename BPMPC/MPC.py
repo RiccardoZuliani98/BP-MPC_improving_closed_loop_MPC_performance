@@ -139,7 +139,7 @@ class MPC:
             raise Exception('MSX must be either SX or MX.')
         
         # gather inputs that are not None (except MSX)
-        inputs = {k:v for k,v in locals().items() if k in self.allowed_inputs and v is not None}
+        inputs = {k:v for k,v in locals().items() if k in ['N','model','cost','cst'] and v is not None}
 
         # call update function
         self.updateMPC(**inputs)
@@ -350,7 +350,7 @@ class MPC:
                 raise Exception('N must be passed if A is a single matrix.')
 
             # create list of A matrices
-            A_mat = [A_mat] * self.N
+            A_mat = [A_mat] * self.dim['N']
 
         # check if B is passed as list
         if isinstance(B_mat,list):
@@ -373,10 +373,10 @@ class MPC:
                 B_mat = self.__MSX(B_mat)
             except:
                 raise Exception('B must be a matrix.')
-            B_mat = [B_mat] * self.N
+            B_mat = [B_mat] * self.dim['N']
 
             # update input dimension
-            self.__add_to_dim({'u':B_mat.shape[1]})
+            self.__add_to_dim({'u':B_mat[0].shape[1]})
 
         # check if c is passed
         if 'c' in model:

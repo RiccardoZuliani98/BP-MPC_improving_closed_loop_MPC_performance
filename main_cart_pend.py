@@ -44,10 +44,10 @@ u_min = -u_max
 p = SX.sym('c_q',int(n['x']*(n['x']+1)/2),1)
 
 # stage cost (state)
-Qx = kron(SX.eye(N-1),Q_true)
+Qx = Q_true
 
 # stage cost (input)
-Ru = kron(SX.eye(N),R_true)
+Ru = R_true
 
 # MPC terminal cost
 Qn = utils.param2terminalCost(p) + SX.eye(n['x'])
@@ -60,7 +60,7 @@ s_quad = 100
 mpc_cost = {'Qx':Qx, 'Qn':Qn, 'Ru':Ru, 's_lin':s_lin, 's_quad':s_quad}
 
 # turn bounds into polyhedral constraints
-Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,N)
+Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
 mpc_cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
@@ -68,7 +68,7 @@ mpc_cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 # MPC uses linearized model at the origin
 A = mod.dyn.A_nom(DM(n['x'],1),DM(n['u'],1))
 B = mod.dyn.B_nom(DM(n['x'],1),DM(n['u'],1))
-model = {'A':A,'B':B}
+model = {'A':A,'B':B,'x0':mod.param['x']}
 
 # add to model
 mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,model=model,p=p,options={'jac_tol':7,'solver':'daqp'})

@@ -470,6 +470,9 @@ class scenario:
         if model is None:
             A_list, B_list, c_list, y_lin = self.linearize(N,linearization=options['linearization'])
             model = {'A':A_list,'B':B_list,'c':c_list,'y_lin':y_lin,'x0':self.param['x']}
+            # check if model is affine
+            if y_lin is None:
+                options['linearization'] = 'none'
 
         # extract y_lin from model if present
         if 'y_lin' in model:

@@ -43,19 +43,19 @@ def MPC():
     pf_qp = SX.sym('pf_qp',4,1)
 
     # create reference
-    x_ref = pf_qp[:2]
-    u_ref = pf_qp[2:]
+    x_ref = vertsplit(pf_qp[:2])
+    u_ref = vertsplit(pf_qp[2:])
 
     # MPC costs
     Qx = SX(1)
-    Ru = SX.eye(2)
+    Ru = SX(2)
     Qn = SX(1)
 
     # add to mpc dictionary
     mpc_cost = {'Qx':Qx, 'Qn':Qn, 'Ru':Ru, 'x_ref':x_ref, 'u_ref':u_ref}
 
     # turn bounds into polyhedral constraints
-    Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,N)
+    Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 
     # add to mpc dictionary
     mpc_cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
