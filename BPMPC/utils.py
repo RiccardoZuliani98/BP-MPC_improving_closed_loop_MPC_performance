@@ -110,7 +110,7 @@ def dare2param(A,B,Q,R):
 
     return P2p(P_half)
 
-def bound2poly(x_max,x_min,u_max,u_min,N):
+def bound2poly(x_max,x_min,u_max,u_min,N=1):
 
     # turn to DM
     x_max = DM(x_max)

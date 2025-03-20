@@ -73,7 +73,7 @@ c_quad = 5
 mpc_cost = {'Qx':Qx, 'Qn':Qn, 'Ru':Ru}
 
 # turn bounds into polyhedral constraints
-Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,1)
+Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
 mpc_cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
