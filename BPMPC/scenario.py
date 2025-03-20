@@ -512,6 +512,8 @@ class scenario:
         # add y_lin to QP variables
         if y_lin is not None:
             self.QP._QP__set_y_lin(y_lin)
+        else:
+            self.QP._QP__updateOptions({'linearization':'none'})
 
         # check if slack variables are present
         if 'eps' in idx:

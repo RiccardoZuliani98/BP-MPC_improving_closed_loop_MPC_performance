@@ -50,7 +50,7 @@ Qx = Q_true
 Ru = R_true
 
 # MPC terminal cost
-Qn = utils.param2terminalCost(p) + SX.eye(n['x'])
+Qn = utils.param2terminalCost(p) + 0.01*SX.eye(n['x'])
 
 # slack cost
 s_lin = 100

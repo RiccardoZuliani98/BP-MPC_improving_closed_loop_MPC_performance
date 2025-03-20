@@ -1004,16 +1004,26 @@ class MPC:
         # check if linear slack penalty is passed
         if s_lin is not None:
 
+            # check that all entries in s_lin are equal and turn s_lin to a scalar
+            if len(set(s_lin)) !=1:
+                raise Exception('Linear slack penalty must be a scalar.')
+            s_lin = s_lin[0]
+
             # if penalty is greater than 0, set slack mode to true
-            if all([elem > 0 for elem in s_lin]):
+            if s_lin > 0:
                 slack = True
             
             # if penalty is negative, raise exception
-            elif any([elem <= 0 for elem in s_lin]):
+            elif s_lin <= 0:
                 raise Exception('Linear slack penalty must be positive.')
             
         # check if quadratic slack penalty is passed
         if s_quad is not None:
+
+            # check that all entries in s_quad are equal and turn s_quad to a scalar
+            if len(set(s_quad)) !=1:
+                raise Exception('Quadratic slack penalty must be a scalar.')
+            s_quad = s_quad[0]
 
             # if penalty is greater than 0, set slack mode to true
             if s_quad > 0:
