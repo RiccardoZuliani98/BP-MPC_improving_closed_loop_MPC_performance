@@ -378,6 +378,16 @@ class MPC:
             # update input dimension
             self.__add_to_dim({'u':B_mat[0].shape[1]})
 
+        # extract initial state
+        if 'x0' in model:
+            x0 = model['x0']
+
+            # check dimension
+            if x0.shape[0] != self.dim['x']:
+                raise Exception('Initial state must have the right dimension.')
+        else:
+            raise Exception('Initial state must be passed.')
+
         # check if c is passed
         if 'c' in model:
 
@@ -405,15 +415,8 @@ class MPC:
         else:
             c_mat = [self.__MSX(self.dim['x'],1)] * self.dim['N']
 
-        # extract initial state
-        if 'x0' in model:
-            x0 = model['x0']
-
-            # check dimension
-            if x0.shape[0] != self.dim['x']:
-                raise Exception('Initial state must have the right dimension.')
-        else:
-            raise Exception('Initial state must be passed.')
+            # patch first entry
+            c_mat[0] = - A_mat[0]@x0
 
         # patch first entry
         # c_mat[0] = - A_mat[0]@x0

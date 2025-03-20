@@ -55,7 +55,7 @@ class scenario:
 
     @property
     def options(self):
-        return self.mpc.options | self.upperLevel.options
+        return self.QP.options | self.upperLevel.options
 
     ### PARAMETERS ---------------------------------------------------------
     
