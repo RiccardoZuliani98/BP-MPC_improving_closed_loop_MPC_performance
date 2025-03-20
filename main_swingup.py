@@ -127,7 +127,7 @@ eta = 0.51
 
 # create GD update rule
 # p_next = p -(rho*log(k+1)/(k+1)**eta)*if_else(norm_2(Jp)>50000,Jp*50000/norm_2(Jp),Jp)
-p_next = p -(rho*log(k+1)/(k+1)**eta)*Jp
+p_next = p -(rho*log(k+2)/(k+2)**eta)*Jp
 
 # create update function
 mod.setUpperLevelAlg(p_next)
@@ -142,7 +142,10 @@ S,qp_data_sparse,_ = mod.simulate()
 plotter.plotTrajectory(S,options={'x':[0,1,2,3],'x_legend':['Position untrained','Velocity untrained','Angle untrained','Angular velocity untrained'],'u':[0],'u_legend':['Force untrained'],'color':'blue'},show=False)
 
 # test closed loop
-SIM,time_sparse,p_final = mod.closedLoop(options={'max_k':50})
+SIM,time_sparse,p_final = mod.closedLoop(options={'max_k':5})
+
+# get last value of p
+p_final = SIM[-1].p
 
 # create plots
 plotter.plotTrajectory(SIM[-1],options={'x':[0,1,2,3],'x_legend':['Position tuned','Velocity tuned','Angle tuned','Angular velocity tuned'],'u':[0],'u_legend':['Force tuned'],'color':'red'},show=False)
@@ -162,7 +165,7 @@ plotter.plotTrajectory(nlp_out,options={'x':[0,1,2,3],'x_legend':['Position best
 
 # after training, test speed of dense and sparse qp formulations
 # start with sparse
-SIM_sparse,time_sparse,p_final = mod.closedLoop(init={'p':p_final},options={'max_k':30,'mode':'Simulate'})
+SIM_sparse,time_sparse,p_final = mod.closedLoop(init={'p':p_final},options={'max_k':3,'mode':'Simulate'})
 
 # printout
 max_time = np.max(time_sparse['qp'])
@@ -171,7 +174,7 @@ print(f'Max qp time (sparse): {max_time}, mean qp time (sparse): {mean_time}')
 
 # create sparse QP
 mod.makeDenseQP(p_final,solver='daqp')
-SIM_dense,time_dense,p_final = mod.closedLoop(init={'p':p_final},options={'max_k':30,'mode':'dense'})
+SIM_dense,time_dense,p_final = mod.closedLoop(init={'p':p_final},options={'max_k':3,'mode':'dense'})
 
 # printout
 max_time = np.max(time_dense['qp'])

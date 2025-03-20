@@ -2155,6 +2155,8 @@ class scenario:
 
     def closedLoop(self,init={},options={}):
 
+        #TODO: option to pick last p and not best p
+
         """
         This function runs the closed-loop optimization algorithm. The inputs are
 
@@ -2180,8 +2182,8 @@ class scenario:
                             or 'dense' (dense mode is used and jacobians are not computed)
                     - shift_linearization: True (default) if the input-state trajectory used for 
                                            linearization should be shifted, False otherwise
-                    - warmstart_first_qp:True (default) if the first QP should be solved twice (with
-                                           propagation of the sensitivity)
+                    - warmstart_first_qp: True (default) if the first QP should be solved twice (with
+                                          propagation of the sensitivity)
                     - debug_qp: False (default), or True if debug information about the QP should be stored
                     - epsilon: perturbation magnitude used to compute finite difference derivatives of QP,
                                default is 1e-6

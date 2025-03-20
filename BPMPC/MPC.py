@@ -1062,10 +1062,10 @@ class MPC:
                 raise Exception('Quadratic slack penalty must be a scalar.')
 
             # add columns associated to input and slack variables
-            Hx = hcat([Hx,MSX(Hx.shape[0],n['N']*n['u']),-Hx_e])
+            Hx_u = hcat([Hx,MSX(Hx.shape[0],n['N']*n['u']),-Hx_e])
 
             # add columns associated to state and slack variables
-            Hu = hcat([MSX(Hu.shape[0],n['N']*n['x']),Hu,MSX(Hu.shape[0],n['eps'])])
+            Hu_x = hcat([MSX(Hu.shape[0],n['N']*n['x']),Hu,MSX(Hu.shape[0],n['eps'])])
 
             # add nonnegativity constraints on slack variables
             He = hcat([MSX(n['eps'],n['N']*(n['x']+n['u'])),-MSX.eye(n['eps'])])
@@ -1073,26 +1073,26 @@ class MPC:
 
             # create inequality constraint matrices
             try:
-                G = cse(sparsify(vcat([Hx,Hu,He])))
+                G = cse(sparsify(vcat([Hx_u,Hu_x,He])))
                 g = cse(sparsify(vcat([hx,hu,he])))
             except:
-                G = vcat([Hx,Hu,He])
+                G = vcat([Hx_u,Hu_x,He])
                 g = vcat([hx,hu,he])
 
         else:
 
             # add columns associated to input and slack variables
-            Hx = hcat([Hx,MSX(Hx.shape[0],n['N']*n['u'])])
+            Hx_u = hcat([Hx,MSX(Hx.shape[0],n['N']*n['u'])])
 
             # add columns associated to state and slack variables
-            Hu = hcat([MSX(Hu.shape[0],n['N']*n['x']),Hu])
+            Hu_x = hcat([MSX(Hu.shape[0],n['N']*n['x']),Hu])
                 
             # create inequality constraint matrices
             try:
-                G = cse(sparsify(vcat([Hx,Hu])))
+                G = cse(sparsify(vcat([Hx_u,Hu_x])))
                 g = cse(sparsify(vcat([hx,hu])))
             except:
-                G = vcat([Hx,Hu])
+                G = vcat([Hx_u,Hu_x])
                 g = vcat([hx,hu])
 
         
