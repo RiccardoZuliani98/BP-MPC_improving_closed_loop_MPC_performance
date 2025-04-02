@@ -24,6 +24,7 @@ dyn = cart_pend.dynamics(dt=0.015)
 
 # store in model
 mod.makeDynamics(dyn,compile=compile_dynamics)
+# dyn = dynamics(dyn,compile=compile_dynamics)
 
 # extract dimensions for simplicity
 n = mod.dim

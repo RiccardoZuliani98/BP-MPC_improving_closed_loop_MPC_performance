@@ -707,8 +707,7 @@ class MPC:
                 Hx = [Hx] * self.dim['N']
 
                 # check if hx is passed
-                if 'hx' not in value:
-                    raise Exception('hx must be passed with Hx.')
+                assert 'hx' in value, 'hx must be passed with Hx.'
                 
                 # check that hx is a single matrix
                 try:
@@ -1156,8 +1155,8 @@ class MPC:
             Q = blockcat(Q,MSX(Q.shape[0],n['eps']),MSX(n['eps'],Q.shape[0]),s_quad*MSX.eye(n['eps']))
 
         # inverse of quadratic cost matrix
-        # Qinv = inv_minor(Q)
-        Qinv = inv(Q)
+        Qinv = inv_minor(Q)
+        # Qinv = inv(Q)
 
         # create linear part of the cost
         if slack:
