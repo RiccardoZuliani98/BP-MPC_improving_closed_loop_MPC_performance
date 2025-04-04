@@ -158,6 +158,20 @@ def bound2poly(x_max,x_min,u_max,u_min,N=1):
 
     return Hx,hx,Hu,hu
 
+# matrix generating a block diagonal matrix starting from the individual blocks
+def matrixify(M_list,MSX):
+
+    # get dimensions
+    N = len(M_list)
+    n_col = M_list[0].shape[1]
+    n_row = M_list[0].shape[0]
+
+    # pad matrices with zeros
+    M_list_pad = [ vcat([MSX(i*n_row,n_col),M_list[i],MSX((N-i-1)*n_row,n_col)]) for i in range(N) ]
+
+    # stack horizontally
+    return hcat(M_list_pad)
+
 # imports
 import os, glob
 
