@@ -532,7 +532,10 @@ class dynamics:
                 c_i = - ( fd(x_i,u_i) - A_i@x_i - B_i@u_i )
                 c_list.append(c_i)
 
-        return A_list, B_list, c_list, y_lin
+        # create output dictionary
+        out = {'A':A_list, 'B':B_list, 'c':c_list, 'y_lin':y_lin, 'x':x}
+
+        return out
 
     @property
     def x(self):

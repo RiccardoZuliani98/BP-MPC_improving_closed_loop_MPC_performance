@@ -1,5 +1,6 @@
 from BPMPC.scenario import scenario
 from BPMPC.dynamics import dynamics
+from BPMPC.Ingredients import Ingredients
 import BPMPC.utils as utils
 import BPMPC.tests as tests
 import Examples.cart_pend as cart_pend
@@ -21,60 +22,68 @@ dyn_dict = cart_pend.dynamics(dt=0.015)
 
 dyn = dynamics(dyn_dict)
 
-# # extract dimensions for simplicity
-# n = mod.dim
+# extract dimensions for simplicity
+n = dyn.dim
 
-# # set initial conditions
-# x0 = vertcat(0,0,-pi,0)
-# u0 = 0.1
+# set initial conditions
+x0 = vertcat(0,0,-pi,0)
+u0 = 0.1
 # mod.setInit({'x': x0,'u':u0})
 
 
-# ### CREATE MPC -----------------------------------------------------------------------------
+### CREATE MPC -----------------------------------------------------------------------------
 
-# # upper level cost
-# Q_true = diag(vertcat(100,1,100,1))
-# R_true = 1e-6
+# upper level cost
+Q_true = diag(vertcat(100,1,100,1))
+R_true = 1e-6
 
-# # mpc horizon
-# N = 11
+# mpc horizon
+N = 11
 
-# # constraints are simple bounds on state and input
-# x_max = vertcat(5,5,inf,inf)
-# x_min = -x_max
-# u_max = 4
-# u_min = -u_max
+# generate model
+qp_ingredients = dyn.linearize(N)
 
-# # parameter = terminal state cost and input cost
-# c_q = SX.sym('c_q',int(n['x']*(n['x']+1)/2),1)
-# c_r = SX.sym('c_r',1,1)
+# constraints are simple bounds on state and input
+x_max = vertcat(5,5,inf,inf)
+x_min = -x_max
+u_max = 4
+u_min = -u_max
 
-# # stage cost (state)
-# Qx = Q_true
+# parameter = terminal state cost and input cost
+c_q = SX.sym('c_q',int(n['x']*(n['x']+1)/2),1)
+c_r = SX.sym('c_r',1,1)
 
-# # stage cost (input)
-# Ru = c_r**2#+1e-6)
+# stage cost (state)
+Qx = [Q_true] * (N-1)
 
-# # create parameter
-# p = vcat([c_q,c_r])
+# stage cost (input)
+Ru = c_r**2 + 1e-6
 
-# # MPC terminal cost
-# Qn = utils.param2terminalCost(c_q)# + 0.01*SX.eye(n['x'])
+# create parameter
+p = vcat([c_q,c_r])
 
-# # slack penalties
-# c_lin = 15
-# c_quad = 5
+# MPC terminal cost
+Qn = utils.param2terminalCost(c_q) + 0.01*SX.eye(n['x'])
 
-# # add to mpc dictionary
-# mpc_cost = {'Qx':Qx, 'Qn':Qn, 'Ru':Ru}
+# append to Qx
+Qx.append(Qn)
 
-# # turn bounds into polyhedral constraints
-# Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
+# slack penalties
+c_lin = 15
+c_quad = 5
 
-# # add to mpc dictionary
-# mpc_cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
+# add to mpc dictionary
+qp_ingredients = qp_ingredients | {'Qx': Qx, 'Ru':Ru}
 
-# # add to model
+# turn bounds into polyhedral constraints
+Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
+
+# add to mpc dictionary
+qp_ingredients = qp_ingredients | {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
+
+# create QP ingredients
+ing = Ingredients(qp_ingredients)
+
 # mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
 
 
