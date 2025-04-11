@@ -41,7 +41,7 @@ R_true = 1e-6
 N = 11
 
 # generate model
-qp_ingredients = dyn.linearize(N)
+model = dyn.linearize(N)
 
 # constraints are simple bounds on state and input
 x_max = vertcat(5,5,inf,inf)
@@ -73,16 +73,16 @@ c_lin = 15
 c_quad = 5
 
 # add to mpc dictionary
-qp_ingredients = qp_ingredients | {'Qx': Qx, 'Ru':Ru}
+cost = {'Qx': Qx, 'Ru':Ru}
 
 # turn bounds into polyhedral constraints
 Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
-qp_ingredients = qp_ingredients | {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
+constraints = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
-ing = Ingredients(qp_ingredients)
+ing = Ingredients(model | cost | constraints)
 
 # mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
 

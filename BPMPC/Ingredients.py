@@ -81,8 +81,8 @@ class Ingredients:
 
         min 1/2 y'Qy + q'y
         s.t. Gy <= g
-             Fy = y
-
+             Fy = f
+    
     and the dual problem is a QP with the following structure:
 
         min 1/2 z'Hz + h'z
@@ -142,7 +142,7 @@ class Ingredients:
         """
 
         # set symbolic variable type
-        self.__MSX = SX if MSX is 'SX' else MX
+        self.__MSX = SX if MSX == 'SX' else MX
         MSX = self.__MSX
 
         # parse inputs

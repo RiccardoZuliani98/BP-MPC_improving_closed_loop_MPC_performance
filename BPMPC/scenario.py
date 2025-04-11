@@ -1,7 +1,6 @@
 from casadi import *
 from BPMPC.dynamics import dynamics
 from BPMPC.QP import QP
-from BPMPC.MPC import MPC
 from BPMPC.upperLevel import upperLevel
 from BPMPC.simVar import simVar
 import time
@@ -952,16 +951,19 @@ class scenario:
 
             # output list
             out = [x]
+
+            # faster with list comprehension
+            # out.append([DM(input)[self.upperLevel.idx[name](t)] for input, name in zip(inputs,input_names) if name in self.upperLevel.idx])
             
             # loop through inputs
-            for k in range(len(inputs)):
+            for input, name in zip(inputs,input_names):
                 
                 # if an idx range has been passed, it means
                 # that the k-th optional input is needed
-                if input_names[k] in self.upperLevel.idx:
+                if name in self.upperLevel.idx:
 
                     # all inputs should be column vectors
-                    out.append(DM(inputs[k])[self.upperLevel.idx[input_names[k]](t)])
+                    out.append(DM(input)[self.upperLevel.idx[name](t)])
 
             return vcat(out)
         
