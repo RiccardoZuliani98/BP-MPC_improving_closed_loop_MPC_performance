@@ -21,8 +21,12 @@ class QP:
         __p_t = None
         __pf_t = None
         __p_qp = None
+        __init = {'y_lin':None}
+
         __ingredients = {}
         __idx = {}
+
+
         __solve = None
         __denseSolve = None
         __qp_sparse = None
@@ -30,19 +34,18 @@ class QP:
         __dual_sparse = None
         __J = None
         __J_y_p = None
-        __init = {'y_lin':None}
+        
 
         # check type of symbolic variables
         assert MSX in ['SX','MX'], 'MSX must be either SX or MX'
         self.__MSX = SX if MSX == 'SX' else MX
 
-    def update(self,G,g,F,f,Q,Qinv,q,idx,y_lin,denseQP,p=None,pf=None,options={}):
+    def update(self,x,G,g,F,f,Q,Qinv,q,idx,y_lin,denseQP,p=None,pf=None,options={}):
 
         # update options
         self.__updateOptions(options)
 
         # add initial state to QP variables
-        x = self.param['x']
         self.__x = x
 
         # add y_lin to QP variables
@@ -157,7 +160,7 @@ class QP:
         # create conservative jacobian
         self.__makeConsJac(gamma=self.QP.options['jac_gamma'],tol=self.QP.options['jac_tol'],compile=self.QP.options['compile_jac'])
 
-    def __makeQP(self,p=None,pf=None,mode='stacked',solver='qpoases',warmstart='x_lam_mu',compile=False):
+    def __makeSparseQP(self,p=None,pf=None,mode='stacked',solver='qpoases',warmstart='x_lam_mu',compile=False):
         
         """
         This function creates the functions necessary to solve the MPC problem in QP form. Specifically, this function
@@ -429,7 +432,7 @@ class QP:
         if compile:
             self.__compTimes = self.__compTimes | comp_time_dict
 
-    def makeDenseQP(self,p,solver='qpoases',compile=False):
+    def __makeDenseQP(self,p,solver='qpoases',compile=False):
 
         """
         Given a numerical value of p, this function constructs the dense QP ingredients and sets up the QP solver,
