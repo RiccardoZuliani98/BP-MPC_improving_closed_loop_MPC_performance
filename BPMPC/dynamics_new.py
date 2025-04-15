@@ -2,6 +2,17 @@ import casadi as ca
 import time
 from BPMPC.symb import Symb
 
+"""
+TODO:
+
+* some descriptions
+* get computation times
+* 
+
+
+
+"""
+
 class Dynamics:
 
     def __init__(self,dyn,compile=False):
@@ -182,6 +193,13 @@ class Dynamics:
     @property
     def dim(self):
         return self.__sym.dim
+    
+    @property
+    def init(self):
+        return {key:val for key,val in self.__sym.init.items() if val is not None}
+    
+    def setInit(self,data):
+        self.__sym.setInit(data)
 
     def linearize(self,N,method='trajectory'):
 

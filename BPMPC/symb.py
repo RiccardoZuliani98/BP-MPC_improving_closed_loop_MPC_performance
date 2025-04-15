@@ -1,5 +1,12 @@
 import casadi as ca
 
+"""
+TODO:
+
+* descriptions
+
+"""
+
 class Symb:
 
     def __init__(self):
@@ -27,6 +34,11 @@ class Symb:
         for name,value in data.items():
         
             assert name in self.__var, 'Cannot initialize variable that does not exist'
+
+            try:
+                value = ca.DM(value)
+            except:
+                raise Exception('Cannot convert init value to DM')
 
             assert self.var[name].shape == value.shape, 'Dimension of initialization does not match dimension of symbolic variable'
 

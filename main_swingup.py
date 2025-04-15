@@ -28,7 +28,7 @@ n = dyn.dim
 # set initial conditions
 x0 = vertcat(0,0,-pi,0)
 u0 = 0.1
-# mod.setInit({'x': x0,'u':u0})
+dyn.setInit({'x': x0,'u':u0})
 
 
 ### CREATE MPC -----------------------------------------------------------------------------
