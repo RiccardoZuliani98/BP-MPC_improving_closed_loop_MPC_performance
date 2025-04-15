@@ -1,9 +1,9 @@
 from BPMPC.scenario import scenario
-from BPMPC.dynamics import dynamics
+from BPMPC.dynamics_new import Dynamics
 from BPMPC.Ingredients import Ingredients
 import BPMPC.utils as utils
 import BPMPC.tests as tests
-import Examples.cart_pend as cart_pend
+import Examples.cart_pend_theta as cart_pend
 from casadi import *
 from BPMPC.plotter import plotter
 
@@ -20,7 +20,7 @@ compile_jac = False
 
 dyn_dict = cart_pend.dynamics(dt=0.015)
 
-dyn = dynamics(dyn_dict)
+dyn = Dynamics(dyn_dict)
 
 # extract dimensions for simplicity
 n = dyn.dim

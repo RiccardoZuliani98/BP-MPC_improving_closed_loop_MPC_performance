@@ -69,6 +69,7 @@ def dynamics(l_p=0.0712,m_p=0.0218,m_c=0.2832,dt=0.05):
     x_next = rk4(fc,x,u,d,dt) + ca.vcat([0,w[0],0,w[1]])
 
     # compute nominal state
-    x_next_nom = rk4(fc,x,u,ca.SX(*d.shape),dt)
+    theta = ca.SX.sym('theta',n_d,1)
+    x_next_nom = rk4(fc,x,u,theta,dt)
 
-    return {'x':x,'u':u,'d':d,'w':w,'x_next':x_next,'x_next_nom':x_next_nom}
+    return {'x':x,'u':u,'d':d,'w':w,'x_next':x_next,'x_next_nom':x_next_nom,'theta':theta}

@@ -2,9 +2,7 @@ import casadi as ca
 
 class Symb:
 
-    def __init__(self,type='SX'):
-
-        self.__setType(type)
+    def __init__(self):
         self.__var = {}
         self.__dim = {}
         self.__init = {}
@@ -36,11 +34,7 @@ class Symb:
                 self.__init[name] = ca.DM(value)
             except:
                 raise Exception('Provided type cannot be converted to DM')
-    
-    @property
-    def type(self):
-        return self.__type
-    
+       
     def getVar(self,name):
         return self.var[name],self.dim[name],self.init[name]
     
@@ -54,13 +48,6 @@ class Symb:
         self.__var[name] = var
         self.__dim[name] = var.shape[0] if var.shape[1] == 1 else var.shape
         self.__init[name] = init
-
-    def __setType(self,type):
-
-        assert type in ['SX','MX'], 'Supper types are SX and MX'
-
-        self.__type = ca.SX if type == 'SX' else ca.MX
-        self.__typeString = type
 
     def __add__(self,other):
 
