@@ -1,0 +1,22 @@
+DYNAMICS
+
+def __init__(self,dyn,MSX='SX',compile=False):
+
+    """
+    Dynamics constructor. It requires a dictionary as an input with keys:
+
+        - 'x': symbolic state variable (n_x,1)
+        - 'u': symbolic input variable (n_u,1)
+        - 'x_dot': symbolic derivative of the state (n_x,1)
+        - 'x_next': symbolic next state (n_x,1)
+        - 'w': (optional) symbolic noise variable (n_w,1)
+        - 'd': (optional) symbolic disturbance variable (n_d,1)
+        - 'x0': (optional) initial state (n_x,1)
+        - 'u0': (optional) initial input (n_u,1)
+        - 'w0': (optional) nominal noise (n_w,1)
+        - 'd0': (optional) nominal disturbance (n_d,1)
+
+    additionally, you can specify the symbolic variable used ('SX' or 'MX'), as well as the 
+    compilation option (Boolean).
+
+    """

@@ -1,5 +1,6 @@
 import casadi as ca
 from symb import Symb
+import timeit
 
 sym1 = Symb()
 
@@ -19,3 +20,7 @@ sym1 += sym2
 
 print(sym1.getVar('y'))
 print(sym1.var)
+
+
+print(timeit.timeit('(sym1+sym2).getVar(\'y\')',number=2000, globals=globals())/2000)
+print(timeit.timeit('(sym1.add2(sym2)).getVar(\'y\')',number=2000, globals=globals())/2000)

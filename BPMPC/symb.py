@@ -22,6 +22,21 @@ class Symb:
         # return {key:val for key,val in self.init.items() if val is not None}
         return self.__init
     
+    def setInit(self,data):
+
+        assert isinstance(data,dict), 'Pass a dictionary to initialize variables'
+
+        for name,value in data.items():
+        
+            assert name in self.__var, 'Cannot initialize variable that does not exist'
+
+            assert self.var[name].shape == value.shape, 'Dimension of initialization does not match dimension of symbolic variable'
+
+            try:
+                self.__init[name] = ca.DM(value)
+            except:
+                raise Exception('Provided type cannot be converted to DM')
+    
     @property
     def type(self):
         return self.__type
@@ -45,16 +60,20 @@ class Symb:
         assert type in ['SX','MX'], 'Supper types are SX and MX'
 
         self.__type = ca.SX if type == 'SX' else ca.MX
+        self.__typeString = type
 
     def __add__(self,other):
 
-        assert type(self.type()) is type(other.type()), 'Type of addends must match'
+        assert self.type is other.type, 'Type of addends must match'
 
-        self.__dim = self.dim | other.dim
-        self.__var = self.var | other.var
-        self.__init = self.init | other.init
+        # create copy of class
+        self_copy = self.__class__(self.__typeString)
 
-        return self
+        self_copy.__dim = self.dim | other.dim
+        self_copy.__var = self.var | other.var
+        self_copy.__init = self.init | other.init
+
+        return self_copy
 
     def __iadd__(self,other):
 
@@ -65,3 +84,14 @@ class Symb:
         self.__init = self.init | other.init
 
         return self
+    
+    def copy(self):
+
+        # create copy of class
+        self_copy = self.__class__(self.__typeString)
+
+        self_copy.__dim = self.dim
+        self_copy.__var = self.var
+        self_copy.__init = self.init
+
+        return self_copy

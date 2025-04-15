@@ -1,36 +1,10 @@
-from casadi import *
+import casadi as ca
 import time
+from BPMPC.symb import Symb
 
 class dynamics:
 
-    def __init__(self,dyn,MSX='SX',compile=False):
-
-        """
-        Dynamics constructor. It requires a dictionary as an input with keys:
-
-            - 'x': symbolic state variable (n_x,1)
-            - 'u': symbolic input variable (n_u,1)
-            - 'x_dot': symbolic derivative of the state (n_x,1)
-            - 'x_next': symbolic next state (n_x,1)
-            - 'w': (optional) symbolic noise variable (n_w,1)
-            - 'd': (optional) symbolic disturbance variable (n_d,1)
-            - 'x0': (optional) initial state (n_x,1)
-            - 'u0': (optional) initial input (n_u,1)
-            - 'w0': (optional) nominal noise (n_w,1)
-            - 'd0': (optional) nominal disturbance (n_d,1)
-
-        additionally, you can specify the symbolic variable used ('SX' or 'MX'), as well as the 
-        compilation option (Boolean).
-
-        """
-
-        # check type of symbolic variables
-        if MSX == 'SX':
-            self.__MSX = SX
-        elif MSX == 'MX':
-            self.__MSX = MX
-        else:
-            raise Exception('MSX must be either SX or MX.')
+    def __init__(self,dyn,compile=False):
 
         # compilation options
         if compile:
@@ -39,36 +13,40 @@ class dynamics:
         else:
             options = {}
 
-        # initialize dictionary containing all compilation times
-        comp_time_dict = {}
-
+        # check that all keys were passed
         assert all(key in dyn for key in ['x', 'u', 'x_dot', 'x_next']), 'x,u,x_dot and x_next must be defined.'
-
-        # store state and input
-        self.__x = dyn['x']
-        self.__u = dyn['u']
 
         # check dimensions of x_next and x_dot
         assert dyn['x_next'].shape == dyn['x'].shape, 'x_next must have the same dimensions as x.'
         assert dyn['x_dot'].shape == dyn['x'].shape, 'x_dot must have the same dimensions as x.'
+
+        # determine type
+        self.__MSX = type(dyn['x'])
+        MSX = self.__MSX
+        assert MSX in [ca.SX,ca.MX], 'Supported symbolic types are SX and MX'
+
+        # create dictionary containing symbolic variables
+        self.__sym = Symb('SX') if type(MSX) is ca.SX else Symb('MX')
+
+        # store state and input
+        self.__sym.addVar('x', dyn['x'])
+        self.__sym.addVar('u', dyn['u'])
 
         # store next state and derivative
         self.__x_next = dyn['x_next']
         self.__x_dot = dyn['x_dot']
 
         # store noise and disturbance if present
-        if 'w' in dyn:
-            self.__w = dyn['w']
         if 'd' in dyn:
-            self.__d = dyn['d']
+            self.__sym.addVar('d', dyn['d'])
+        if 'w' in dyn:
+            self.__sym.addVar('w', dyn['w'])
 
-        self.__dim = {}
-
-        # compute dimensions of parameters
-        self.__addDim({k: v.shape[0] for k, v in self.param.items()})
+        # initialize dictionary containing all compilation times
+        comp_time_dict = {}
 
         # extract symbolic parameters and their names
-        p_names,p = zip(*self.param.items())
+        p_names, p = zip(*[(key, val) for key, val in self.__sym.var.items() if key in ['x', 'u', 'd', 'w']])
 
         # turn into a list
         p = list(p)
@@ -76,14 +54,14 @@ class dynamics:
 
         # create casadi function for the dynamics
         start = time.time()
-        fc = Function('fc', p, [self.x_dot], p_names, ['x_dot'], options)
+        fc = ca.Function('fc', p, [self.__sym.var['x_dot']], p_names, ['x_dot'], options)
         comp_time_dict = comp_time_dict | {'fc':time.time()-start}
         start = time.time()
-        f = Function('f', p, [self.x_next], p_names, ['x_next'], options)
+        f = ca.Function('f', p, [self.__sym.var['x_next']], p_names, ['x_next'], options)
         comp_time_dict = comp_time_dict | {'f':time.time()-start}
 
         # extract nominal symbolic parameters and their names
-        p_nom_names,p_nom = zip(*self.param_nominal.items())
+        p_nom_names,p_nom = zip(*[(key, val) for key, val in self.__sym.var.items() if key in ['x', 'u']])
         
         # turn into a list
         p_nom = list(p_nom)
@@ -92,14 +70,11 @@ class dynamics:
         # extract nominal values of nominal parameters
         p_init_nom = []
 
-        # initialize init attribute
-        self.__init = {}
-
         if 'x0' not in dyn:
-            p_init_nom.append(DM.rand(self.dim['x'],1))
+            p_init_nom.append(ca.DM.rand(self.dim['x'],1))
         else:
             try:
-                x0 = DM(dyn['x0'])
+                x0 = ca.DM(dyn['x0'])
             except:
                 raise Exception('Initial state x0 is not a valid numerical object.')
             
@@ -110,10 +85,10 @@ class dynamics:
             p_init_nom.append(x0)
         
         if 'u0' not in dyn:
-            p_init_nom.append(DM.rand(self.dim['u'],1))
+            p_init_nom.append(ca.DM.rand(self.dim['u'],1))
         else:
             try:
-                u0 = DM(dyn['u0'])
+                u0 = ca.DM(dyn['u0'])
             except:
                 raise Exception('Initial input u0 is not a valid numerical object.')
             
@@ -129,11 +104,11 @@ class dynamics:
 
             if 'd0' not in dyn:
                 print('Initialization of d was not passed, defaulting to zero.')
-                self.__setInit({'d':DM(self.dim['d'],1)})
-                dist_p.append(DM(self.dim['d'],1))
+                self.__setInit({'d':ca.DM(self.dim['d'],1)})
+                dist_p.append(ca.DM(self.dim['d'],1))
             else:
                 try:
-                    d0 = DM(dyn['d0'])
+                    d0 = ca.DM(dyn['d0'])
                 except:
                     raise Exception('Initial disturbance d0 is not a valid numerical object.')
                 
@@ -148,11 +123,11 @@ class dynamics:
 
             if 'w0' not in dyn:
                 print('Initialization of w was not passed, defaulting to zero.')
-                self.__setInit({'w':DM(self.dim['w'],1)})
-                dist_p.append(DM(self.dim['w'],1))
+                self.__setInit({'w':ca.DM(self.dim['w'],1)})
+                dist_p.append(ca.DM(self.dim['w'],1))
             else:
                 try:
-                    w0 = DM(dyn['w0'])
+                    w0 = ca.DM(dyn['w0'])
                 except:
                     raise Exception('Initial noise w0 is not a valid numerical object.')
                 
@@ -177,10 +152,10 @@ class dynamics:
 
             # save in dynamics
             start = time.time()
-            fc_nom = Function('fc_nom',p_nom,[x_dot_nom],p_nom_names,['x_dot_nominal'],options)
+            fc_nom = ca.Function('fc_nom',p_nom,[x_dot_nom],p_nom_names,['x_dot_nominal'],options)
             comp_time_dict = comp_time_dict | {'fc_nom':time.time()-start}
             start = time.time()
-            f_nom = Function('f_nom',p_nom,[x_next_nom],p_nom_names,['x_next_nominal'],options)
+            f_nom = ca.Function('f_nom',p_nom,[x_next_nom],p_nom_names,['x_next_nominal'],options)
             comp_time_dict = comp_time_dict | {'f_nom':time.time()-start}
         else:
             # otherwise, copy exact dynamics
@@ -231,36 +206,36 @@ class dynamics:
             assert x_dot_nom.shape[0] == self.dim['x'], 'Function fc_nom does not return the correct dimension.'
 
         # compute jacobians symbolically
-        df_dx = jacobian(self.x_next,self.x)
-        df_du = jacobian(self.x_next,self.u)
+        df_dx = ca.jacobian(self.param['x_next'],self.param['x'])
+        df_du = ca.jacobian(self.param['x_next'],self.param['u'])
 
         # check if df_dx and df_du are constant
-        if jacobian(vcat([*symvar(df_dx),*symvar(df_du)]),vertcat(self.x,self.u)).is_zero():
+        if ca.jacobian(ca.vcat([*ca.symvar(df_dx),*ca.symvar(df_du)]),ca.vertcat(self.param['x'],self.param['u'])).is_zero():
             self.__type = 'affine'
         else:
             self.__type = 'nonlinear'
 
         # compute jacobians
         start = time.time()
-        A = Function('A', p, [df_dx], p_names, ['A'], options)
+        A = ca.Function('A', p, [df_dx], p_names, ['A'], options)
         comp_time_dict = comp_time_dict | {'A':time.time()-start}
         start = time.time()
-        B = Function('B', p, [df_du], p_names, ['B'], options)
+        B = ca.Function('B', p, [df_du], p_names, ['B'], options)
         comp_time_dict = comp_time_dict | {'B':time.time()-start}
 
         # compute nominal jacobians
         if model_is_noisy:
 
             # compute jacobians symbolically
-            df_dx_nom = jacobian(self.x_next_nom,self.x)
-            df_du_nom = jacobian(self.x_next_nom,self.u)
+            df_dx_nom = ca.jacobian(self.x_next_nom,self.x)
+            df_du_nom = ca.jacobian(self.x_next_nom,self.u)
 
             # compute jacobians
             start = time.time()
-            A_nom = Function('A_nom', p_nom, [df_dx_nom], p_nom_names, ['A_nom'], options)
+            A_nom = ca.Function('A_nom', p_nom, [df_dx_nom], p_nom_names, ['A_nom'], options)
             comp_time_dict = comp_time_dict | {'A_nom':time.time()-start}
             start = time.time()
-            B_nom = Function('B_nom', p_nom, [df_du_nom], p_nom_names, ['B_nom'], options)
+            B_nom = ca.Function('B_nom', p_nom, [df_du_nom], p_nom_names, ['B_nom'], options)
             comp_time_dict = comp_time_dict | {'B_nom':time.time()-start}
 
             # save in dynamics
@@ -300,116 +275,22 @@ class dynamics:
 
     @property
     def param(self):
-        return {k: v for k, v in {
-            'x': self.__x,
-            'u': self.__u,
-            'd': self.__d,
-            'w': self.__w
-        }.items() if v is not None}
+        return {k: v for k, v in self.__sym.var.items() if k in ['x','u','d','w']}
 
     @property
     def param_nominal(self):
-        return {k: v for k, v in {
-            'x': self.__x,
-            'u': self.__u
-        }.items() if v is not None}
+        return {k: v for k, v in self.__sym.var.items() if k in ['x','u']}
     
     @property
     def dim(self):
-        return self.__dim
-    
-    def __addDim(self, dim):
-        self.__dim = self.__dim | dim
+        return self.__sym.dim
 
     @property
     def init(self):
         return {k: v for k, v in self.__init.items()}
     
     def __setInit(self, init):
-        out = self.__checkInit(init)
-        for key in ['x','u','d']:
-            if key in out and out[key].shape[1]!=1:
-                raise Exception('Initial value must be a column vector.')
-        self.__init = self.__init | out
-    
-    def __checkInit(self, value):
-
-        # create output dictionary
-        out = {}
-
-        # check if input dictionary contains 'x' key
-        if 'x' in value:
-
-            assert 'x' in self.param, 'Define the state x before defining its initial value.'
-
-            # if so, extract x
-            try:
-                x = DM(value['x'])
-            except:
-                raise Exception('Initial value of x must be a numeric value.')
-
-            # check if x has correct dimension
-            assert x.shape[0] == self.param['x'].shape[0], 'x has incorrect dimension.'
-
-            # add new initial linearization
-            out = out | {'x':x}
-
-        # check if input dictionary contains 'u' key
-        if 'u' in value:
-
-            assert 'u' in self.param, 'Define the input u before defining its initial value.'
-
-            # if so, extract u
-            try:
-                u = DM(value['u'])
-            except:
-                raise Exception('Initial value of u must be a numeric value.')
-
-            # check if u has correct dimension
-            assert u.shape[0] == self.param['u'].shape[0], 'u has incorrect dimension.'
-
-            # add new initial linearization
-            out = out | {'u':u}
-
-        # check if input dictionary contains 'udw' key
-        if 'd' in value:
-
-            assert 'd' in self.param, 'Define the disturbance d before defining its initial value.'
-
-            # if so, extract d
-            try:              
-                d = DM(value['d'])
-            except:
-                raise Exception('Initial value of d must be a numeric value.')
-
-            # check if d has correct dimension
-            assert d.shape[0] == self.param['d'].shape[0], 'd has incorrect dimension.'
-
-            # add new initial linearization
-            out = out | {'d':d}
-
-        # check that number of columns of variables that are not None match
-        if len(set([v.shape[1] for v in out.values() if v is not None])) > 1:
-            raise Exception('All initial values except w must have the same number of columns.')
-        
-        # check if input dictionary contains 'w' key
-        if 'w' in value:
-
-            assert 'w' in self.param, 'Define the noise w before defining its initial value.'
-
-            # if so, extract w
-            try:
-                w = DM(value['w'])
-            except:
-                raise Exception('Initial value of w must be a numeric value.')
-
-            # check if w has correct dimension
-            assert w.shape[0] == self.param['w'].shape[0], 'w has incorrect dimension.'
-
-            # add new initial linearization
-            out = out | {'w':w}
-
-        return out
+        self.__sym.setInit(init)
 
     def linearize(self,N,method='trajectory'):
 
@@ -517,8 +398,8 @@ class dynamics:
             A_list, B_list, c_list = [], [], []
 
             # extract linearization points by splitting the x_lin and u_lin vectors
-            x_lin_list = vertsplit(x_lin,n_x)
-            u_lin_list = vertsplit(u_lin,n_u)
+            x_lin_list = ca.vertsplit(x_lin,n_x)
+            u_lin_list = ca.vertsplit(u_lin,n_u)
 
             # the first state should be the true system state
             x_lin_list[0] = x
