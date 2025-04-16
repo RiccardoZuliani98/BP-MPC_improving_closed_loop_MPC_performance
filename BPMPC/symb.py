@@ -61,6 +61,13 @@ class Symb:
         self.__dim[name] = var.shape[0] if var.shape[1] == 1 else var.shape
         self.__init[name] = init
 
+    def addDim(self,name,val):
+
+        assert isinstance(name,str), 'Name of variable must be a string'
+        assert isinstance(val,int) and val>=0, 'Value of dimension must be a nonnegative integer'
+
+        self.__dim[name] = val
+
     def __add__(self,other):
 
         assert self.type is other.type, 'Type of addends must match'

@@ -1,5 +1,5 @@
 from casadi import *
-from BPMPC.dynamics import dynamics
+from BPMPC.dynamics_new import Dynamics
 from BPMPC.QP import QP
 from BPMPC.upperLevel import upperLevel
 from BPMPC.simVar import simVar

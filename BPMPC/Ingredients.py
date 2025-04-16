@@ -11,6 +11,8 @@ TODO:
 * add descriptions
 * add "update"
 * add check of input options
+* make dense and make dual should be external functions
+* creation of sparse should go through "update" such that users can easily update their ingredients if needed
 
 """
 
@@ -57,28 +59,60 @@ class Ingredients:
         # retrieve symbolic variables in model
         self.__sym = dynamics_copy._Dynamics__sym.copy(['x','y_lin'])
 
+        # add horizon
+        self.__sym.addDim('N',N)
+
+        # add input dimensions
+        self.__sym.addDim('u',dynamics_copy._Dynamics__sym.dim['u'])
+
         # merge into dictionary
         data = model | cost | constraints
 
         # parse inputs
-        processed_data = self.__parseInputs(data,N)
+        processed_data = self.__parseInputs(data)
 
         # check if dimensions are correct
         self.__checkDimensions(processed_data)
 
         # check if slacks are passed correctly
         slack_true = self.__checkSlack(processed_data)
-        self.__options['slack'] = slack_true
-        
-        # extract model
-        A_list = processed_data['A']
-        B_list = processed_data['B']
+        self.__options['slack'],n_eps = slack_true
+
+        # save slack dimension in symbolic variable
+        self.__sym.addDim('eps',n_eps)
+
+        # create sparse QP
+        self.__sparse = self.__makeSparseQP(processed_data)
+
+        # create index
+        self.__idx = self.__makeIdx()
+
+        # create dense QP
+        self.__dense = self.__makeDenseQP(processed_data)
+
+        # create dual QP
+        self.__dual = self.__makeDualQP()
+    
+
+    def update(self,Q=None,q=None,G=None,g=None,F=None,f=None):
+        #TODO
+        pass
+
+    def __makeSparseQP(self,processed_data):
 
         # extract initial condition
         x = self.param['x']
 
-        # get x and u dimensions
-        n_x,n_u = B_list[0].shape
+        # extract model
+        A_list = processed_data['A']
+        B_list = processed_data['B']
+
+        # get dimensions
+        n_x = self.dim['x']
+        n_u = self.dim['u']
+        n_eps = self.dim['eps']
+        N = self.dim['N']
+
 
         # check if affine term is present
         if 'c' in processed_data:
@@ -120,13 +154,13 @@ class Ingredients:
         hu = ca.vcat(hu_list)
 
         # check if Hx_e was passed 
-        if slack_true:
+        if self.__options['slack']:
 
             # convert into a single matrix
             Hx_e = matrixify(processed_data['Hx_e'])
 
             # get slack dimension
-            n_eps = Hx_e.shape[1]
+            n_eps = self.dim['eps']
 
             # linear penalty
             s_lin = ca.vcat(processed_data['s_lin']) if 's_lin' in processed_data else ca.SX(int(n_eps*N))
@@ -150,9 +184,6 @@ class Ingredients:
 
         else:
 
-            # no slacks
-            n_eps = 0
-
             # add columns associated to input and slack variables
             Hx_u = ca.hcat([Hx,ca.SX(Hx.shape[0],N*n_u)])
 
@@ -163,7 +194,7 @@ class Ingredients:
             G = ca.cse(ca.sparsify(ca.vcat([Hx_u,Hu_x])))
             g = ca.cse(ca.sparsify(ca.vcat([hx,hu])))
 
-        
+            
         ### CREATE EQUALITY CONSTRAINTS ------------------------------------
 
         # preallocate equality constraint matrices
@@ -197,7 +228,7 @@ class Ingredients:
         Q = ca.blockcat(Qx,ca.SX(N*n_x,N*n_u),ca.SX(N*n_u,N*n_x),Ru)
 
         # append cost applied to slack variable
-        if slack_true:
+        if self.__options['slack']:
             Q = ca.blockcat(Q,ca.SX(Q.shape[0],n_eps),ca.SX(n_eps,Q.shape[0]),ca.diag(s_quad))
 
         # inverse of quadratic cost matrix
@@ -205,7 +236,7 @@ class Ingredients:
         # Qinv = ca.inv(Q)
 
         # create linear part of the cost
-        q = ca.vcat([-Qx@x_ref,-Ru@u_ref,s_lin]) if slack_true else ca.vcat([-Qx@x_ref,-Ru@u_ref])
+        q = ca.vcat([-Qx@x_ref,-Ru@u_ref,s_lin]) if self.__options['slack'] else ca.vcat([-Qx@x_ref,-Ru@u_ref])
 
         # sparsify Q and q
         Q = ca.cse(ca.sparsify(Q))
@@ -219,9 +250,29 @@ class Ingredients:
         uba = ca.cse(ca.sparsify(ca.vcat([g,f])))
         lba = ca.cse(ca.sparsify(ca.vcat([-ca.inf*ca.SX.ones(g.shape),f])))
 
-        sparse = {'G':G, 'g':g, 'F':F, 'f':f, 'Q':Q, 'Qinv':Qinv, 'q':q, 'A':A, 'uba':uba, 'lba':lba}
+        return {'G':G, 'g':g, 'F':F, 'f':f, 'Q':Q, 'Qinv':Qinv, 'q':q, 'A':A, 'uba':uba, 'lba':lba}
 
-        ### DENSE QP ------------------------------------------------------------
+    def __makeDenseQP(self,processed_data):
+
+        # get horizon
+        N = self.dim['N']
+
+        # extract initial condition
+        x = self.param['x']
+
+        # extract model
+        A_list = processed_data['A']
+        B_list = processed_data['B']
+
+        # get x and u dimensions
+        n_x = self.dim['x']
+        n_u = self.dim['u']
+
+        # check if affine term is present
+        if 'c' in processed_data:
+            c_list = processed_data['c']
+        else:
+            c_list = [ca.SX(n_x,1)]*N
 
         # start by constructing matrices G_x and G_u, and vector g_c such that
         # x = G_x*x_0 + G_u*u + g_c, where x = vec(x_1,x_2,...,x_N), 
@@ -278,9 +329,17 @@ class Ingredients:
         g_c = G_c@c_t
 
         # create dictionary
-        dense = {'G_x':G_x,'G_u':G_u,'g_c':g_c,'Qx':Qx,'Ru':Ru,'x_ref':x_ref,'u_ref':u_ref,'Hx':Hx,'Hu':Hu,'hx':hx,'hu':hu}
+        return {'G_x':G_x,'G_u':G_u,'g_c':g_c}
 
-        ### CREATE DUAL DICTIONARY -----------------------------------------
+    def __makeDualQP(self):
+
+        # extract ingredients
+        Qinv = self.sparse['Qinv']
+        q = self.sparse['q']
+        F = self.sparse['F']
+        f = self.sparse['f']
+        G = self.sparse['G']
+        g = self.sparse['g']
 
         # define Hessian of dual
         H_11 = ca.cse(ca.sparsify(G@Qinv@G.T))
@@ -294,10 +353,15 @@ class Ingredients:
         h_2 = ca.cse(ca.sparsify(F@Qinv@q+f))
         h = ca.cse(ca.vcat([h_1,h_2]))
 
-        dual = {'H':H, 'h':h}
+        return {'H':H, 'h':h}
 
+    def __makeIdx(self):
 
-        ### CREATE INDEX DICTIONARY ----------------------------------------
+        # extract dimensions
+        n_x = self.dim['x']
+        n_u = self.dim['u']
+        N = self.dim['N']
+        n_eps = self.dim['eps']
 
         # store output variable indices
         idx = dict()
@@ -312,7 +376,7 @@ class Ingredients:
         idx['y'] = range(0,(n_x+n_u)*N)
         
         # range of all slack variables
-        if slack_true:
+        if n_eps > 0:
             idx['eps'] = range((n_x+n_u)*N,(n_x+n_u)*N+n_eps)
             idx_e = np.arange(n_eps) + N * (n_x + n_u)
             idx_e_shifted = np.hstack([idx_e[n_eps:], idx_e[:n_eps]])
@@ -332,7 +396,7 @@ class Ingredients:
         idx_u_shifted = np.hstack([idx_u[n_u:], idx_u[-n_u:]])
         
         # Combine the shifted indices
-        if slack_true:
+        if n_eps > 0:
             idx_shifted = np.hstack([idx_x_shifted, idx_u_shifted, idx_e_shifted])
         else:
             idx_shifted = np.hstack([idx_x_shifted, idx_u_shifted])
@@ -342,17 +406,12 @@ class Ingredients:
         idx['u_shift'] = idx_u_shifted
         idx['y_shift'] = idx_shifted
 
-        # store
-        self.__sparse = sparse
-        self.__dense = dense
-        self.__dual = dual
-        self.__idx = idx
+        return idx
 
-    def update(self,Q=None,q=None,G=None,g=None,F=None,f=None):
-        #TODO
-        pass
+    def __parseInputs(self, data):
 
-    def __parseInputs(self, data, N):
+        # get horizon
+        N = self.dim['N']
 
         # get length of all elements
         N_list = [len(elem) for elem in data.values() if isinstance(elem,list)]
@@ -417,10 +476,12 @@ class Ingredients:
     def __checkSlack(self,data):
 
         slack = False
+        n_eps = 0
 
         if 'Hx_e' in data:
             assert 's_quad' in data and all([data['s_quad'] > 0]), 'Please pass a positive quadratic penalty.'
             slack = True
+            n_eps = data['Hx_e'].shape[1]
 
         if 's_quad' in data or 's_lin' in data:
             assert 'Hx_e' in data, 'Please pass a matrix specifying slack constraints.'
@@ -430,7 +491,7 @@ class Ingredients:
             assert all(data['s_lin']>0), 'The linear slack penalty must be positive'
             slack = True
 
-        return slack
+        return slack,n_eps
 
     @property
     def sparse(self):
@@ -455,3 +516,7 @@ class Ingredients:
     @property
     def options(self):
         return self.__options
+    
+    @property
+    def dim(self):
+        return self.__sym.dim
