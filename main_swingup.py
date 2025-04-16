@@ -1,5 +1,5 @@
 from BPMPC.scenario import scenario
-from BPMPC.dynamics_new import Dynamics
+from BPMPC.dynamics import Dynamics
 from BPMPC.Ingredients import Ingredients
 import BPMPC.utils as utils
 import BPMPC.tests as tests
