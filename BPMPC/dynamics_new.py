@@ -6,9 +6,6 @@ from BPMPC.symb import Symb
 TODO:
 
 * some descriptions
-* get computation times
-* 
-
 
 
 """
@@ -150,6 +147,9 @@ class Dynamics:
         # store computation times
         self.__compTimes = comp_time_dict
 
+        # store empty model
+        self.__model = {}
+
     @property
     def x_next(self):
         return self.__x_next
@@ -195,13 +195,21 @@ class Dynamics:
         return self.__sym.dim
     
     @property
+    def model(self):
+        return self.__model
+    
+    @property
+    def compTimes(self):
+        return self.__compTimes
+    
+    @property
     def init(self):
         return {key:val for key,val in self.__sym.init.items() if val is not None}
     
     def setInit(self,data):
         self.__sym.setInit(data)
 
-    def linearize(self,N,method='trajectory'):
+    def __linearize(self,N,method='trajectory'):
 
         """
         This function constructs the prediction model for the MPC problem. There are multiple options:
@@ -258,9 +266,6 @@ class Dynamics:
             B_list = [B_mat] * N
             c_list = [c_mat] * N
 
-            # patch first entry of c_list
-            c_list[0] = c_list[0] - A_mat@x
-
         # if mode is 'initial_state', linearize around the initial state
         elif method == 'initial_state':
 
@@ -281,8 +286,8 @@ class Dynamics:
             B_list = [B_lin] * N
             c_list = [c_lin] * N
 
-            # patch first entry of c_list
-            c_list[0] = c_list[0] - A_lin@x
+            # store y_lin
+            self.__sym.addVar('y_lin', y_lin)
                 
         # if mode is 'trajectory', linearize along a trajectory (similar to real-time iteration)
         elif method == 'trajectory':
@@ -321,7 +326,11 @@ class Dynamics:
                 c_i = - ( list(fd.call(param_nom).values())[0] - A_i@x_i - B_i@u_i )
                 c_list.append(c_i)
 
-        # create output dictionary
-        out = {'A':A_list, 'B':B_list, 'c':c_list, 'y_lin':y_lin, 'x':x}
+            # store y_lin
+            self.__sym.addVar('y_lin', y_lin)
 
-        return out
+        # store output dictionary
+        self.__model = {'A':A_list, 'B':B_list, 'c':c_list}
+
+        # return used linearization method
+        return 'affine' if self.__is_affine else method

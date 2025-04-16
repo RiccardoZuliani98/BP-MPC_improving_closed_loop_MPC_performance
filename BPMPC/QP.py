@@ -68,48 +68,6 @@ class QP:
 
         #TODO: add dimension checks
 
-        # stack all constraints together to match CasADi's conic interface
-        A = vcat([G,F])
-
-        # equality constraints can be enforced by setting lba=uba
-        uba = vcat([g,f])
-        lba = vcat([-inf*self.__MSX.ones(g.shape),f])
-
-        # sparsify
-        try:
-            A = cse(sparsify(A))
-            uba = cse(sparsify(uba))
-            lba = cse(sparsify(lba))
-        except:
-            pass
-
-        try:
-            # define Hessian of dual
-            H_11 = cse(sparsify(G@Qinv@G.T))
-            H_12 = cse(sparsify(G@Qinv@F.T))
-            H_21 = cse(sparsify(F@Qinv@G.T))
-            H_22 = cse(sparsify(F@Qinv@F.T))
-            H = cse(blockcat(H_11,H_12,H_21,H_22))
-
-            # define linear term of dual
-            h_1 = cse(sparsify(G@Qinv@q+g))
-            h_2 = cse(sparsify(F@Qinv@q+f))
-            h = cse(vcat([h_1,h_2]))
-
-        except:
-
-            # define Hessian of dual
-            H_11 = G@Qinv@G.T
-            H_12 = G@Qinv@F.T
-            H_21 = F@Qinv@G.T
-            H_22 = F@Qinv@F.T
-            H = blockcat(H_11,H_12,H_21,H_22)
-
-            # define linear term of dual
-            h_1 = G@Qinv@q+g
-            h_2 = F@Qinv@q+f
-            h = vcat([h_1,h_2])
-
         # store in dictionary
         QP_dict = dict()
         QP_dict['Q'] = Q

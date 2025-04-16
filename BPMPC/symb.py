@@ -84,13 +84,18 @@ class Symb:
 
         return self
     
-    def copy(self):
+    def copy(self,vars2keep=None):
 
         # create copy of class
-        self_copy = self.__class__(self.__typeString)
+        self_copy = self.__class__()
 
-        self_copy.__dim = self.dim
-        self_copy.__var = self.var
-        self_copy.__init = self.init
+        if vars2keep is not None:
+            self_copy.__dim = {key:val for key,val in self.dim.items() if key in vars2keep}
+            self_copy.__var = {key:val for key,val in self.var.items() if key in vars2keep}
+            self_copy.__init = {key:val for key,val in self.init.items() if key in vars2keep}
+        else:
+            self_copy.__dim = self.dim
+            self_copy.__var = self.var
+            self_copy.__init = self.init
 
         return self_copy

@@ -40,9 +40,6 @@ R_true = 1e-6
 # mpc horizon
 N = 11
 
-# generate model
-model = dyn.linearize(N)
-
 # constraints are simple bounds on state and input
 x_max = vertcat(5,5,inf,inf)
 x_min = -x_max
@@ -79,12 +76,12 @@ cost = {'Qx': Qx, 'Ru':Ru}
 Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
-constraints = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
+cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
-ing = Ingredients(model | cost | constraints)
+ing = Ingredients(N=N,dynamics=dyn,cost=cost,constraints=cst)
 
-# mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
+mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
 
 
 # ### UPPER LEVEL -----------------------------------------------------------

@@ -20,3 +20,131 @@ def __init__(self,dyn,MSX='SX',compile=False):
     compilation option (Boolean).
 
     """
+
+INGREDIENTS
+
+# # type of symbolic variable used (either SX or MX)
+# __MSX = None
+
+# """
+# Dimension dictionary with keys
+
+#     - N: horizon of the MPC, positive integer
+#     - u: number of inputs, positive integer
+#     - x: number of states, positive integer
+#     - eps: number of slack variables, positive integer [optional, defaults to 0]
+
+# """
+# __dim = {}
+
+# """
+# Model dictionary with entries
+
+#     - A: list of length N of matrices (n_x,n_x)
+#     - B: list of length N of matrices (n_x,n_u)
+#     - x0: symbolic variable representing the initial state (n_x,1)
+#     - c: list of length N of matrices (n_x,1) [optional, defaults to 0]
+        
+# where the dynamics are given by x[t+1] = A[t]x[t] + B[t]u[t] + c[t], with x[0] = x0.
+# """
+# __model = {}
+
+# """
+# Cost dictionary with keys
+            
+#     - 'Qx': state stage cost, list of length N of matrices (n_x,n_x)
+#     - 'Ru': input stage cost, list of length N of matrices (n_u,n_u)
+#     - 'x_ref': state reference, list of length N of vectors (n_x,1) [optional, defaults to 0]
+#     - 'u_ref': reference input, list of length N of vectors (n_u,1) [optional, defaults to 0]
+#     - 's_lin': linear penalty on slack variables, nonnegative scalar [optional, defaults to 0]
+#     - 's_quad': quadratic penalty on slack variables, positive scalar [optional, defaults to 0]
+
+# where the stage cost is given by
+    
+#     (x[t]-x_ref[t])'Qx[t](x[t]-x_ref[t]) + (u[t]-u_ref[t])'Ru[t](u[t]-u_ref[t]) + s_lin*e[t] + s_quad*e[t]**2
+# """
+# __cost = {}
+
+# """
+#     Constraints dictionary with keys
+
+#     - 'Hx': list of length N of matrices (=,n_x)
+#     - 'hx': list of length N of vectors (=,1)
+#     - 'Hx_e': list of length N of matrices (=,n_eps) [optional, defaults to zero]
+#     - 'Hu': list of length N of matrices (-,n_u)
+#     - 'hu': list of length N of vectors (-,1)
+    
+# where the constraints at each time-step are
+    
+#     Hx[t]*x[t] <= hx[t] - Hx_e[t]*e[t],
+#     Hu[t]*u[t] <= hu[t],
+        
+# where e[t] denotes the slack variables.
+# """
+# __cst = {}
+
+class Ingredients:
+    """
+    QP ingredients, contains the following keys
+
+        - 'Q': Hessian of QP (n_y,n_y)
+        - 'Qinv': inverse of Hessian of QP (n_y,n_y)
+        - 'q': gradient of cost of QP (n_y,1)
+        - 'G': linear inequality constraint matrix (n_in,n_y)
+        - 'g': linear inequality constraint vector (n_in,1)
+        - 'H': Hessian of dual problem (n_z,n_z)
+        - 'h': gradient of cost of dual problem (n_z,1)
+        - 'A': stacked inequality constraint matrix for casadi's conic interface,
+               specifically, A = vertcat(G,F) (n_in+n_eq,n_y)
+        - 'lba': lower bound of inequality constraints, lba = (-inf,f) (n_in+n_eq,1)
+        - 'uba': upper bound of inequality constraints, uba = (g,f) (n_in+n_eq,1)
+
+    remember that the primal problem is a QP with the following structure:
+
+        min 1/2 y'Qy + q'y
+        s.t. Gy <= g
+             Fy = f
+    
+    and the dual problem is a QP with the following structure:
+
+        min 1/2 z'Hz + h'z
+        s.t. z=(lam,mu)
+             lam >= 0
+    """
+
+    def __init__(self,model,cost,constraints):
+
+        """
+        This function converts an MPC problem of the form
+
+        minimize      1/2 (x_N-x_r_N)^T Qx[t] (x_N-x_r_N)
+         x,u,e      + 1/2 \sum_{t=0}^{N-1} [ (x_t-x_r_t)^T Qx[t] (x_t-x_r_t) + (u_t-u_r_t)^T Ru[t] (u_t-u_r_t) ]
+                    + 1/2 \sum_{t=0}^{N} [ c_lin e_t + c_quad e_t^T e_t ]
+
+        subject to  x_{t+1} = A_t x_t + B_t u_t + c_t,  t = 0,...,N-1,
+                    H_x x_t <= h_x - H_e e_t,           t = 0,...,N,
+                    H_u u_t <= h_u,                     t = 0,...,N-1,
+                    e_t >= 0,                           t = 0,...,N,
+                    x_0 = x,
+        
+        where x_t,u_t denote state and input at time t, N is the horizon of the MPC, e_t is a slack variable (which only affects certain)
+        states, as encoded in matrix H_e, and x is the current state of the system, to a QP of the form
+
+        minimize    1/2 y'Qy + q'y
+            
+        subject to  Gy <= g
+                    Fy = f
+
+        where y = col(x,u,e). The outputs are the matrices G, g, F, f, Q, Qinv=inv(Q), the dictionary idx containing the indexing of the output optimization variables of the QP. This function sets up the following keys in idx:
+
+            - 'u': range of all inputs
+            - 'x': range of all states
+            - 'y': range of all state-input variables
+            - 'eps': range of all slack variables (if present)
+            - 'u0': range of first input
+            - 'u1': range of second input
+            - 'x_shift': states shifted by one time-step (last state repeated)
+            - 'u_shift': inputs shifted by one time-step (last input repeated)
+            - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
+
+        """
