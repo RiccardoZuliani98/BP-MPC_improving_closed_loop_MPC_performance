@@ -1,6 +1,6 @@
 import casadi as ca
 from BPMPC.utils import matrixify
-from BPMPC.dynamics_new import Dynamics
+from BPMPC.dynamics import Dynamics
 from copy import copy
 import numpy as np
 
