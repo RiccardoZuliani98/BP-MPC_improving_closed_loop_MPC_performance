@@ -2,9 +2,7 @@ import casadi as ca
 
 """
 TODO:
-
 * descriptions
-
 """
 
 class Symb:

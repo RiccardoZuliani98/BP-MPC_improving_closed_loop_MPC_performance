@@ -1,3 +1,9 @@
+"""
+TODO:
+* add descriptions
+* add method to quickly merge multiple options
+"""
+
 class Options:
 
     def __init__(self,allowed_options,default_options={}):
@@ -34,6 +40,12 @@ class Options:
         for key,val in dict_in.items():
 
             assert key in self._allowed_options.keys(), 'The option you passed is not allowed'
-            assert val in self._allowed_options[key], 'You passed an illegal value for option' + key
+
+            # check if allowed_options[key] is a finite list
+            if isinstance(self._allowed_options[key],list):
+                assert val in self._allowed_options[key], 'You passed an illegal value for option' + key
+            # otherwise, it must be a type
+            else:
+                assert isinstance(val,self._allowed_options[key]), 'You passed an illegal value for option' + key
 
             self.__setitem__(key,val)

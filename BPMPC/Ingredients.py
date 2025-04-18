@@ -28,8 +28,7 @@ class Ingredients:
     
     __ALL_DIMENSIONS = ['x','u','one','cst_x','eps','cst_u']
 
-    __OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'],
-                                'make_dense':[True,False]}
+    __OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'],'make_dense':bool}
     
     __OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'make_dense':True}
 

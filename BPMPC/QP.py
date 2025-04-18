@@ -1,24 +1,32 @@
 import casadi as ca
 from time import time
+from BPMPC.Ingredients import Ingredients
+from BPMPC.options import Options
 
 """
 TODO
-
 * better init function?
-
+* descriptions
+* comp times
 """
 
 class QP:
     
     # Allowed option keys
-    __ALLOWED_OPTION_KEYS = ['linearization','slack','qp_mode','solver','warmstart','jac_tol','jac_gamma']
+    __OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp'],'warmstart':['x_lam_mu','x'],'jac_tol':int,'jac_gamma':float,'compile_qp_sparse':bool,'compile_jac':bool}
 
     # default values of options dictionary
-    __DEFAULT_OPTIONS = {'linearization':'trajectory','slack':False,'qp_mode':'stacked','solver':'qpoases',
-                         'warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,'compile_qp_sparse':False,
-                         'compile_jac':False}
+    __OPTIONS_DEFAULT_VALUES = {'solver':'qpoases','warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,'compile_qp_sparse':False,'compile_jac':False,}
 
     def __init__(self,ingredients,p=None,pf=None,options={}):
+
+        assert isinstance(ingredients,Ingredients), 'Ingredients must be of a class instance of type Ingredients'
+
+        # create options
+        self.__options = Options(self.__OPTIONS_ALLOWED_VALUES,self.__OPTIONS_DEFAULT_VALUES)
+
+        # add user-specified options
+        self.__options.update(options)
 
         # copy dimensions and variables inside ingredients
         self.__sym = ingredients._Ingredients__sym.copy()
@@ -34,12 +42,12 @@ class QP:
         # TODO: check if order of variables in p_QP is correct
 
         # construct the parameter vector required for the QP
-        p_QP = self.__sym.var.values()
-        p_QP_names = self.__sym.var.keys()
+        p_QP = list(self.__sym.var.values())
+        p_QP_names = list(self.__sym.var.keys())
 
         # save full symbolic qp parameter (do not include pf even if present)
-        # self.__sym.var.addVar('p_QP',ca.vcat(p_QP))
-        self.__sym.var.addDim('p_qp',ca.vcat(p_QP).shape[0])
+        # self.__sym.addDim('p_qp',ca.vcat(p_QP).shape[0])
+        self.__sym.var.addVar('p_qp',ca.vcat(p_QP))
 
         # create input index
         idx_in = dict()
@@ -55,22 +63,26 @@ class QP:
             running_idx = running_idx + len_current_p_d
 
         # store in QP index dictionary
-        self.__ingredients.__sparse['idx']['in'] = idx_in
+        self.__ingredients._Ingredients__idx['in'] = idx_in
 
         # if pf is passed, store it in parameters of QP
         if pf is not None:
             assert isinstance(pf,ca.SX), 'p must be of type SX'
             self.__sym.addVar('pf_t',pf)
+            p_QP.append(pf)
         else:
             # add dimension
             self.__sym.addDim('pf_t',0)
+
+        # store full qp parameter
+        self.__sym.var.addVar('p_qp_full',ca.vcat(p_QP))
 
         # store dimensions of equality and inequality constraints
         self.__sym.addDim('in',ingredients.sparse['G'].shape[0])
         self.__sym.addDim('eq',ingredients.sparse['F'].shape[0])
 
         # primal optimization variables
-        self.__sym.addVar('y',ca.SX.sym('y',ingredients.sparse['q'].shape[0]-self.dim['eps'],1))
+        self.__sym.addVar('y',ca.SX.sym('y',ingredients.sparse['q'].shape[0]-self.__sym.dim['eps'],1))
 
         # dual optimization variables (inequality constraints)
         self.__sym.addVar('lam',ca.SX.sym('lam',ingredients.sparse['g'].shape[0],1))
@@ -82,36 +94,28 @@ class QP:
         self.__sym.addVar('z',ca.vcat([self.__sym.var['lam'],self.__sym.var['mu']]))
 
         # create QP
-        self.__makeSparseQP(p=p,pf=pf,mode=self.QP.options['qp_mode'],solver=self.QP.options['solver'],warmstart=self.QP.options['warmstart'],compile=self.QP.options['compile_qp_sparse'])
+        self.__makeSparseQP()
 
         # create conservative jacobian
-        self.__makeConsJac(gamma=self.QP.options['jac_gamma'],tol=self.QP.options['jac_tol'],compile=self.QP.options['compile_jac'])
+        self.__makeConsJac()
 
-        __solve = None
-        __denseSolve = None
-        __qp_sparse = None
-        __qp_dense = None
-        __dual_sparse = None
-        __J = None
-        __J_y_p = None
-
-    def __makeSparseQP(self,p=None,pf=None,solver='qpoases',warmstart='x_lam_mu',compile=False):
+    def __makeSparseQP(self):
 
         # compilation options
-        if compile:
+        if self.__options['compile']:
             jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
             options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
         else:
             options = {}
 
         # extract ingrediens
-        Q = self.ingredients['Q']
-        q = self.ingredients['q']
-        A = self.ingredients['A']
-        lba = self.ingredients['lba']
-        uba = self.ingredients['uba']
-        H = self.ingredients['H']
-        h = self.ingredients['h']
+        Q = self.ingredients.sparse['Q']
+        q = self.ingredients.sparse['q']
+        A = self.ingredients.sparse['A']
+        lba = self.ingredients.sparse['lba']
+        uba = self.ingredients.sparse['uba']
+        H = self.ingredients.sparse['H']
+        h = self.ingredients.sparse['h']
 
         # form QP ingredients
         QP_outs = [A,lba,uba,Q,q]
@@ -119,7 +123,7 @@ class QP:
 
         # create function
         start = time.time()
-        QP_func = ca.Function('QP',[ca.vcat(p_QP)],QP_outs,['p'],QP_outs_names,options)
+        QP_func = ca.Function('QP',[self.__sym.var['p_qp_full']],QP_outs,['p'],QP_outs_names,options)
         comp_time_dict = {'QP_func':time.time()-start}
 
         # save QP in model
@@ -127,7 +131,7 @@ class QP:
 
         # create function
         start = time.time()
-        dual_func = ca.Function('dual',[ca.vcat(p_QP)],[H,h],['p'],['H','h'],options)
+        dual_func = ca.Function('dual',[self.__sym.var['p_qp_full']],[H,h],['p'],['H','h'],options)
         comp_time_dict['dual_func'] = time.time()-start
 
         # save dual in model
@@ -142,7 +146,7 @@ class QP:
 
         # create function
         start = time.time()
-        QP_dense_func = ca.Function('QP_dense',[ca.vcat(p_QP)],QP_outs_dense,['p'],QP_outs_dense_names,options)
+        QP_dense_func = ca.Function('QP_dense',[self.__sym.var['p_qp_full']],QP_outs_dense,['p'],QP_outs_dense_names,options)
         comp_time_dict['QP_dense_func'] = time.time()-start
 
         # save in QP model
@@ -154,77 +158,71 @@ class QP:
         qp['a'] = A.sparsity()
 
         # vector specifying which constraints are equalities
-        is_equality = [False]*self.dim['in']+[True]*self.dim['eq']
+        is_equality = [False]*self.__sym.dim['in']+[True]*self.__sym.dim['eq']
 
         # add existing options to compile function S
         start = time.time()
-        match solver:
+        match self.__options['solver']:
             case 'gurobi':
-                S = conic('S','gurobi',qp,{'gurobi':{'OutputFlag':0},'equality':is_equality})
+                S = ca.conic('S','gurobi',qp,{'gurobi':{'OutputFlag':0},'equality':is_equality})
             case 'cplex':
-                S = conic('S','cplex',qp,{'cplex':{'CPXPARAM_Simplex_Display': 0,'CPXPARAM_ScreenOutput': 0},'equality':is_equality})
+                S = ca.conic('S','cplex',qp,{'cplex':{'CPXPARAM_Simplex_Display': 0,'CPXPARAM_ScreenOutput': 0},'equality':is_equality})
             case 'qpoases':
-                S = conic('S','qpoases',qp,options|{'printLevel':'none','equality':is_equality})
+                S = ca.conic('S','qpoases',qp,options | {'printLevel':'none','equality':is_equality})
             case 'osqp':
-                S = conic('S','osqp',qp,options|{'osqp':{'verbose':False},'equality':is_equality})
+                S = ca.conic('S','osqp',qp,options | {'osqp':{'verbose':False},'equality':is_equality})
             case 'daqp':
-                S = conic('S','daqp',qp,options)
+                S = ca.conic('S','daqp',qp,options)
             case 'qrqp':
-                S = conic('S','qrqp',qp,options|{'print_iter':False,'equality':is_equality})
+                S = ca.conic('S','qrqp',qp,options | {'print_iter':False,'equality':is_equality})
         comp_time_dict['S_sparse'] = time.time()-start
 
-        if mode == 'stacked':
+        # create local function setting up the qp
+        match self.__options['warmstart']:
+            
+            # warmstart both primal and dual variables
+            case 'x_lam_mu':
+        
+                def local_qp(p_qp,x0=None,lam0=None,mu0=None):
 
-            # create local function setting up the qp
-            match warmstart:
+                    # get data from qp_dense function
+                    a,lba,uba,h,g = QP_func(p_qp)
+
+                    # solve QP with warmstarting
+                    if x0 is not None:
+                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba,x0=x0,lam_a0=vertcat(lam0,mu0))
+                    
+                    # if does not work, try without warmstarting
+                    else:
+                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba)
+                    
+                    # return lambda, mu, y
+                    return sol['lam_a'][:self.dim['in']],sol['lam_a'][self.dim['in']:],sol['x']
                 
-                # warmstart both primal and dual variables
-                case 'x_lam_mu':
-            
-                    def local_qp(p_qp,x0=None,lam0=None,mu0=None):
+            # warmstart only primal
+            case 'x':
+        
+                def local_qp(p_qp,x0=None):
 
-                        # get data from qp_dense function
-                        a,lba,uba,h,g = QP_func(p_qp)
+                    # get data from qp_dense function
+                    a,lba,uba,h,g = QP_func(p_qp)
 
-                        # solve QP with warmstarting
-                        if x0 is not None:
-                            sol = S(h=h,a=a,g=g,lba=lba,uba=uba,x0=x0,lam_a0=vertcat(lam0,mu0))
-                        
-                        # if does not work, try without warmstarting
-                        else:
-                            sol = S(h=h,a=a,g=g,lba=lba,uba=uba)
-                        
-                        # return lambda, mu, y
-                        return sol['lam_a'][:self.dim['in']],sol['lam_a'][self.dim['in']:],sol['x']
+                    # solve QP with warmstarting
+                    if x0 is not None:
+                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba,x0=x0)
                     
-                # warmstart only primal
-                case 'x':
-            
-                    def local_qp(p_qp,x0=None):
-
-                        # get data from qp_dense function
-                        a,lba,uba,h,g = QP_func(p_qp)
-
-                        # solve QP with warmstarting
-                        if x0 is not None:
-                            sol = S(h=h,a=a,g=g,lba=lba,uba=uba,x0=x0)
-                        
-                        # if does not work, try without warmstarting
-                        else:
-                            sol = S(h=h,a=a,g=g,lba=lba,uba=uba)
-                        
-                        # return lambda, mu, y
-                        return sol['lam_a'][:self.dim['in']],sol['lam_a'][self.dim['in']:],sol['x']
+                    # if does not work, try without warmstarting
+                    else:
+                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba)
                     
-        else:
-            raise Exception('Separate mode not implemented yet.')
+                    # return lambda, mu, y
+                    return sol['lam_a'][:self.dim['in']],sol['lam_a'][self.dim['in']:],sol['x']
         
         # save in model
-        self.QP._QP__setSolver(local_qp)
+        self.__solve = local_qp
 
         # store computation times (if compile is true)
-        if compile:
-            self.__compTimes = self.__compTimes | comp_time_dict
+        self.__compTimes = comp_time_dict
 
     def __makeDenseQP(self,p,solver='qpoases',compile=False):
 
@@ -490,9 +488,6 @@ class QP:
     @property
     def qp_sparse(self):
         return self.__qp_sparse
-    
-    def __setQpSparse(self, value):
-        self.__qp_sparse = value
 
     @property
     def qp_dense(self):

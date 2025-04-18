@@ -6,6 +6,14 @@ from BPMPC.simVar import simVar
 import time
 from numpy.random import randint
 
+"""
+TODO:
+* options should be stored in an "options" class
+* I should implement a way to efficiently merge options belonging to different subclasses
+"""
+
+
+
 class scenario:
 
     def __init__(self,MSX='SX'):

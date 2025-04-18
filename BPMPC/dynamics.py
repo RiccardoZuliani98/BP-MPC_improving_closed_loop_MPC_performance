@@ -4,10 +4,7 @@ from BPMPC.symb import Symb
 
 """
 TODO:
-
 * some descriptions
-
-
 """
 
 class Dynamics:
