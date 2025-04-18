@@ -83,7 +83,7 @@ cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 ing = Ingredients(N=N,dynamics=dyn,cost=cost,constraints=cst)
 
 # create MPC
-MPC = QP(ing)
+MPC = QP(ing,p)
 
 # mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
 

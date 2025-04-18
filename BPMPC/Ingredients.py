@@ -57,7 +57,7 @@ class Ingredients:
         self.__options['linearization']  = used_linearization_method
 
         # retrieve symbolic variables in model
-        self.__sym = dynamics_copy._Dynamics__sym.copy(['x','y_lin'])
+        self.__sym = dynamics_copy._Dynamics__sym.copy(['x','y_lin','theta'])
 
         # add horizon
         self.__sym.addDim('N',N)

@@ -1,5 +1,5 @@
 import casadi as ca
-from time import time
+import time
 from BPMPC.Ingredients import Ingredients
 from BPMPC.options import Options
 
@@ -47,7 +47,7 @@ class QP:
 
         # save full symbolic qp parameter (do not include pf even if present)
         # self.__sym.addDim('p_qp',ca.vcat(p_QP).shape[0])
-        self.__sym.var.addVar('p_qp',ca.vcat(p_QP))
+        self.__sym.addVar('p_qp',ca.vcat(p_QP))
 
         # create input index
         idx_in = dict()
@@ -75,7 +75,7 @@ class QP:
             self.__sym.addDim('pf_t',0)
 
         # store full qp parameter
-        self.__sym.var.addVar('p_qp_full',ca.vcat(p_QP))
+        self.__sym.addVar('p_qp_full',ca.vcat(p_QP))
 
         # store dimensions of equality and inequality constraints
         self.__sym.addDim('in',ingredients.sparse['G'].shape[0])
@@ -102,7 +102,7 @@ class QP:
     def __makeSparseQP(self):
 
         # compilation options
-        if self.__options['compile']:
+        if self.__options['compile_qp_sparse']:
             jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
             options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
         else:
@@ -114,12 +114,21 @@ class QP:
         A = self.ingredients.sparse['A']
         lba = self.ingredients.sparse['lba']
         uba = self.ingredients.sparse['uba']
-        H = self.ingredients.sparse['H']
-        h = self.ingredients.sparse['h']
+        H = self.ingredients.dual['H']
+        h = self.ingredients.dual['h']
 
         # form QP ingredients
         QP_outs = [A,lba,uba,Q,q]
         QP_outs_names = ['A','lba','uba','Q','q']
+
+        # set of symbolic outputs
+        sym_outputs = set(ca.symvar(ca.vcat([ca.vcat(ca.symvar(elem)) for elem in QP_outs])))
+
+        # set of symbolic inputs
+        sym_inputs = set(ca.symvar(self.__sym.var['p_qp_full']))
+
+        assert sym_outputs.issubset(sym_inputs), 'The QP ingredients depend on more inputs than the one you provided. Did you forget about p or pf? Missing symbols: '
+        # sym_outputs.difference(sym_inputs)
 
         # create function
         start = time.time()
@@ -127,7 +136,7 @@ class QP:
         comp_time_dict = {'QP_func':time.time()-start}
 
         # save QP in model
-        self.QP._QP__setQpSparse(QP_func)
+        self.__qp_sparse = QP_func
 
         # create function
         start = time.time()
@@ -135,22 +144,24 @@ class QP:
         comp_time_dict['dual_func'] = time.time()-start
 
         # save dual in model
-        self.QP._QP__setDualSparse(dual_func)
+        self.__dual_sparse = dual_func
 
-        # extract dense ingredients
-        dense_qp = self.QP.ingredients['dense']
+        if self.ingredients.options['make_dense']:
 
-        # dense outputs
-        QP_outs_dense_names = list(dense_qp.keys())
-        QP_outs_dense = list(dense_qp.values())
+            # extract dense ingredients
+            dense_qp = self.ingredients.dense
 
-        # create function
-        start = time.time()
-        QP_dense_func = ca.Function('QP_dense',[self.__sym.var['p_qp_full']],QP_outs_dense,['p'],QP_outs_dense_names,options)
-        comp_time_dict['QP_dense_func'] = time.time()-start
+            # dense outputs
+            QP_outs_dense_names = list(dense_qp.keys())
+            QP_outs_dense = list(dense_qp.values())
 
-        # save in QP model
-        self.QP._QP__setQpDense(QP_dense_func)
+            # create function
+            start = time.time()
+            QP_dense_func = ca.Function('QP_dense',[self.__sym.var['p_qp_full']],QP_outs_dense,['p'],QP_outs_dense_names,options)
+            comp_time_dict['QP_dense_func'] = time.time()-start
+
+            # save in QP model
+            self.__qp_dense = QP_dense_func
 
         # implement QP using conic interface to retrieve multipliers
         qp = {}
@@ -190,7 +201,7 @@ class QP:
 
                     # solve QP with warmstarting
                     if x0 is not None:
-                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba,x0=x0,lam_a0=vertcat(lam0,mu0))
+                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba,x0=x0,lam_a0=ca.vertcat(lam0,mu0))
                     
                     # if does not work, try without warmstarting
                     else:
