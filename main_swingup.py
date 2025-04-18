@@ -1,5 +1,6 @@
 from BPMPC.scenario import scenario
 from BPMPC.dynamics import Dynamics
+from BPMPC.QP import QP
 from BPMPC.Ingredients import Ingredients
 import BPMPC.utils as utils
 import BPMPC.tests as tests
@@ -81,7 +82,10 @@ cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 # create QP ingredients
 ing = Ingredients(N=N,dynamics=dyn,cost=cost,constraints=cst)
 
-mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
+# create MPC
+MPC = QP(ing)
+
+# mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
 
 
 # ### UPPER LEVEL -----------------------------------------------------------

@@ -148,3 +148,364 @@ class Ingredients:
             - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
 
         """
+
+QP
+
+    __x = None
+    __y = None
+    __lam = None
+    __mu = None
+    __z = None
+    __y_lin = None
+    __p_t = None
+    __pf_t = None
+    __p_qp = None
+    __init = {'y_lin':None}
+
+    @property
+    def ingredients(self):
+        """
+        QP elements, setup through call to scenario.__makeQP. It is a dictionary containing the following keys:
+
+            - 'Q': Hessian of QP (n_y,n_y)
+            - 'Qinv': inverse of Hessian of QP (n_y,n_y)
+            - 'q': gradient of cost of QP (n_y,1)
+            - 'G': linear inequality constraint matrix (n_in,n_y)
+            - 'g': linear inequality constraint vector (n_in,1)
+            - 'H': Hessian of dual problem (n_z,n_z)
+            - 'h': gradient of cost of dual problem (n_z,1)
+            - 'A': stacked inequality constraint matrix for casadi's conic interface,
+                    specifically, A = vertcat(G,F) (n_in+n_eq,n_y)
+            - 'lba': lower bound of inequality constraints, lba = (-inf,f) (n_in+n_eq,1)
+            - 'uba': upper bound of inequality constraints, uba = (g,f) (n_in+n_eq,1)
+            - 'dense_qp: this is another dictionary containing the elements of the dense
+                version of the QP, it is created by the function scenario.__makeDenseMPC,
+                and it contains the keys
+                    - 'G_x', 'G_u', 'g_c': matrices satisfying x = G_x*x0 + G_u*u + g_c
+                    - 'Qx', 'Ru', 'x_ref', 'u_ref': cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
+                    - 'Hx', 'Hu', 'hx', 'hu': polyhedral constraints Hx*x <= hx, Hu*u <= hu
+
+        remember that the primal problem is a QP with the following structure:
+
+            min 1/2 y'Qy + q'y
+            s.t. Gy <= g
+                    Fy = y
+
+        and the dual problem is a QP with the following structure:
+
+            min 1/2 z'Hz + h'z
+            s.t. z=(lam,mu)
+                    lam >= 0
+        """
+
+    @property
+    def idx(self):
+        """
+        idx is a dictionary containing the indexing of the input and output optimization variables of the QP.
+        It contains keys setup by different functions. Specifically, calling scenario.__makeSparseMPC creates
+        a key 'out' which contains the index of the output QP variables. idx['out'] is itself a dictionary
+        with keys
+
+            - 'u': range of all inputs
+            - 'x': range of all states
+            - 'y': range of all state-input variables
+            - 'eps': range of all slack variables (if present)
+            - 'u0': range of first input
+            - 'u1': range of second input
+            - 'x_shift': states shifted by one time-step (last state repeated)
+            - 'u_shift': inputs shifted by one time-step (last input repeated)
+            - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
+
+        the second entry is 'in', which contains the index of the input QP variables (i.e. p_QP, not including
+        pf_t). idx['in'] is itself a dictionary set up by __makeQP with keys
+
+            - 'x0': initial state
+            - 'y_lin': linearization trajectory
+            - 'p_t': parameters that are optimized in the upper-level
+
+        Note that not all parameters need to be present.
+        """
+
+    @property
+    def solve(self):
+        """
+        this function takes in p_QP and returns the optimal solution of the QP problem. Based on the type
+        of warmstarting (i.e. x_lam_mu or x), the function will take the following inputs:
+
+            - x_lam_mu: p_QP (including pf_t), x0=None, lam=None, mu=None
+            - x: p_QP (including pf_t), x0=None
+
+        the output is lam, mu, y.
+        """
+
+    @property
+    def denseSolve(self):
+        """
+        this function takes in p_QP and returns the optimal solution of the QP problem in dense form.
+        Based on the type of warmstarting (i.e. x_lam_mu or x), the function will take the following inputs:
+
+            - x_lam_mu: p_QP (including pf_t), x0=None, lam=None, mu=None
+            - x: p_QP (including pf_t), x0=None
+
+        the output is lam, mu, y.
+        """
+
+    @property
+    def qp_sparse(self):
+        """
+        This function takes in p_QP and returns the sparse ingredients, which are:
+                
+            - F,f,G,g,Q,q in the separate mode, where the QP is formulated as
+
+                min 1/2 y'Qy + q'y
+                s.t. Gy <= g
+                        Fy = y
+
+            - A,lba,uba,Q,q in the stacked mode, where the QP is formulated as
+
+                min 1/2 y'Qy + q'y
+                s.t. lba <= Ay <= uba
+        """
+
+    @property
+    def qp_dense(self):
+        """
+        this function takes in p_QP (including pf_t) and returns the dense ingredients, which are:
+
+            - 'G_x', 'G_u', 'g_c': matrices satisfying x = G_x*x0 + G_u*u + g_c
+            - 'Qx', 'Ru', 'x_ref', 'u_ref': cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
+            - 'Hx', 'Hu', 'hx', 'hu': polyhedral constraints Hx*x <= hx, Hu*u <= hu
+                
+        where the QP is formulated as
+
+            min 1/2 u'(G_x'QxG_x + Ru)u + (G_x'Qx(G_x*x0 + g_c - x_ref) - Ru*u_ref)'u
+            s.t. Hx*(G_x*x0 + G_u*u + g_c) <= hx
+                    Hu*u <= hu
+        """
+
+    @property
+    def dual_sparse(self):
+        """
+        This function takes in p_QP (including pf_t) and returns the dual ingredients H,h, where the dual
+        QP is formulated as:
+
+            min 1/2 z'Hz + h'z
+            s.t. z >= 0
+        """
+
+    @property
+    def J(self):
+        """
+        this function takes in the dual variables lam, mu, and the parameters p_QP necessary to setup the
+        QP (including pf_t), and returns the following quantities in a list:
+
+            - J_F_z: conservative jacobian of dual fixed point condition wrt z
+            - J_F_p: conservative jacobian of dual fixed point condition wrt p_t
+            - J_y_p: conservative jacobian of primal variable wrt p_t
+            - J_y_z_mat: conservative jacobian of primal variable wrt z
+        """
+
+    @property
+    def J_y_p(self):
+        """
+        this function takes in lam, mu, p_QP (including pf_t), and optionally t (which defaults to 1), and
+        returns the inner product between the conservative jacobian J_y_p of y wrt p_t and t.
+        """
+        return self.__J_y_p
+
+    @property
+    def options(self):
+        """
+        Options dictionary. Possible keys are:
+
+            - 'linearization': 'trajectory', 'state' or 'none' (default is 'trajectory')
+            - 'slack': True or False (default is False)
+            - 'qp_mode': 'stacked' or 'separate' (default is 'stacked')
+            - 'solver': 'qpoases','osqp','cplex','gurobi','daqp','qrqp' (default is 'qpoases')
+            - 'warmstart': 'x_lam_mu' (warmstart both primal and dual variables) or 'x' (warmstart only 
+                        primal variables) (default is 'x_lam_mu')
+            - 'jac_tol': tolerance below which multipliers are considered zero (default is 8)
+            - 'jac_gamma': stepsize in optimality condition used to apply the IFT (default is 0.001)
+            - 'compile_qp_sparse': True or False (default is False)
+            - 'compile_jac': True or False (default is False)
+        """
+
+    @property
+    def init(self):
+        """
+        init contains the initial value of the QP variables, it can be set through __setInit.
+        """
+
+    def __checkInit(self, value):
+
+        # preallocate output dictionary
+        out = {}
+
+        # check if input dictionary contains 'y_lin' key
+        if 'y_lin' in value:
+
+            if 'y_lin' not in self.param:
+                raise Exception('Current MPC does not require a linearization trajectory.')
+
+            # if so, extract y_lin
+            y_lin = value['y_lin']
+
+            # check if y_lin has correct dimension (unless the 'adpative' or the 'optimal' option is passed)
+            if (y_lin != 'adaptive' or y_lin != 'optimal') and (y_lin.shape[0] != self.param['y_lin'].shape[0]):
+                raise Exception('y_lin has incorrect dimension.')
+
+            # add new initial linearization
+            out = {'y_lin':y_lin}
+
+        return out
+
+    def __makeSparseQP(self,p=None,pf=None,mode='stacked',solver='qpoases',warmstart='x_lam_mu',compile=False):
+        
+        """
+        This function creates the functions necessary to solve the MPC problem in QP form. Specifically, this function
+        sets the following properties of QP:
+
+            - qp_sparse: this function takes in p_QP and returns the sparse ingredients, which are:
+                
+                - F,f,G,g,Q,q in the separate mode, where the QP is formulated as
+
+                    min 1/2 y'Qy + q'y
+                    s.t. Gy <= g
+                         Fy = f
+
+                - A,lba,uba,Q,q in the stacked mode, where the QP is formulated as
+
+                    min 1/2 y'Qy + q'y
+                    s.t. lba <= Ay <= uba
+
+            - dual_sparse: this function takes in p_QP and returns the dual ingredients H,h, where the dual
+              QP is formulated as:
+
+                min 1/2 z'Hz + h'z
+                s.t. z >= 0
+            
+            - qp_dense: this function takes in p_QP and returns the dense ingredients, which are:
+
+                - 'G_x', 'G_u', 'g_c': matrices satisfying x = G_x*x0 + G_u*u + g_c
+                - 'Qx', 'Ru', 'x_ref', 'u_ref': cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
+                - 'Hx', 'Hu', 'hx', 'hu': polyhedral constraints Hx*x <= hx, Hu*u <= hu
+              
+              where the QP is formulated as
+
+                min 1/2 u'(G_x'QxG_x + Ru)u + (G_x'Qx(G_x*x0 + g_c - x_ref) - Ru*u_ref)'u
+                s.t. Hx*(G_x*x0 + G_u*u + g_c) <= hx
+                     Hu*u <= hu
+
+            - solve: this function takes in p_QP and returns the optimal solution of the QP problem.
+              Based on the type of warmstarting (i.e. x_lam_mu or x), the function will take the following 
+              inputs:
+
+                - x_lam_mu: p_QP, x0=None, lam=None, mu=None
+                - x: p_QP, x0=None
+
+              the output is lam, mu, y.
+                
+        This function also sets up all the symbolic variables and their dimensions.
+
+        Note that p_QP contains all necessary parameters required to setup the ingredients at any given time-step,
+        e.g. x0,y_lin,p_t,pf_t). This is different from the p_QP stored as a parameter, which does not contain pf.
+
+        Additionally, this functions sets up the 'in' entry of the idx dictionary of scenario.QP, which contains the
+        indexing of all the input parameters in p_QP:
+
+            - 'x0': initial state
+            - 'y_lin': linearization trajectory
+            - 'p_t': parameters that are optimized in the upper-level
+        
+        Note that not all parameters need to be present.
+
+        """
+
+SCENARIO
+
+    def makeMPC(self,N,cost,cst,p=None,pf=None,model=None,options={}):
+
+        """
+        This function allows the user to setup the MPC formulation.
+        Inputs:
+
+            - N: horizon of the MPC (natural number)
+            
+            - cost: dictionary containing the cost function. The dictionary must contain the keys
+                
+                - 'Qx': state cost matrix (n_x*(N-1),n_x*(N-1))
+                - 'Qn': terminal state cost matrix (n_x,n_x)
+                - 'Ru': input cost matrix (n_u*N,n_u*N)
+                - 'x_ref': (optional, defaults to 0) reference state (n_x,1)
+                - 'u_ref': (optional, defaults to 0) reference input (n_u,1)
+                - 's_lin': (optional, defaults to 0) linear penalty on slack variables
+                - 's_quad': (optional, defaults to 1) quadratic penalty on slack variables
+
+              recall that the cost is (x-x_ref)'blkdiag(Qx,Qn)(x-x_ref) + (u-u_ref)'Ru(u-u_ref) + s_lin*e + s_quad*e^2
+              Note that x and u are here of dimensions (n_x*N,1) and (n_u*N,1) respectively (i.e. they contain all time-steps).
+            
+            - cst: dictionary containing the constraints. The dictionary must contain the keys
+            
+                - 'Hx': state constraint matrix (=,n_x*N)
+                - 'hx': state constraint vector (=,1)
+                - 'Hx_e': (optional, defaults to identity) matrix that softens constraints (=,n_eps)
+                - 'Hu': input constraint matrix (-,n_u*N)
+                - 'hu': input constraint vector (-,1)
+              
+              recall that the constraints are Hx*x + Hx_e*e <= hx, Hu*u <= hu, where e are the slack variables.
+              Note that x and u are here of dimensions (n_x*N,1) and (n_u*N,1) respectively (i.e. they contain all time-steps).
+
+            - p: symbolic parameter used to set up the MPC at any given time-step. This is (part of) the decision variable
+                 of the upper-level optimization problem.
+
+            - pf: symbolic parameter used to set up the MPC at the first time-step. This is not a decision variable of the
+                  upper-level function (e.g. the reference to be tracked).
+
+            - model (optional): dictionary containing the linear model of the system. The dictionary must contain the keys
+              A,B,c where the prediction model is x[t+1] = Ax[t] + Bu[t] + c. Note that c is optional and defaults to 0.
+
+            - options (optional): dictionary containing the options. The dictionary can contain the following keys:
+
+                - 'linearization': 'trajectory', 'state' or 'none' (default is 'trajectory')
+                - 'slack': True or False (default is False)
+                - 'qp_mode': 'stacked' or 'separate' (default is 'stacked')
+                - 'solver': 'qpoases','osqp','cplex','gurobi','daqp','qrqp' (default is 'qpoases')
+                - 'warmstart': 'x_lam_mu' (warmstart both primal and dual variables) or 'x' (warmstart only 
+                            primal variables) (default is 'x_lam_mu')
+                - 'jac_tol': tolerance below which multipliers are considered zero (default is 8)
+                - 'jac_gamma': stepsize in optimality condition used to apply the IFT (default is 0.001)
+                - 'compile_qp_sparse': True or False (default is False)
+                - 'compile_jac': True or False (default is False)
+                
+        """
+
+        # check if linearization option was passed
+        if 'linearization' not in options:
+            options['linearization'] = 'trajectory'
+
+        # check if a model was passed
+        if model is None:
+            A_list, B_list, c_list, y_lin = self.linearize(N,linearization=options['linearization'])
+            model = {'A':A_list,'B':B_list,'c':c_list,'y_lin':y_lin,'x0':self.param['x']}
+            # check if model is affine
+            if y_lin is None:
+                options['linearization'] = 'none'
+
+        # extract y_lin from model if present
+        if 'y_lin' in model:
+            y_lin = model['y_lin']
+        else:
+            y_lin = None
+
+        # create MPC class
+        if self.__MSX == SX:
+            MSX = 'SX'
+        if self.__MSX == MX:
+            MSX = 'MX'
+        mpc = MPC(N,model,cost,cst,MSX)
+        
+        # create QP ingredients
+        G,g,F,f,Q,Qinv,q,idx,denseQP = mpc.MPC2QP()
+
+        # create QP
+        self.makeQP(G,g,F,f,Q,Qinv,q,idx,y_lin,denseQP,p,pf,options)

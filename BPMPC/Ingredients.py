@@ -3,20 +3,15 @@ from BPMPC.utils import matrixify
 from BPMPC.dynamics import Dynamics
 from copy import copy
 import numpy as np
+from BPMPC.options import Options
 
 """
 TODO:
-
-* add dual formulation
 * add descriptions
-* add "update"
-* add check of input options
-* make dense and make dual should be external functions
-* creation of sparse should go through "update" such that users can easily update their ingredients if needed
-
+* add update function
+* create a separate function for checking dimensions?
+* allow symb to contain list of variables? In this case the dimension must be provided manually perhaps
 """
-
-
 
 class Ingredients:
 
@@ -33,7 +28,10 @@ class Ingredients:
     
     __ALL_DIMENSIONS = ['x','u','one','cst_x','eps','cst_u']
 
-    __OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state']}
+    __OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'],
+                                'make_dense':[True,False]}
+    
+    __OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'make_dense':True}
 
     def __init__(self,N,dynamics,cost,constraints,options={}):
 
@@ -44,17 +42,20 @@ class Ingredients:
         # copy dynamics
         dynamics_copy = copy(dynamics)
 
+        # generate options dictionary
+        self.__options = Options(self.__OPTIONS_ALLOWED_VALUES,self.__OPTIONS_DEFAULT_VALUES)
+
+        # add user-specified options
+        self.__options.update(options)
+
         # check if user passed a special option for linearization
-        if 'linearization' in options:
-            used_linearization_method = dynamics_copy._Dynamics__linearize(N=N,method=options['linearization'])
-        else:
-            used_linearization_method = dynamics_copy._Dynamics__linearize(N=N)
+        used_linearization_method = dynamics_copy._Dynamics__linearize(N=N,method=self.__options['linearization'])
 
         # retrieve prediction model
         model = dynamics_copy.model
 
         # store linearization method that was used
-        self.__options = {'linearization':used_linearization_method}
+        self.__options['linearization']  = used_linearization_method
 
         # retrieve symbolic variables in model
         self.__sym = dynamics_copy._Dynamics__sym.copy(['x','y_lin'])
@@ -87,15 +88,16 @@ class Ingredients:
         # create index
         self.__idx = self.__makeIdx()
 
-        # create dense QP
-        self.__dense = self.__makeDenseQP(processed_data)
+        # create dense QP if requested
+        if self.__options['make_dense']:
+            self.__dense = self.__makeDenseQP(processed_data)
 
         # create dual QP
         self.__dual = self.__makeDualQP()
     
 
     def update(self,Q=None,q=None,G=None,g=None,F=None,f=None):
-        #TODO
+        #TODO remember to remove the dense and to update the dual
         pass
 
     def __makeSparseQP(self,processed_data):

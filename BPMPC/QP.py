@@ -1,4 +1,12 @@
-from casadi import *
+import casadi as ca
+from time import time
+
+"""
+TODO
+
+* better init function?
+
+"""
 
 class QP:
     
@@ -10,215 +18,28 @@ class QP:
                          'warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,'compile_qp_sparse':False,
                          'compile_jac':False}
 
-    def __init__(self,MSX):
+    def __init__(self,ingredients,p=None,pf=None,options={}):
 
-        __x = None
-        __y = None
-        __lam = None
-        __mu = None
-        __z = None
-        __y_lin = None
-        __p_t = None
-        __pf_t = None
-        __p_qp = None
-        __init = {'y_lin':None}
+        # copy dimensions and variables inside ingredients
+        self.__sym = ingredients._Ingredients__sym.copy()
 
-        __ingredients = {}
-        __idx = {}
+        # copy ingredients
+        self.__ingredients = ingredients
 
-
-        __solve = None
-        __denseSolve = None
-        __qp_sparse = None
-        __qp_dense = None
-        __dual_sparse = None
-        __J = None
-        __J_y_p = None
-        
-
-        # check type of symbolic variables
-        assert MSX in ['SX','MX'], 'MSX must be either SX or MX'
-        self.__MSX = SX if MSX == 'SX' else MX
-
-    def update(self,x,G,g,F,f,Q,Qinv,q,idx,y_lin,denseQP,p=None,pf=None,options={}):
-
-        # update options
-        self.__updateOptions(options)
-
-        # add initial state to QP variables
-        self.__x = x
-
-        # add y_lin to QP variables
-        if y_lin is not None:
-            self.__y_lin = y_lin
-        else:
-            self.__updateOptions({'linearization':'none'})
-
-        # check if slack variables are present
-        if 'eps' in idx:
-            self.__addDim({'eps': len(idx['eps'])})
-        else:
-            self.__addDim({'eps': 0})
-        
-        # add horizon of MPC to dimensions
-        self.__addDim({'N': int(len(idx['x']) / self.dim['x'])})
-
-        # save dimensions in variable with shorter name for simplicity
-        n = self.dim
-
-        #TODO: add dimension checks
-
-        # store in dictionary
-        QP_dict = dict()
-        QP_dict['Q'] = Q
-        QP_dict['Qinv'] = Qinv
-        QP_dict['q'] = q
-        QP_dict['G'] = G
-        QP_dict['g'] = g
-        QP_dict['F'] = F
-        QP_dict['f'] = f
-        QP_dict['A'] = A
-        QP_dict['lba'] = lba
-        QP_dict['uba'] = uba
-        QP_dict['H'] = H
-        QP_dict['h'] = h
-        QP_dict['dense'] = denseQP
-
-
-        ### STORE IN MPC -----------------------------------------------------
-
-        # store dimensions of equality and inequality constraints
-        self.__addDim({'in': G.shape[0]})
-        self.__addDim({'eq': F.shape[0]})
-
-        # store ingredients
-        self.QP._QP__setIngredients(QP_dict)
-
-        # store index
-        self.QP._QP__updateIdx({'out':idx})
-
-        # primal optimization variables
-        self.QP._QP__set_y(self.__MSX.sym('y',q.shape[0]-n['eps'],1))
-
-        # dual optimization variables (inequality constraints)
-        self.QP._QP__set_lam(self.__MSX.sym('lam',g.shape[0],1))
-
-        # dual optimization variables (equality constraints)
-        self.QP._QP__set_mu(self.__MSX.sym('mu',f.shape[0],1))
-
-        # dual optimization variable (all constraints)
-        self.QP._QP__set_z(vcat([self.QP.lam,self.QP.mu]))
-
-        # add dimensions
-        self.__addDim({k: v.shape[0] for k, v in self.QP.param.items()})
-
-        # create QP
-        self.__makeQP(p=p,pf=pf,mode=self.QP.options['qp_mode'],solver=self.QP.options['solver'],warmstart=self.QP.options['warmstart'],compile=self.QP.options['compile_qp_sparse'])
-
-        # create conservative jacobian
-        self.__makeConsJac(gamma=self.QP.options['jac_gamma'],tol=self.QP.options['jac_tol'],compile=self.QP.options['compile_jac'])
-
-    def __makeSparseQP(self,p=None,pf=None,mode='stacked',solver='qpoases',warmstart='x_lam_mu',compile=False):
-        
-        """
-        This function creates the functions necessary to solve the MPC problem in QP form. Specifically, this function
-        sets the following properties of QP:
-
-            - qp_sparse: this function takes in p_QP and returns the sparse ingredients, which are:
-                
-                - F,f,G,g,Q,q in the separate mode, where the QP is formulated as
-
-                    min 1/2 y'Qy + q'y
-                    s.t. Gy <= g
-                         Fy = f
-
-                - A,lba,uba,Q,q in the stacked mode, where the QP is formulated as
-
-                    min 1/2 y'Qy + q'y
-                    s.t. lba <= Ay <= uba
-
-            - dual_sparse: this function takes in p_QP and returns the dual ingredients H,h, where the dual
-              QP is formulated as:
-
-                min 1/2 z'Hz + h'z
-                s.t. z >= 0
-            
-            - qp_dense: this function takes in p_QP and returns the dense ingredients, which are:
-
-                - 'G_x', 'G_u', 'g_c': matrices satisfying x = G_x*x0 + G_u*u + g_c
-                - 'Qx', 'Ru', 'x_ref', 'u_ref': cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
-                - 'Hx', 'Hu', 'hx', 'hu': polyhedral constraints Hx*x <= hx, Hu*u <= hu
-              
-              where the QP is formulated as
-
-                min 1/2 u'(G_x'QxG_x + Ru)u + (G_x'Qx(G_x*x0 + g_c - x_ref) - Ru*u_ref)'u
-                s.t. Hx*(G_x*x0 + G_u*u + g_c) <= hx
-                     Hu*u <= hu
-
-            - solve: this function takes in p_QP and returns the optimal solution of the QP problem.
-              Based on the type of warmstarting (i.e. x_lam_mu or x), the function will take the following 
-              inputs:
-
-                - x_lam_mu: p_QP, x0=None, lam=None, mu=None
-                - x: p_QP, x0=None
-
-              the output is lam, mu, y.
-                
-        This function also sets up all the symbolic variables and their dimensions.
-
-        Note that p_QP contains all necessary parameters required to setup the ingredients at any given time-step,
-        e.g. x0,y_lin,p_t,pf_t). This is different from the p_QP stored as a parameter, which does not contain pf.
-
-        Additionally, this functions sets up the 'in' entry of the idx dictionary of scenario.QP, which contains the
-        indexing of all the input parameters in p_QP:
-
-            - 'x0': initial state
-            - 'y_lin': linearization trajectory
-            - 'p_t': parameters that are optimized in the upper-level
-        
-        Note that not all parameters need to be present.
-
-        """
-
-        # compilation options
-        if compile:
-            jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
-            options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
-        else:
-            options = {}
-
-        # first construct the parameter vector required for the QP
-        p_QP = []
-        p_QP_names = []
-
-        # the MPC problem always depends on the current state
-        x = self.QP.x
-        p_QP.append(x)
-        p_QP_names.append('x')
-
-        # there may be also a linearization trajectory
-        if self.QP.y_lin is not None:
-
-            # get linearization trajectory
-            y_lin = self.QP.y_lin
-
-            # append to list
-            p_QP.append(y_lin)
-            p_QP_names.append('y_lin')
-        else:
-
-            # if y_lin is not present, set it as a zero-dimensional SX
-            y_lin = SX(0,0)
-
-        # then add p
+        # if p is passed, store it in parameters of QP
         if p is not None:
+            assert isinstance(p,ca.SX), 'p must be of type SX'
+            self.__sym.addVar('p_t',p)
 
-            # store in parameters of QP
-            self.QP._QP__set_p_t(p)
+        # TODO: check if order of variables in p_QP is correct
 
-            # append to list
-            p_QP.append(p)
-            p_QP_names.append('p_t')
+        # construct the parameter vector required for the QP
+        p_QP = self.__sym.var.values()
+        p_QP_names = self.__sym.var.keys()
+
+        # save full symbolic qp parameter (do not include pf even if present)
+        # self.__sym.var.addVar('p_QP',ca.vcat(p_QP))
+        self.__sym.var.addDim('p_qp',ca.vcat(p_QP).shape[0])
 
         # create input index
         idx_in = dict()
@@ -234,56 +55,71 @@ class QP:
             running_idx = running_idx + len_current_p_d
 
         # store in QP index dictionary
-        self.QP._QP__updateIdx({'in':idx_in})
+        self.__ingredients.__sparse['idx']['in'] = idx_in
 
-        # save full symbolic qp parameter (do not include pf even if present)
-        self.QP._QP__set_p_qp(p_QP)
-
-        # add dimension
-        self.__addDim({'p_qp': vcat(p_QP).shape[0]})
-
-        # add pf (i.e., fixed parameters that are not differentiated)
+        # if pf is passed, store it in parameters of QP
         if pf is not None:
-
-            # append to list
-            p_QP.append(pf)
-            p_QP_names.append('pf')
-
-            # save symbolic parameter
-            self.QP._QP__set_pf_t(pf)
-        
-            # add dimension
-            self.__addDim({'pf_qp': pf.shape[0]})
-        
+            assert isinstance(pf,ca.SX), 'p must be of type SX'
+            self.__sym.addVar('pf_t',pf)
         else:
             # add dimension
-            self.__addDim({'pf_qp': 0})
+            self.__sym.addDim('pf_t',0)
+
+        # store dimensions of equality and inequality constraints
+        self.__sym.addDim('in',ingredients.sparse['G'].shape[0])
+        self.__sym.addDim('eq',ingredients.sparse['F'].shape[0])
+
+        # primal optimization variables
+        self.__sym.addVar('y',ca.SX.sym('y',ingredients.sparse['q'].shape[0]-self.dim['eps'],1))
+
+        # dual optimization variables (inequality constraints)
+        self.__sym.addVar('lam',ca.SX.sym('lam',ingredients.sparse['g'].shape[0],1))
+
+        # dual optimization variables (equality constraints)
+        self.__sym.addVar('mu',ca.SX.sym('mu',ingredients.sparse['f'].shape[0],1))
+
+        # dual optimization variable (all constraints)
+        self.__sym.addVar('z',ca.vcat([self.__sym.var['lam'],self.__sym.var['mu']]))
+
+        # create QP
+        self.__makeSparseQP(p=p,pf=pf,mode=self.QP.options['qp_mode'],solver=self.QP.options['solver'],warmstart=self.QP.options['warmstart'],compile=self.QP.options['compile_qp_sparse'])
+
+        # create conservative jacobian
+        self.__makeConsJac(gamma=self.QP.options['jac_gamma'],tol=self.QP.options['jac_tol'],compile=self.QP.options['compile_jac'])
+
+        __solve = None
+        __denseSolve = None
+        __qp_sparse = None
+        __qp_dense = None
+        __dual_sparse = None
+        __J = None
+        __J_y_p = None
+
+    def __makeSparseQP(self,p=None,pf=None,solver='qpoases',warmstart='x_lam_mu',compile=False):
+
+        # compilation options
+        if compile:
+            jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
+            options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
+        else:
+            options = {}
 
         # extract ingrediens
-        Q = self.QP.ingredients['Q']
-        q = self.QP.ingredients['q']
-        F = self.QP.ingredients['F']
-        f = self.QP.ingredients['f']
-        G = self.QP.ingredients['G']
-        g = self.QP.ingredients['g']
-        A = self.QP.ingredients['A']
-        lba = self.QP.ingredients['lba']
-        uba = self.QP.ingredients['uba']
-        H = self.QP.ingredients['H']
-        h = self.QP.ingredients['h']
+        Q = self.ingredients['Q']
+        q = self.ingredients['q']
+        A = self.ingredients['A']
+        lba = self.ingredients['lba']
+        uba = self.ingredients['uba']
+        H = self.ingredients['H']
+        h = self.ingredients['h']
 
-        # select outputs
-        if mode == 'separate':
-            QP_outs = [F,f,G,g,Q,q]
-            QP_outs_names = ['F','f','G','g','Q','q']
-            raise Exception('Separate mode not implemented yet.') #TODO implement separate mode
-        elif mode == 'stacked':
-            QP_outs = [A,lba,uba,Q,q]
-            QP_outs_names = ['A','lba','uba','Q','q']
+        # form QP ingredients
+        QP_outs = [A,lba,uba,Q,q]
+        QP_outs_names = ['A','lba','uba','Q','q']
 
         # create function
         start = time.time()
-        QP_func = Function('QP',[vcat(p_QP)],QP_outs,['p'],QP_outs_names,options)
+        QP_func = ca.Function('QP',[ca.vcat(p_QP)],QP_outs,['p'],QP_outs_names,options)
         comp_time_dict = {'QP_func':time.time()-start}
 
         # save QP in model
@@ -291,7 +127,7 @@ class QP:
 
         # create function
         start = time.time()
-        dual_func = Function('dual',[vcat(p_QP)],[H,h],['p'],['H','h'],options)
+        dual_func = ca.Function('dual',[ca.vcat(p_QP)],[H,h],['p'],['H','h'],options)
         comp_time_dict['dual_func'] = time.time()-start
 
         # save dual in model
@@ -306,7 +142,7 @@ class QP:
 
         # create function
         start = time.time()
-        QP_dense_func = Function('QP_dense',[vcat(p_QP)],QP_outs_dense,['p'],QP_outs_dense_names,options)
+        QP_dense_func = ca.Function('QP_dense',[ca.vcat(p_QP)],QP_outs_dense,['p'],QP_outs_dense_names,options)
         comp_time_dict['QP_dense_func'] = time.time()-start
 
         # save in QP model
@@ -636,143 +472,23 @@ class QP:
             self.__compTimes = self.__compTimes | comp_time_dict
 
     @property
-    def x(self):
-        # initial state (n_x,1)
-        return self.__x
-
-    @property
-    def y(self):
-        # primal optimization variables (n_y,1)
-        return self.__y
-
-    @property
-    def lam(self):
-        # dual multipliers of the inequality constraints (n_in,1)
-        return self.__lam
-
-    @property
-    def mu(self):
-        # dual multipliers of the equality constraints (n_eq,1)
-        return self.__mu
-
-    @property
-    def z(self):
-        # dual multipliers (n_in + n_eq,1)
-        return self.__z
-    
-    @property
-    def y_lin(self):
-        # linearization trajectory (n_y_lin,1)
-        return self.__y_lin
-
-    @property
     def ingredients(self):
-        """
-        QP elements, setup through call to scenario.__makeQP. It is a dictionary containing the following keys:
-
-            - 'Q': Hessian of QP (n_y,n_y)
-            - 'Qinv': inverse of Hessian of QP (n_y,n_y)
-            - 'q': gradient of cost of QP (n_y,1)
-            - 'G': linear inequality constraint matrix (n_in,n_y)
-            - 'g': linear inequality constraint vector (n_in,1)
-            - 'H': Hessian of dual problem (n_z,n_z)
-            - 'h': gradient of cost of dual problem (n_z,1)
-            - 'A': stacked inequality constraint matrix for casadi's conic interface,
-                    specifically, A = vertcat(G,F) (n_in+n_eq,n_y)
-            - 'lba': lower bound of inequality constraints, lba = (-inf,f) (n_in+n_eq,1)
-            - 'uba': upper bound of inequality constraints, uba = (g,f) (n_in+n_eq,1)
-            - 'dense_qp: this is another dictionary containing the elements of the dense
-                version of the QP, it is created by the function scenario.__makeDenseMPC,
-                and it contains the keys
-                    - 'G_x', 'G_u', 'g_c': matrices satisfying x = G_x*x0 + G_u*u + g_c
-                    - 'Qx', 'Ru', 'x_ref', 'u_ref': cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
-                    - 'Hx', 'Hu', 'hx', 'hu': polyhedral constraints Hx*x <= hx, Hu*u <= hu
-
-        remember that the primal problem is a QP with the following structure:
-
-            min 1/2 y'Qy + q'y
-            s.t. Gy <= g
-                    Fy = y
-
-        and the dual problem is a QP with the following structure:
-
-            min 1/2 z'Hz + h'z
-            s.t. z=(lam,mu)
-                    lam >= 0
-        """
         return self.__ingredients
 
     @property
     def idx(self):
-        """
-        idx is a dictionary containing the indexing of the input and output optimization variables of the QP.
-        It contains keys setup by different functions. Specifically, calling scenario.__makeSparseMPC creates
-        a key 'out' which contains the index of the output QP variables. idx['out'] is itself a dictionary
-        with keys
-
-            - 'u': range of all inputs
-            - 'x': range of all states
-            - 'y': range of all state-input variables
-            - 'eps': range of all slack variables (if present)
-            - 'u0': range of first input
-            - 'u1': range of second input
-            - 'x_shift': states shifted by one time-step (last state repeated)
-            - 'u_shift': inputs shifted by one time-step (last input repeated)
-            - 'y_shift': concatenation of x_shift and u_shift (and slacks shifted if present)
-
-        the second entry is 'in', which contains the index of the input QP variables (i.e. p_QP, not including
-        pf_t). idx['in'] is itself a dictionary set up by __makeQP with keys
-
-            - 'x0': initial state
-            - 'y_lin': linearization trajectory
-            - 'p_t': parameters that are optimized in the upper-level
-
-        Note that not all parameters need to be present.
-        """
         return self.__idx
 
     @property
     def solve(self):
-        """
-        this function takes in p_QP and returns the optimal solution of the QP problem. Based on the type
-        of warmstarting (i.e. x_lam_mu or x), the function will take the following inputs:
-
-            - x_lam_mu: p_QP (including pf_t), x0=None, lam=None, mu=None
-            - x: p_QP (including pf_t), x0=None
-
-        the output is lam, mu, y.
-        """
         return self.__solve
 
     @property
     def denseSolve(self):
-        """
-        this function takes in p_QP and returns the optimal solution of the QP problem in dense form.
-        Based on the type of warmstarting (i.e. x_lam_mu or x), the function will take the following inputs:
-
-            - x_lam_mu: p_QP (including pf_t), x0=None, lam=None, mu=None
-            - x: p_QP (including pf_t), x0=None
-
-        the output is lam, mu, y.
-        """
         return self.__denseSolve
 
     @property
     def qp_sparse(self):
-        """
-        This function takes in p_QP and returns the sparse ingredients, which are:
-                
-            - F,f,G,g,Q,q in the separate mode, where the QP is formulated as
-
-                min 1/2 y'Qy + q'y
-                s.t. Gy <= g
-                        Fy = y
-
-            - A,lba,uba,Q,q in the stacked mode, where the QP is formulated as
-
-                min 1/2 y'Qy + q'y
-                s.t. lba <= Ay <= uba
-        """
         return self.__qp_sparse
     
     def __setQpSparse(self, value):
@@ -780,66 +496,18 @@ class QP:
 
     @property
     def qp_dense(self):
-        """
-        this function takes in p_QP (including pf_t) and returns the dense ingredients, which are:
-
-            - 'G_x', 'G_u', 'g_c': matrices satisfying x = G_x*x0 + G_u*u + g_c
-            - 'Qx', 'Ru', 'x_ref', 'u_ref': cost function (x-x_ref)'Qx(x-x_ref) + (u-u_ref)'Ru(u-u_ref)
-            - 'Hx', 'Hu', 'hx', 'hu': polyhedral constraints Hx*x <= hx, Hu*u <= hu
-                
-        where the QP is formulated as
-
-            min 1/2 u'(G_x'QxG_x + Ru)u + (G_x'Qx(G_x*x0 + g_c - x_ref) - Ru*u_ref)'u
-            s.t. Hx*(G_x*x0 + G_u*u + g_c) <= hx
-                    Hu*u <= hu
-        """
         return self.__qp_dense
 
     @property
     def dual_sparse(self):
-        """
-        This function takes in p_QP (including pf_t) and returns the dual ingredients H,h, where the dual
-        QP is formulated as:
-
-            min 1/2 z'Hz + h'z
-            s.t. z >= 0
-        """
         return self.__dual_sparse
 
     @property
-    def p_t(self):
-        # design parameter of QP at time t (dimension not stored)
-        return self.__p_t
-
-    @property
-    def pf_t(self):
-        # fixed parameter of QP at time t (e.g. reference) (n_pf_t,1)
-        return self.__pf_t
-
-    @property
-    def p_qp(self):
-        # symbolic parameters needed to setup QP at time t (n_p_qp,1)
-        return self.__p_qp
-
-    @property
     def J(self):
-        """
-        this function takes in the dual variables lam, mu, and the parameters p_QP necessary to setup the
-        QP (including pf_t), and returns the following quantities in a list:
-
-            - J_F_z: conservative jacobian of dual fixed point condition wrt z
-            - J_F_p: conservative jacobian of dual fixed point condition wrt p_t
-            - J_y_p: conservative jacobian of primal variable wrt p_t
-            - J_y_z_mat: conservative jacobian of primal variable wrt z
-        """
         return self.__J
 
     @property
     def J_y_p(self):
-        """
-        this function takes in lam, mu, p_QP (including pf_t), and optionally t (which defaults to 1), and
-        returns the inner product between the conservative jacobian J_y_p of y wrt p_t and t.
-        """
         return self.__J_y_p
 
     @property
@@ -859,20 +527,6 @@ class QP:
     
     @property
     def options(self):
-        """
-        Options dictionary. Possible keys are:
-
-            - 'linearization': 'trajectory', 'state' or 'none' (default is 'trajectory')
-            - 'slack': True or False (default is False)
-            - 'qp_mode': 'stacked' or 'separate' (default is 'stacked')
-            - 'solver': 'qpoases','osqp','cplex','gurobi','daqp','qrqp' (default is 'qpoases')
-            - 'warmstart': 'x_lam_mu' (warmstart both primal and dual variables) or 'x' (warmstart only 
-                        primal variables) (default is 'x_lam_mu')
-            - 'jac_tol': tolerance below which multipliers are considered zero (default is 8)
-            - 'jac_gamma': stepsize in optimality condition used to apply the IFT (default is 0.001)
-            - 'compile_qp_sparse': True or False (default is False)
-            - 'compile_jac': True or False (default is False)
-        """
         return self.__options
 
     def __updateOptions(self, value):
@@ -892,41 +546,11 @@ class QP:
     
     @property
     def init(self):
-        """
-        init contains the initial value of the QP variables, it can be set through __setInit.
-        """
         return {k:v for k,v in self.__init.items()}
     
     def __setInit(self, value):
         self.__init = self.__init | self.__checkInit(value)
 
-    def __checkInit(self, value):
-
-        # preallocate output dictionary
-        out = {}
-
-        # check if input dictionary contains 'y_lin' key
-        if 'y_lin' in value:
-
-            if 'y_lin' not in self.param:
-                raise Exception('Current MPC does not require a linearization trajectory.')
-
-            # if so, extract y_lin
-            y_lin = value['y_lin']
-
-            # check if y_lin has correct dimension (unless the 'adpative' or the 'optimal' option is passed)
-            if (y_lin != 'adaptive' or y_lin != 'optimal') and (y_lin.shape[0] != self.param['y_lin'].shape[0]):
-                raise Exception('y_lin has incorrect dimension.')
-
-            # add new initial linearization
-            out = {'y_lin':y_lin}
-
-        return out
-
-    # overwrite the __dir__ method
-    def __dir__(self):
-        return [attr for attr in super().__dir__() if not attr.startswith('_QP__')]
-    
     def debug(self,lam,mu,p_t,epsilon=1e-6,roundoff=10,y_all=None):
 
         # get full derivative
