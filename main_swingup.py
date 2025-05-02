@@ -17,6 +17,7 @@ compile_qp_sparse = False
 compile_qp_dense = False
 compile_jac = False
 
+
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 dyn_dict = cart_pend.dynamics(dt=0.015)
@@ -59,6 +60,8 @@ Ru = c_r**2 + 1e-6
 
 # create parameter
 p = vcat([c_q,c_r])
+# p = c_q
+# pf = c_r
 
 # MPC terminal cost
 Qn = utils.param2terminalCost(c_q) + 0.01*SX.eye(n['x'])
@@ -83,12 +86,11 @@ cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 ing = Ingredients(N=N,dynamics=dyn,cost=cost,constraints=cst)
 
 # create MPC
-MPC = QP(ing,p)
+MPC = QP(ingredients=ing,p=p)
+# MPC = QP(ingredients=ing,p=p,pf=pf)
 
-# mod.makeMPC(N=N,cost=mpc_cost,cst=mpc_cst,p=p,options={'jac_tol':8,'solver':'daqp','slack':False,'compile_jac':compile_jac,'compile_qp_sparse':compile_qp_sparse})
 
-
-# ### UPPER LEVEL -----------------------------------------------------------
+### UPPER LEVEL -----------------------------------------------------------
 
 # # extract linearized dynamics at the origin
 # A = mod.dyn.A_nom(DM(n['x'],1),DM(n['u'],1))

@@ -8,22 +8,22 @@ TODO:
 class Symb:
 
     def __init__(self):
-        self.__var = {}
-        self.__dim = {}
-        self.__init = {}
+        self._var = {}
+        self._dim = {}
+        self._init = {}
 
     @property
     def dim(self):
-        return self.__dim
+        return self._dim
     
     @property
     def var(self):
-        return self.__var
+        return self._var
 
     @property
     def init(self):
         # return {key:val for key,val in self.init.items() if val is not None}
-        return self.__init
+        return self._init
     
     def setInit(self,data):
 
@@ -31,7 +31,7 @@ class Symb:
 
         for name,value in data.items():
         
-            assert name in self.__var, 'Cannot initialize variable that does not exist'
+            assert name in self._var, 'Cannot initialize variable that does not exist'
 
             try:
                 value = ca.DM(value)
@@ -41,7 +41,7 @@ class Symb:
             assert self.var[name].shape == value.shape, 'Dimension of initialization does not match dimension of symbolic variable'
 
             try:
-                self.__init[name] = ca.DM(value)
+                self._init[name] = ca.DM(value)
             except:
                 raise Exception('Provided type cannot be converted to DM')
        
@@ -55,16 +55,16 @@ class Symb:
             assert var.shape == init.shape, 'Initialization must have the same dimension as the symbolic variable'
             assert isinstance(init,ca.DM), 'Initialization must of type casadi.DM'
 
-        self.__var[name] = var
-        self.__dim[name] = var.shape[0] if var.shape[1] == 1 else var.shape
-        self.__init[name] = init
+        self._var[name] = var
+        self._dim[name] = var.shape[0] if var.shape[1] == 1 else var.shape
+        self._init[name] = init
 
     def addDim(self,name,val):
 
         assert isinstance(name,str), 'Name of variable must be a string'
         assert isinstance(val,int) and val>=0, 'Value of dimension must be a nonnegative integer'
 
-        self.__dim[name] = val
+        self._dim[name] = val
 
     def __add__(self,other):
 
@@ -73,9 +73,9 @@ class Symb:
         # create copy of class
         self_copy = self.__class__(self.__typeString)
 
-        self_copy.__dim = self.dim | other.dim
-        self_copy.__var = self.var | other.var
-        self_copy.__init = self.init | other.init
+        self_copy._dim = self.dim | other.dim
+        self_copy._var = self.var | other.var
+        self_copy._init = self.init | other.init
 
         return self_copy
 
@@ -83,9 +83,9 @@ class Symb:
 
         assert type(self.type()) is type(other.type()), 'Type of addends must match'
 
-        self.__dim = self.dim | other.dim
-        self.__var = self.var | other.var
-        self.__init = self.init | other.init
+        self._dim = self.dim | other.dim
+        self._var = self.var | other.var
+        self._init = self.init | other.init
 
         return self
     
@@ -95,12 +95,12 @@ class Symb:
         self_copy = self.__class__()
 
         if vars2keep is not None:
-            self_copy.__dim = {key:val for key,val in self.dim.items() if key in vars2keep}
-            self_copy.__var = {key:val for key,val in self.var.items() if key in vars2keep}
-            self_copy.__init = {key:val for key,val in self.init.items() if key in vars2keep}
+            self_copy._dim = {key:val for key,val in self.dim.items() if key in vars2keep}
+            self_copy._var = {key:val for key,val in self.var.items() if key in vars2keep}
+            self_copy._init = {key:val for key,val in self.init.items() if key in vars2keep}
         else:
-            self_copy.__dim = self.dim
-            self_copy.__var = self.var
-            self_copy.__init = self.init
+            self_copy._dim = self.dim
+            self_copy._var = self.var
+            self_copy._init = self.init
 
         return self_copy

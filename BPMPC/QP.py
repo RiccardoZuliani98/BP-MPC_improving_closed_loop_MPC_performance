@@ -2,6 +2,7 @@ import casadi as ca
 import time
 from BPMPC.Ingredients import Ingredients
 from BPMPC.options import Options
+import numpy as np
 
 """
 TODO
@@ -13,41 +14,41 @@ TODO
 class QP:
     
     # Allowed option keys
-    __OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp'],'warmstart':['x_lam_mu','x'],'jac_tol':int,'jac_gamma':float,'compile_qp_sparse':bool,'compile_jac':bool}
+    _OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp'],'warmstart':['x_lam_mu','x'],'jac_tol':int,'jac_gamma':float,'compile_qp_sparse':bool,'compile_jac':bool}
 
     # default values of options dictionary
-    __OPTIONS_DEFAULT_VALUES = {'solver':'qpoases','warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,'compile_qp_sparse':False,'compile_jac':False,}
+    _OPTIONS_DEFAULT_VALUES = {'solver':'qpoases','warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,'compile_qp_sparse':False,'compile_jac':False,}
 
     def __init__(self,ingredients,p=None,pf=None,options={}):
 
         assert isinstance(ingredients,Ingredients), 'Ingredients must be of a class instance of type Ingredients'
 
         # create options
-        self.__options = Options(self.__OPTIONS_ALLOWED_VALUES,self.__OPTIONS_DEFAULT_VALUES)
+        self._options = Options(self._OPTIONS_ALLOWED_VALUES,self._OPTIONS_DEFAULT_VALUES)
 
         # add user-specified options
-        self.__options.update(options)
+        self._options.update(options)
 
         # copy dimensions and variables inside ingredients
-        self.__sym = ingredients._Ingredients__sym.copy()
+        self._sym = ingredients._sym.copy()
 
         # copy ingredients
-        self.__ingredients = ingredients
+        self._ingredients = ingredients
 
         # if p is passed, store it in parameters of QP
         if p is not None:
             assert isinstance(p,ca.SX), 'p must be of type SX'
-            self.__sym.addVar('p_t',p)
+            self._sym.addVar('p_t',p)
 
         # TODO: check if order of variables in p_QP is correct
 
         # construct the parameter vector required for the QP
-        p_QP = list(self.__sym.var.values())
-        p_QP_names = list(self.__sym.var.keys())
+        p_QP = list(self._sym.var.values())
+        p_QP_names = list(self._sym.var.keys())
 
         # save full symbolic qp parameter (do not include pf even if present)
-        # self.__sym.addDim('p_qp',ca.vcat(p_QP).shape[0])
-        self.__sym.addVar('p_qp',ca.vcat(p_QP))
+        # self._sym.addDim('p_qp',ca.vcat(p_QP).shape[0])
+        self._sym.addVar('p_qp',ca.vcat(p_QP))
 
         # create input index
         idx_in = dict()
@@ -63,46 +64,46 @@ class QP:
             running_idx = running_idx + len_current_p_d
 
         # store in QP index dictionary
-        self.__ingredients._Ingredients__idx['in'] = idx_in
+        self._ingredients._idx['in'] = idx_in
 
         # if pf is passed, store it in parameters of QP
         if pf is not None:
             assert isinstance(pf,ca.SX), 'p must be of type SX'
-            self.__sym.addVar('pf_t',pf)
+            self._sym.addVar('pf_t',pf)
             p_QP.append(pf)
         else:
             # add dimension
-            self.__sym.addDim('pf_t',0)
+            self._sym.addDim('pf_t',0)
 
         # store full qp parameter
-        self.__sym.addVar('p_qp_full',ca.vcat(p_QP))
+        self._sym.addVar('p_qp_full',ca.vcat(p_QP))
 
         # store dimensions of equality and inequality constraints
-        self.__sym.addDim('in',ingredients.sparse['G'].shape[0])
-        self.__sym.addDim('eq',ingredients.sparse['F'].shape[0])
+        self._sym.addDim('in',ingredients.sparse['G'].shape[0])
+        self._sym.addDim('eq',ingredients.sparse['F'].shape[0])
 
         # primal optimization variables
-        self.__sym.addVar('y',ca.SX.sym('y',ingredients.sparse['q'].shape[0]-self.__sym.dim['eps'],1))
+        self._sym.addVar('y',ca.SX.sym('y',ingredients.sparse['q'].shape[0]-self._sym.dim['eps'],1))
 
         # dual optimization variables (inequality constraints)
-        self.__sym.addVar('lam',ca.SX.sym('lam',ingredients.sparse['g'].shape[0],1))
+        self._sym.addVar('lam',ca.SX.sym('lam',ingredients.sparse['g'].shape[0],1))
 
         # dual optimization variables (equality constraints)
-        self.__sym.addVar('mu',ca.SX.sym('mu',ingredients.sparse['f'].shape[0],1))
+        self._sym.addVar('mu',ca.SX.sym('mu',ingredients.sparse['f'].shape[0],1))
 
         # dual optimization variable (all constraints)
-        self.__sym.addVar('z',ca.vcat([self.__sym.var['lam'],self.__sym.var['mu']]))
+        self._sym.addVar('z',ca.vcat([self._sym.var['lam'],self._sym.var['mu']]))
 
-        # create QP
-        self.__makeSparseQP()
+        # create sparse QP
+        self._makeSparseQP()
 
         # create conservative jacobian
-        self.__makeConsJac()
+        self._makeConsJac()
 
-    def __makeSparseQP(self):
+    def _makeSparseQP(self):
 
         # compilation options
-        if self.__options['compile_qp_sparse']:
+        if self._options['compile_qp_sparse']:
             jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
             options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
         else:
@@ -125,43 +126,26 @@ class QP:
         sym_outputs = set(ca.symvar(ca.vcat([ca.vcat(ca.symvar(elem)) for elem in QP_outs])))
 
         # set of symbolic inputs
-        sym_inputs = set(ca.symvar(self.__sym.var['p_qp_full']))
+        sym_inputs = set(ca.symvar(self._sym.var['p_qp_full']))
 
         assert sym_outputs.issubset(sym_inputs), 'The QP ingredients depend on more inputs than the one you provided. Did you forget about p or pf? Missing symbols: '
         # sym_outputs.difference(sym_inputs)
 
         # create function
         start = time.time()
-        QP_func = ca.Function('QP',[self.__sym.var['p_qp_full']],QP_outs,['p'],QP_outs_names,options)
+        QP_func = ca.Function('QP',[self._sym.var['p_qp_full']],QP_outs,['p'],QP_outs_names,options)
         comp_time_dict = {'QP_func':time.time()-start}
 
         # save QP in model
-        self.__qp_sparse = QP_func
+        self._qp_sparse = QP_func
 
         # create function
         start = time.time()
-        dual_func = ca.Function('dual',[self.__sym.var['p_qp_full']],[H,h],['p'],['H','h'],options)
+        dual_func = ca.Function('dual',[self._sym.var['p_qp_full']],[H,h],['p'],['H','h'],options)
         comp_time_dict['dual_func'] = time.time()-start
 
         # save dual in model
-        self.__dual_sparse = dual_func
-
-        if self.ingredients.options['make_dense']:
-
-            # extract dense ingredients
-            dense_qp = self.ingredients.dense
-
-            # dense outputs
-            QP_outs_dense_names = list(dense_qp.keys())
-            QP_outs_dense = list(dense_qp.values())
-
-            # create function
-            start = time.time()
-            QP_dense_func = ca.Function('QP_dense',[self.__sym.var['p_qp_full']],QP_outs_dense,['p'],QP_outs_dense_names,options)
-            comp_time_dict['QP_dense_func'] = time.time()-start
-
-            # save in QP model
-            self.__qp_dense = QP_dense_func
+        self._dual_sparse = dual_func
 
         # implement QP using conic interface to retrieve multipliers
         qp = {}
@@ -169,11 +153,11 @@ class QP:
         qp['a'] = A.sparsity()
 
         # vector specifying which constraints are equalities
-        is_equality = [False]*self.__sym.dim['in']+[True]*self.__sym.dim['eq']
+        is_equality = [False]*self._sym.dim['in']+[True]*self._sym.dim['eq']
 
         # add existing options to compile function S
         start = time.time()
-        match self.__options['solver']:
+        match self._options['solver']:
             case 'gurobi':
                 S = ca.conic('S','gurobi',qp,{'gurobi':{'OutputFlag':0},'equality':is_equality})
             case 'cplex':
@@ -189,7 +173,7 @@ class QP:
         comp_time_dict['S_sparse'] = time.time()-start
 
         # create local function setting up the qp
-        match self.__options['warmstart']:
+        match self._options['warmstart']:
             
             # warmstart both primal and dual variables
             case 'x_lam_mu':
@@ -230,49 +214,56 @@ class QP:
                     return sol['lam_a'][:self.dim['in']],sol['lam_a'][self.dim['in']:],sol['x']
         
         # save in model
-        self.__solve = local_qp
+        self._solve = local_qp
 
         # store computation times (if compile is true)
-        self.__compTimes = comp_time_dict
+        self._compTimes = comp_time_dict
 
-    def __makeDenseQP(self,p,solver='qpoases',compile=False):
+    def makeDenseQP(self,p):
 
-        """
-        Given a numerical value of p, this function constructs the dense QP ingredients and sets up the QP solver,
-        which can be accessed through QP.denseSolve.
-        """
+        # extract dense ingredients
+        dense_qp = self.ingredients.dense
+
+        # dense outputs
+        QP_outs_dense_names = list(dense_qp.keys())
+        QP_outs_dense = list(dense_qp.values())
+
+        # create function
+        start = time.time()
+        QP_dense_func = ca.Function('QP_dense',[self._sym.var['p_qp_full']],QP_outs_dense,['p'],QP_outs_dense_names,options)
+        comp_time_dict['QP_dense_func'] = time.time()-start
 
         # compilation options
-        if compile:
+        if self._options['compile_dense']:
             jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
             options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
         else:
             options = {}
 
-        # get p_qp parameter
-        p_qp_list = self.param['p_qp'].copy()
+        # get p_qp_full parameter
+        p_qp_full = self.param['p_qp_full'].copy()
 
-        # replace p with numerical value (if y lin is present, p is entry 3, otherwise 2)
-        if self.QP.y_lin is not None:
-            p_qp_list[2] = DM(p)
-        else:
-            p_qp_list[1] = DM(p)
+        # get symbolic value of p
+        p_symb = self.param['p_t']
+
+        # replace symbolic value of p with its numerical value (if provided)
+        p_qp_full = ca.substitute(p_qp_full,p_symb,p)
 
         # get data from qp_dense function
-        G_x,G_u,g_c,Qx,Ru,x_ref,u_ref,Hx,Hu,hx,hu = self.QP._QP__qp_dense(vcat(p_qp_list))
+        G_x,G_u,g_c,Qx,Ru,x_ref,u_ref,Hx,Hu,hx,hu = QP_dense_func(p_qp_full)
 
         # turn to DM
-        Qx = DM(Qx)
-        Ru = DM(Ru)
-        x_ref = DM(x_ref)
-        u_ref = DM(u_ref)
-        Hx = DM(Hx)
-        Hu = DM(Hu)
-        hx = DM(hx)
-        hu = DM(hu)
+        Qx = ca.DM(Qx)
+        Ru = ca.DM(Ru)
+        x_ref = ca.DM(x_ref)
+        u_ref = ca.DM(u_ref)
+        Hx = ca.DM(Hx)
+        Hu = ca.DM(Hu)
+        hx = ca.DM(hx)
+        hu = ca.DM(hu)
 
         # get initial state
-        x = p_qp_list[0]
+        x = self.param['x']
 
         # create propagation of initial state
         x_prop = G_x@x+g_c
@@ -282,9 +273,9 @@ class QP:
         q = G_u.T@Qx@(x_prop - x_ref) - Ru@u_ref
 
         # create inequality constraint matrices
-        G = vertcat(Hx@G_u,Hu)
-        uba = vertcat(hx-Hx@x_prop,hu)
-        lba = -inf*DM.ones(uba.shape)
+        G = ca.vertcat(Hx@G_u,Hu)
+        uba = ca.vertcat(hx-Hx@x_prop,hu)
+        lba = -ca.inf*ca.DM.ones(uba.shape)
 
         # initialize list of symbolic outputs
         out_list_symbolic = [Q,q,G,lba,uba,G_u,G_x,g_c]
@@ -292,7 +283,7 @@ class QP:
 
         # re-create function
         start = time.time()
-        QP_func = Function('QP_dense',[vcat(self.param['p_qp'])],out_list_symbolic,['p'],out_list_symbolic_names,options)
+        QP_func = ca.Function('QP_dense',[ca.vcat(self.param['p_qp'])],out_list_symbolic,['p'],out_list_symbolic_names,options)
         comp_time_dict = {'QP_dense':time.time()-start}
 
         # implement QP using conic interface to retrieve multipliers
@@ -305,19 +296,19 @@ class QP:
 
         # add existing options to compile function S
         start = time.time()
-        match solver:
+        match self._options['solver']:
             case 'gurobi':
-                S = conic('S','gurobi',qp,{'gurobi':{'OutputFlag':0},'equality':is_equality})
+                S = ca.conic('S','gurobi',qp,{'gurobi':{'OutputFlag':0},'equality':is_equality})
             case 'cplex':
-                S = conic('S','cplex',qp,{'cplex':{'CPXPARAM_Simplex_Display': 0,'CPXPARAM_ScreenOutput': 0},'equality':is_equality})
+                S = ca.conic('S','cplex',qp,{'cplex':{'CPXPARAM_Simplex_Display': 0,'CPXPARAM_ScreenOutput': 0},'equality':is_equality})
             case 'qpoases':
-                S = conic('S','qpoases',qp,options|{'printLevel':'none','equality':is_equality})
+                S = ca.conic('S','qpoases',qp,options|{'printLevel':'none','equality':is_equality})
             case 'osqp':
-                S = conic('S','osqp',qp,options|{'osqp':{'verbose':False},'equality':is_equality})
+                S = ca.conic('S','osqp',qp,options|{'osqp':{'verbose':False},'equality':is_equality})
             case 'daqp':
-                S = conic('S','daqp',qp,options)
+                S = ca.conic('S','daqp',qp,options)
             case 'qrqp':
-                S = conic('S','qrqp',qp,options|{'print_iter':False,'equality':is_equality})
+                S = ca.conic('S','qrqp',qp,options|{'print_iter':False,'equality':is_equality})
         comp_time_dict = comp_time_dict | {'QP_dense':time.time()-start}
 
         # define qp solver
@@ -346,65 +337,28 @@ class QP:
             x = G_x@x + G_u@u + g_c
             
             # return lambda, mu, y
-            return DM(self.dim['in'],1),DM(self.dim['eq'],1),vertcat(x,u,DM(self.dim['eps'],1))
+            return ca.DM(self.dim['in'],1),ca.DM(self.dim['eq'],1),ca.vertcat(x,u,ca.DM(self.dim['eps'],1))
         
         # save in model
-        self.QP._QP__setDenseSolver(local_qp)
+        self.QP._denseSolve = local_qp
 
         # store computation times (if compile is true)
-        if compile:
-            self.__compTimes = self.__compTimes | comp_time_dict
+        self._compTimes = self._compTimes | comp_time_dict
 
-    def __makeConsJac(self,gamma=0.001,tol=8,compile=False):
-        
-        """
-        This function sets up the functions that compute the conservative jacobian of the QP solution.
-        Specifically, two functions are set in the QP class:
-
-            - J: this function takes in the dual variables lam, mu, and the parameters p_QP necessary 
-                 to setup the QP (including pf_t), and returns the following quantities in a list:
-
-                 - J_F_z: conservative jacobian of dual fixed point condition wrt z
-                 - J_F_p: conservative jacobian of dual fixed point condition wrt p_t
-                 - J_y_p: conservative jacobian of primal variable wrt p_t
-                 - J_y_z_mat: conservative jacobian of primal variable wrt z
-
-            - J_y_p: this function takes in lam, mu, p_QP (including pf_t), and optionally t (which
-              defaults to 1), and returns the inner product between the conservative jacobian J_y_p
-              of y wrt p_t and t.
-        """
+    def _makeConsJac(self):
 
         # compilation options
-        if compile:
+        if self._options['compile_jac']:
             jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
             options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
         else:
             options = {}
 
-        # get symbolic variable type
-        MSX = self.__MSX
-        
-        # check if p was passed (required to compute conservative jacobian)
-        if 'p_qp' not in self.QP.param:
-            raise Exception('Parameter p_qp is required to compute conservative jacobian.')
-            
-        # turn to column vector
-        # p = vcat(self.QP.param['p_qp'])
-        # p_full = p
-        p_full = self.QP.param['p_qp']
+        # get parameters that will be differentiated
+        p = self.param['p_qp']
 
-        # check if pf was passed
-        if 'pf_t' in self.param:
-            # pf = vcat(self.param['pf_t'])
-            # if so, add to p_full
-            # p_full.append(pf)
-            pf = self.param['pf_t']
-            p = vcat([param for param in p_full if not(depends_on(param, pf))])
-        else:
-            p = vcat(p_full)
-
-        # turn p_full into column vector
-        p_full = vcat(p_full)        
+        # get all parameters including those that won't be differentiated
+        p_full = self.param['p_qp_full']  
 
         # extract multipliers
         lam = self.param['lam']
@@ -419,35 +373,32 @@ class QP:
         n_eq = self.dim['eq']
 
         # extract dual data
-        H = self.QP.ingredients['H']
-        h = self.QP.ingredients['h']
+        H = self.ingredients.dual['H']
+        h = self.ingredients.dual['h']
 
         # extract QP data
-        Qinv = self.QP.ingredients['Qinv']
-        q = self.QP.ingredients['q']
-        F = self.QP.ingredients['F']
-        G = self.QP.ingredients['G']
+        Qinv = self.ingredients.sparse['Qinv']
+        q = self.ingredients.sparse['q']
+        F = self.ingredients.sparse['F']
+        G = self.ingredients.sparse['G']
 
         # compute conservative jacobian of projector
-        J_Pc = diag(vertcat(vec(sign(lam)),MSX.ones(n_eq,1)))
-        J_F_z = J_Pc@(MSX.eye(n_z)-gamma*H)-MSX.eye(n_z)
-        J_F_p = - gamma*J_Pc@( jacobian(H@vertcat(lam,mu)+h,p) )
+        J_Pc = ca.diag(ca.vertcat(ca.vec(ca.sign(lam)),ca.SX.ones(n_eq,1)))
+        J_F_z = J_Pc@(ca.SX.eye(n_z)-self._options['jac_gamma']*H)-ca.SX.eye(n_z)
+        J_F_p = -self._options['jac_gamma']*J_Pc@( ca.jacobian(H@ca.vertcat(lam,mu)+h,p) )
 
         # compute conservative jacobian of primal variable
         y = -Qinv@(G.T@lam+F.T@mu+q)
-        J_y_p = jacobian(y,p)
-        J_y_z_mat = -Qinv@horzcat(G.T,F.T)
+        J_y_p = ca.jacobian(y,p)
+        J_y_z_mat = -Qinv@ca.horzcat(G.T,F.T)
 
         # sparsify
-        try:
-            J_Pc = cse(sparsify(J_Pc))
-            J_F_z = cse(sparsify(J_F_z))
-            J_F_p = cse(sparsify(J_F_p))
-            y = cse(sparsify(y))
-            J_y_p = cse(sparsify(J_y_p))
-            J_y_z_mat = cse(sparsify(J_y_z_mat))
-        except:
-            pass
+        J_Pc = ca.cse(ca.sparsify(J_Pc))
+        J_F_z = ca.cse(ca.sparsify(J_F_z))
+        J_F_p = ca.cse(ca.sparsify(J_F_p))
+        y = ca.cse(ca.sparsify(y))
+        J_y_p = ca.cse(ca.sparsify(J_y_p))
+        J_y_z_mat = ca.cse(ca.sparsify(J_y_z_mat))
 
         # stack all parameters
         dual_outs = [J_F_z,J_F_p,J_y_p,J_y_z_mat]
@@ -455,87 +406,80 @@ class QP:
 
         # turn into function
         start = time.time()
-        J = Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names,options)
+        J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names,options)
         comp_time_dict = {'J':time.time()-start}
 
         def J_y_p(lam,mu,p_qp,t=1):
 
             # round lambda (always first entry in dual_params) to avoid numerical issues
-            lam = np.round(np.array(fmax(lam,0)),tol)
+            lam = np.round(np.array(ca.fmax(lam,0)),self._options['jac_tol'])
             
             # get all conservative jacobian and matrices
             J_F_z,J_F_p,J_y_p,J_y_z_mat = J(lam,mu,p_qp)
 
             # get conservative jacobian of dual solution
-            A = -solve(J_F_z,J_F_p@t,'csparse')
+            A = -ca.solve(J_F_z,J_F_p@t,'csparse')
 
             # return conservative jacobian of primal
             return J_y_p@t+J_y_z_mat@A
 
         # save in QP
-        self.QP._QP__set_J(J)
-        self.QP._QP__set_J_y_p(J_y_p)
+        self._J = J
+        self._J_y_p = J_y_p
 
-        # store computation times (if compile is true)
-        if compile:
-            self.__compTimes = self.__compTimes | comp_time_dict
+        # store computation times
+        self._compTimes = self._compTimes | comp_time_dict
 
     @property
     def ingredients(self):
-        return self.__ingredients
+        return self._ingredients
 
     @property
     def idx(self):
-        return self.__idx
+        return self._idx
 
     @property
     def solve(self):
-        return self.__solve
+        return self._solve
 
     @property
     def denseSolve(self):
-        return self.__denseSolve
+        return self._denseSolve
 
     @property
     def qp_sparse(self):
-        return self.__qp_sparse
+        return self._qp_sparse
 
     @property
     def qp_dense(self):
-        return self.__qp_dense
+        return self._qp_dense
 
     @property
     def dual_sparse(self):
-        return self.__dual_sparse
+        return self._dual_sparse
 
     @property
     def J(self):
-        return self.__J
+        return self._J
 
     @property
     def J_y_p(self):
-        return self.__J_y_p
+        return self._J_y_p
 
     @property
     def param(self):
         # dictionary containing all symbolic variables of the class
-        return {k: v for k, v in {
-            'x': self.__x,
-            'y': self.__y,
-            'z': self.__z,
-            'lam': self.__lam,
-            'mu': self.__mu,
-            'y_lin': self.__y_lin,
-            'p_t': self.__p_t,
-            'pf_t': self.__pf_t,
-            'p_qp': self.__p_qp
-        }.items() if v is not None}
+        return self._sym.var
+    
+    @property
+    def dim(self):
+        return self._sym.dim
     
     @property
     def options(self):
-        return self.__options
+        return self._options
 
-    def __updateOptions(self, value):
+    def _updateOptions(self, value):
         """
         Update the options of the class.
         """
@@ -545,17 +489,17 @@ class QP:
             raise Exception('Options must be a dictionary.')
         
         # remove keys that are not allowed
-        value = {k:v for k,v in value.items() if k in self.__allowed_options_keys}
+        value = {k:v for k,v in value.items() if k in self._allowed_options_keys}
 
         # update options dictionary
-        self.__options = self.__options | value
+        self._options = self._options | value
     
     @property
     def init(self):
-        return {k:v for k,v in self.__init.items()}
+        return {k:v for k,v in self._init.items()}
     
-    def __setInit(self, value):
-        self.__init = self.__init | self.__checkInit(value)
+    def _setInit(self, value):
+        self._init = self._init | self._checkInit(value)
 
     def debug(self,lam,mu,p_t,epsilon=1e-6,roundoff=10,y_all=None):
 

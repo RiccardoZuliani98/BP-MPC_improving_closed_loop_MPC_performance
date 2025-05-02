@@ -420,6 +420,23 @@ QP
         Note that not all parameters need to be present.
 
         """
+    def _makeConsJac(self):
+        """
+        This function sets up the functions that compute the conservative jacobian of the QP solution.
+        Specifically, two functions are set in the QP class:
+
+            - J: this function takes in the dual variables lam, mu, and the parameters p_QP necessary 
+                 to setup the QP (including pf_t), and returns the following quantities in a list:
+
+                 - J_F_z: conservative jacobian of dual fixed point condition wrt z
+                 - J_F_p: conservative jacobian of dual fixed point condition wrt p_t
+                 - J_y_p: conservative jacobian of primal variable wrt p_t
+                 - J_y_z_mat: conservative jacobian of primal variable wrt z
+
+            - J_y_p: this function takes in lam, mu, p_QP (including pf_t), and optionally t (which
+              defaults to 1), and returns the inner product between the conservative jacobian J_y_p
+              of y wrt p_t and t.
+        """
 
 SCENARIO
 

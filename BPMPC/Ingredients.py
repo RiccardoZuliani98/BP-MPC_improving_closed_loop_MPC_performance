@@ -15,22 +15,22 @@ TODO:
 
 class Ingredients:
 
-    __REQUIRED_KEYS = ['A','B','Qx','Ru','Hx','hx','Hu','hu']
+    _REQUIRED_KEYS = ['A','B','Qx','Ru','Hx','hx','Hu','hu']
 
-    __ALLOWED_KEYS = ['A','B','c',
+    _ALLOWED_KEYS = ['A','B','c',
                       'Qx','Ru','x_ref','u_ref','s_lin','s_quad',
                       'Hx','Hx_e','Hu','hx','hu']
     
-    __EXPECTED_DIMENSIONS = {'x':['x'],
+    _EXPECTED_DIMENSIONS = {'x':['x'],
                              'A':['x','x'],'B':['x','u'],'c':['x','one'],
                              'Qx':['x','x'],'Ru':['u','u'],'x_ref':['x','one'],'u_ref':['u','one'],'s_lin':['one','one'],'s_quad':['one','one'],
                              'Hx':['cst_x','x'],'Hx_e':['cst_x','eps'],'Hu':['cst_u','u'],'hx':['cst_x','one'],'hu':['cst_u','one']}
     
-    __ALL_DIMENSIONS = ['x','u','one','cst_x','eps','cst_u']
+    _ALL_DIMENSIONS = ['x','u','one','cst_x','eps','cst_u']
 
-    __OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'],'make_dense':bool}
+    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'],'make_dense':bool}
     
-    __OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'make_dense':True}
+    _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'make_dense':True}
 
     def __init__(self,N,dynamics,cost,constraints,options={}):
 
@@ -42,64 +42,64 @@ class Ingredients:
         dynamics_copy = copy(dynamics)
 
         # generate options dictionary
-        self.__options = Options(self.__OPTIONS_ALLOWED_VALUES,self.__OPTIONS_DEFAULT_VALUES)
+        self._options = Options(self._OPTIONS_ALLOWED_VALUES,self._OPTIONS_DEFAULT_VALUES)
 
         # add user-specified options
-        self.__options.update(options)
+        self._options.update(options)
 
         # check if user passed a special option for linearization
-        used_linearization_method = dynamics_copy._Dynamics__linearize(N=N,method=self.__options['linearization'])
+        used_linearization_method = dynamics_copy._linearize(N=N,method=self._options['linearization'])
 
         # retrieve prediction model
         model = dynamics_copy.model
 
         # store linearization method that was used
-        self.__options['linearization']  = used_linearization_method
+        self._options['linearization']  = used_linearization_method
 
         # retrieve symbolic variables in model
-        self.__sym = dynamics_copy._Dynamics__sym.copy(['x','y_lin','theta'])
+        self._sym = dynamics_copy._sym.copy(['x','y_lin','theta'])
 
         # add horizon
-        self.__sym.addDim('N',N)
+        self._sym.addDim('N',N)
 
         # add input dimensions
-        self.__sym.addDim('u',dynamics_copy._Dynamics__sym.dim['u'])
+        self._sym.addDim('u',dynamics_copy._sym.dim['u'])
 
         # merge into dictionary
         data = model | cost | constraints
 
         # parse inputs
-        processed_data = self.__parseInputs(data)
+        processed_data = self._parseInputs(data)
 
         # check if dimensions are correct
-        self.__checkDimensions(processed_data)
+        self._checkDimensions(processed_data)
 
         # check if slacks are passed correctly
-        slack_true = self.__checkSlack(processed_data)
-        self.__options['slack'],n_eps = slack_true
+        slack_true = self._checkSlack(processed_data)
+        self._options['slack'],n_eps = slack_true
 
         # save slack dimension in symbolic variable
-        self.__sym.addDim('eps',n_eps)
+        self._sym.addDim('eps',n_eps)
 
         # create sparse QP
-        self.__sparse = self.__makeSparseQP(processed_data)
+        self._sparse = self._makeSparseQP(processed_data)
 
         # create index
-        self.__idx = self.__makeIdx()
+        self._idx = self._makeIdx()
 
         # create dense QP if requested
-        if self.__options['make_dense']:
-            self.__dense = self.__makeDenseQP(processed_data)
+        if self._options['make_dense']:
+            self._dense = self._makeDenseQP(processed_data)
 
         # create dual QP
-        self.__dual = self.__makeDualQP()
+        self._dual = self._makeDualQP()
     
 
     def update(self,Q=None,q=None,G=None,g=None,F=None,f=None):
         #TODO remember to remove the dense and to update the dual
         pass
 
-    def __makeSparseQP(self,processed_data):
+    def _makeSparseQP(self,processed_data):
 
         # extract initial condition
         x = self.param['x']
@@ -155,7 +155,7 @@ class Ingredients:
         hu = ca.vcat(hu_list)
 
         # check if Hx_e was passed 
-        if self.__options['slack']:
+        if self._options['slack']:
 
             # convert into a single matrix
             Hx_e = matrixify(processed_data['Hx_e'])
@@ -229,7 +229,7 @@ class Ingredients:
         Q = ca.blockcat(Qx,ca.SX(N*n_x,N*n_u),ca.SX(N*n_u,N*n_x),Ru)
 
         # append cost applied to slack variable
-        if self.__options['slack']:
+        if self._options['slack']:
             Q = ca.blockcat(Q,ca.SX(Q.shape[0],n_eps),ca.SX(n_eps,Q.shape[0]),ca.diag(s_quad))
 
         # inverse of quadratic cost matrix
@@ -237,7 +237,7 @@ class Ingredients:
         # Qinv = ca.inv(Q)
 
         # create linear part of the cost
-        q = ca.vcat([-Qx@x_ref,-Ru@u_ref,s_lin]) if self.__options['slack'] else ca.vcat([-Qx@x_ref,-Ru@u_ref])
+        q = ca.vcat([-Qx@x_ref,-Ru@u_ref,s_lin]) if self._options['slack'] else ca.vcat([-Qx@x_ref,-Ru@u_ref])
 
         # sparsify Q and q
         Q = ca.cse(ca.sparsify(Q))
@@ -253,7 +253,7 @@ class Ingredients:
 
         return {'G':G, 'g':g, 'F':F, 'f':f, 'Q':Q, 'Qinv':Qinv, 'q':q, 'A':A, 'uba':uba, 'lba':lba}
 
-    def __makeDenseQP(self,processed_data):
+    def _makeDenseQP(self,processed_data):
 
         # get horizon
         N = self.dim['N']
@@ -332,7 +332,7 @@ class Ingredients:
         # create dictionary
         return {'G_x':G_x,'G_u':G_u,'g_c':g_c}
 
-    def __makeDualQP(self):
+    def _makeDualQP(self):
 
         # extract ingredients
         Qinv = self.sparse['Qinv']
@@ -356,7 +356,7 @@ class Ingredients:
 
         return {'H':H, 'h':h}
 
-    def __makeIdx(self):
+    def _makeIdx(self):
 
         # extract dimensions
         n_x = self.dim['x']
@@ -409,7 +409,7 @@ class Ingredients:
 
         return idx
 
-    def __parseInputs(self, data):
+    def _parseInputs(self, data):
 
         # get horizon
         N = self.dim['N']
@@ -430,21 +430,21 @@ class Ingredients:
                          | {key : [ca.SX(val) for val in val_list] for key,val_list in data.items() if isinstance(val_list,list)}
 
         # check that required entries were passed
-        assert all([processed_data[key] is not None for key in self.__REQUIRED_KEYS] ), 'Some required inputs are missing.'
+        assert all([processed_data[key] is not None for key in self._REQUIRED_KEYS] ), 'Some required inputs are missing.'
 
         # strip unwanted inputs
-        processed_data_stripped = {key : val for key,val in processed_data.items() if key in self.__ALLOWED_KEYS}
+        processed_data_stripped = {key : val for key,val in processed_data.items() if key in self._ALLOWED_KEYS}
 
         return processed_data_stripped
 
-    def __checkDimensions(self,data):
+    def _checkDimensions(self,data):
         """
         This function checks if the dimensions of the properties: dynamics, cost, csts are consistent.
         If not, it throws an error.
         """
 
         # initialize dictionary containing all allowed keys
-        dimension_dict = {key:[] for key in self.__ALL_DIMENSIONS}
+        dimension_dict = {key:[] for key in self._ALL_DIMENSIONS}
 
         # specify 'one' entry
         dimension_dict['one'] = [1]
@@ -453,7 +453,7 @@ class Ingredients:
         for key,val in data.items():
 
             # get expected dimensions
-            expected_dimension = self.__EXPECTED_DIMENSIONS[key]
+            expected_dimension = self._EXPECTED_DIMENSIONS[key]
             
             # get dimensions of each element of list and turn to set
             actual_dimension_set = set([entry.shape for entry in val])
@@ -474,7 +474,7 @@ class Ingredients:
         for key,val in dimension_dict_stripped.items():
             assert val.count(val[0]) == len(val), 'Wrong dimension detected for key: ' + key
 
-    def __checkSlack(self,data):
+    def _checkSlack(self,data):
 
         slack = False
         n_eps = 0
@@ -496,28 +496,28 @@ class Ingredients:
 
     @property
     def sparse(self):
-        return self.__sparse
+        return self._sparse
     
     @property
     def dense(self):
-        return self.__dense
+        return self._dense
     
     @property
     def dual(self):
-        return self.__dual
+        return self._dual
     
     @property
     def idx(self):
-        return self.__idx
+        return self._idx
     
     @property
     def param(self):
-        return self.__sym.var
+        return self._sym.var
     
     @property
     def options(self):
-        return self.__options
+        return self._options
     
     @property
     def dim(self):
-        return self.__sym.dim
+        return self._sym.dim

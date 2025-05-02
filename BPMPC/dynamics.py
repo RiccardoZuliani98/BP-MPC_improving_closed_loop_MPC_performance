@@ -22,57 +22,57 @@ class Dynamics:
         assert all(key in dyn for key in ['x', 'u', 'x_next']), 'x, u, and x_next must be defined.'
 
         # store dynamics
-        self.__x_next = dyn['x_next']
+        self._x_next = dyn['x_next']
 
         # determine nominal dynamics
-        self.__x_next_nom = dyn['x_next_nom'] if 'x_next_nom' in dyn else dyn['x_next']
+        self._x_next_nom = dyn['x_next_nom'] if 'x_next_nom' in dyn else dyn['x_next']
 
         # check dimensions of x_next and x_next_nom
-        assert self.__x_next.shape == dyn['x'].shape, 'x_next must have the same dimensions as x.'
-        assert self.__x_next_nom.shape == dyn['x'].shape, 'x_next must have the same dimensions as x.'
+        assert self._x_next.shape == dyn['x'].shape, 'x_next must have the same dimensions as x.'
+        assert self._x_next_nom.shape == dyn['x'].shape, 'x_next must have the same dimensions as x.'
 
         # create dictionary containing symbolic variables
-        self.__sym = Symb()
+        self._sym = Symb()
 
         # store state and input
-        self.__sym.addVar('x', dyn['x'])
-        self.__sym.addVar('u', dyn['u'])
+        self._sym.addVar('x', dyn['x'])
+        self._sym.addVar('u', dyn['u'])
 
         # save variables in parameter vectors
-        self.__param = {'x':dyn['x'],'u':dyn['u']}
-        self.__param_nom = self.__param.copy()
+        self._param = {'x':dyn['x'],'u':dyn['u']}
+        self._param_nom = self._param.copy()
 
         # store noise and disturbance if present
         if 'd' in dyn:
-            self.__sym.addVar('d', dyn['d'])
-            self.__param = self.__param | {'d':dyn['d']}
+            self._sym.addVar('d', dyn['d'])
+            self._param = self._param | {'d':dyn['d']}
         if 'w' in dyn:
-            self.__sym.addVar('w', dyn['w'])
-            self.__param = self.__param | {'w':dyn['w']}
+            self._sym.addVar('w', dyn['w'])
+            self._param = self._param | {'w':dyn['w']}
 
         # store nominal model if present
         if 'theta' in dyn:
-            self.__sym.addVar('theta', dyn['theta'])
-            self.__param_nom = self.__param_nom | {'theta':dyn['theta']}
+            self._sym.addVar('theta', dyn['theta'])
+            self._param_nom = self._param_nom | {'theta':dyn['theta']}
 
         # extract symbolic parameters and their names
         p_names, p = map(list,zip(*[(key, val) for key, val in self.param.items()]))
 
         # extract nominal symbolic parameters and their names
-        p_nom_names,p_nom = map(list,zip(*[(key, val) for key, val in self.__param_nom.items()]))
+        p_nom_names,p_nom = map(list,zip(*[(key, val) for key, val in self._param_nom.items()]))
 
         # check that x_next only depends on provided symbols
-        assert set(ca.symvar(self.__x_next)).issubset(set(ca.symvar(ca.vcat(p)))), 'x_next must depend on the symbolic parameters x,u,d,w'
+        assert set(ca.symvar(self._x_next)).issubset(set(ca.symvar(ca.vcat(p)))), 'x_next must depend on the symbolic parameters x,u,d,w'
 
         # check that x_next_nom only depends on provided symbols
-        assert set(ca.symvar(self.__x_next_nom)).issubset(set(ca.symvar(ca.vcat(p_nom)))), 'x_next_nom must depend on the symbolic parameters x,u'
+        assert set(ca.symvar(self._x_next_nom)).issubset(set(ca.symvar(ca.vcat(p_nom)))), 'x_next_nom must depend on the symbolic parameters x,u'
         
         # initialize dictionary containing all compilation times
         comp_time_dict = {}
 
         # create casadi function for the dynamics
         start = time.time()
-        f = ca.Function('f', p, [self.__x_next], p_names, ['x_next'], options)
+        f = ca.Function('f', p, [self._x_next], p_names, ['x_next'], options)
         comp_time_dict = comp_time_dict | {'f':time.time()-start}
 
         # if d or w were passed, nominal and true models are different
@@ -81,17 +81,17 @@ class Dynamics:
         # create nominal dynamics
         if model_is_noisy:
             start = time.time()
-            f_nom = ca.Function('f_nom',p_nom,[self.__x_next_nom],p_nom_names,['x_next_nominal'],options)
+            f_nom = ca.Function('f_nom',p_nom,[self._x_next_nom],p_nom_names,['x_next_nominal'],options)
             comp_time_dict = comp_time_dict | {'f_nom':time.time()-start}
         else:
             # otherwise, copy exact dynamics
             f_nom = f
-            x_next_nom = self.__x_next
+            x_next_nom = self._x_next
             comp_time_dict = comp_time_dict | {'f_nom':comp_time_dict['f']}
         
         # save in dynamics
-        self.__f = f
-        self.__f_nom = f_nom
+        self._f = f
+        self._f_nom = f_nom
 
         # compute jacobians symbolically
         df_dx = ca.jacobian(self.x_next,self.param['x'])
@@ -99,9 +99,9 @@ class Dynamics:
 
         # check if df_dx and df_du are constant
         if ca.jacobian(ca.vcat([*ca.symvar(df_dx),*ca.symvar(df_du)]),ca.vertcat(self.param['x'],self.param['u'])).is_zero():
-            self.__is_affine = True
+            self._is_affine = True
         else:
-            self.__is_affine = False
+            self._is_affine = False
 
         # compute jacobians
         start = time.time()
@@ -127,8 +127,8 @@ class Dynamics:
             comp_time_dict = comp_time_dict | {'B_nom':time.time()-start}
 
             # save in dynamics
-            self.__A_nom = A_nom
-            self.__B_nom = B_nom
+            self._A_nom = A_nom
+            self._B_nom = B_nom
         else:
             # otherwise, copy exact dynamics
             A_nom = A
@@ -136,77 +136,77 @@ class Dynamics:
             comp_time_dict = comp_time_dict | {'A_nom':comp_time_dict['A'],'B_nom':comp_time_dict['B']}
         
         # store in dynamics
-        self.__A = A
-        self.__A_nom = A_nom
-        self.__B = B
-        self.__B_nom = B_nom
+        self._A = A
+        self._A_nom = A_nom
+        self._B = B
+        self._B_nom = B_nom
 
         # store computation times
-        self.__compTimes = comp_time_dict
+        self._compTimes = comp_time_dict
 
         # store empty model
-        self.__model = {}
+        self._model = {}
 
     @property
     def x_next(self):
-        return self.__x_next
+        return self._x_next
 
     @property
     def x_next_nom(self):
-        return self.__x_next_nom
+        return self._x_next_nom
     
     @property
     def f(self):
-        return self.__f
+        return self._f
     
     @property
     def A(self):
-        return self.__A
+        return self._A
 
     @property
     def B(self):
-        return self.__B
+        return self._B
     
     @property
     def f_nom(self):
-        return self.__f_nom
+        return self._f_nom
 
     @property
     def A_nom(self):
-        return self.__A_nom
+        return self._A_nom
     
     @property
     def B_nom(self):
-        return self.__B_nom
+        return self._B_nom
 
     @property
     def param(self):
-        return self.__param
+        return self._param
 
     @property
     def param_nom(self):
-        return self.__param_nom
+        return self._param_nom
     
     @property
     def dim(self):
-        return self.__sym.dim
+        return self._sym.dim
     
     @property
     def model(self):
-        return self.__model
+        return self._model
     
     @property
     def compTimes(self):
-        return self.__compTimes
+        return self._compTimes
     
     @property
     def init(self):
-        return {key:val for key,val in self.__sym.init.items() if val is not None}
+        return {key:val for key,val in self._sym.init.items() if val is not None}
     
     def setInit(self,data):
-        self.__sym.setInit(data)
+        self._sym.setInit(data)
 
-    def __linearize(self,N,method='trajectory'):
+    def _linearize(self,N,method='trajectory'):
 
         """
         This function constructs the prediction model for the MPC problem. There are multiple options:
@@ -251,7 +251,7 @@ class Dynamics:
         param_nom = self.param_nom
 
         # if model is affine, compute exact dynamics
-        if self.__is_affine:
+        if self._is_affine:
 
             # create nominal dynamics f(x,u) = Ax + bu + c
             A_mat = list(A(param_nom).values())[0]
@@ -284,7 +284,7 @@ class Dynamics:
             c_list = [c_lin] * N
 
             # store y_lin
-            self.__sym.addVar('y_lin', y_lin)
+            self._sym.addVar('y_lin', y_lin)
                 
         # if mode is 'trajectory', linearize along a trajectory (similar to real-time iteration)
         elif method == 'trajectory':
@@ -324,10 +324,10 @@ class Dynamics:
                 c_list.append(c_i)
 
             # store y_lin
-            self.__sym.addVar('y_lin', y_lin)
+            self._sym.addVar('y_lin', y_lin)
 
         # store output dictionary
-        self.__model = {'A':A_list, 'B':B_list, 'c':c_list}
+        self._model = {'A':A_list, 'B':B_list, 'c':c_list}
 
         # return used linearization method
-        return 'affine' if self.__is_affine else method
+        return 'affine' if self._is_affine else method
