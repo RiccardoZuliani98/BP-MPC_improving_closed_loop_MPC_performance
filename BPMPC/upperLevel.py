@@ -1,42 +1,40 @@
 import casadi as ca
 from BPMPC.QP import QP
-from typing import Callable, Union
+from typing import Callable, Union, Optional
 import numpy as np
 from BPMPC.symb import Symb
+from typeguard import typechecked
+
+"""
+TODO
+* are JacVarSetup and QPVarSetup slow?
+* descriptions
+"""
+
 
 class UpperLevel:
 
-    # def __init__(self):
-
-    #     # initialize variables
-    #     self.__p = None
-    #     self.__pf = None
-    #     self.__Jp = None
-    #     self.__k = None
-    #     self.__x_cl = None
-    #     self.__u_cl = None
-    #     self.__y_cl = None
-    #     self.__e_cl = None
     #     self.__cost = None
     #     self.__J_cost = None
     #     self.__init = {'p':None, 'pf':None}
-    #     self.__idx = {}
     #     self.__alg = None
-    #     pass
 
-    def __init__(self,
-                 p: ca.SX,
-                 T: int,
-                 MPC: QP,
-                 pf: ca.SX = None,
-                 idx_p: Callable[[int], Union[range, np.ndarray]] = None,
-                 idx_pf: Callable[[int], Union[range, np.ndarray]] = None):
+    @typechecked
+    def __init__(
+            self,
+            p: ca.SX,
+            T: int,
+            MPC: QP,
+            pf: Optional[ca.SX] = None,
+            idx_p: Optional[Callable[[int], Union[range, np.ndarray]]] = None,
+            idx_pf: Optional[Callable[[int], Union[range, np.ndarray]]] = None
+        ):
 
         # create symbolic variable
         self._sym = Symb()
             
         # add to dimensions
-        self._sym.addDim({'T': T})
+        self._sym.addDim('T',T)
 
         # add p to set of symbolic variables
         self._sym.addVar('p',p)
@@ -96,7 +94,7 @@ class UpperLevel:
         if 'y_next' in MPC.idx['out']:
 
             # add index to indices of UpperLevel
-            self._idx = self._idx | {'y_next',MPC.idx['y']}
+            self._idx = self._idx | {'y_next':MPC.idx['out']['y_next']}
 
             # set flag to true
             y_idx = True
@@ -136,10 +134,13 @@ class UpperLevel:
         # save in upperLevel
         self._idx = self._idx | {'qp':QPVarSetup,'jac':JacVarSetup}
 
-    def setUpperLevelCost(self,cost,track_cost=None,cst_viol=None):
-
-        # get symbolic variable type
-        MSX = self.__MSX
+    @typechecked
+    def setCost(
+            self,
+            cost:ca.SX,
+            track_cost:Optional[ca.SX]=None,
+            cst_viol:Optional[ca.SX]=None
+        ):
 
         # check if tracking cost function is passed, if not, set it equal to cost
         if track_cost is None:
@@ -147,34 +148,25 @@ class UpperLevel:
         
         # check if constraint violation function is passed, if not, set to zero
         if cst_viol is None:
-            cst_viol = MSX(1,1)
+            cst_viol = ca.SX(1,1)
 
         # helper function to check if symbolic variables are correct
         def symvar_str(expr):
-            return [str(v) for v in symvar(expr)]
+            return [str(v) for v in ca.symvar(expr)]
 
         # check that the variables appearing in track_cost and cst_viol are
         # contained within the variables appearing in cost
-        if len(set(symvar_str(track_cost)) - set(symvar_str(cost))) > 0:
-            raise Exception('Variables in tracking cost are not contained in full cost.')
-        if len(set(symvar_str(cst_viol)) - set(symvar_str(cost))) > 0:
-            raise Exception('Variables in constraint violation are not contained in full cost.')
+        assert len(set(symvar_str(track_cost)) - set(symvar_str(cost))) == 0, 'Variables in tracking cost are not contained in full cost.'
+        assert len(set(symvar_str(cst_viol)) - set(symvar_str(cost))) == 0, 'Variables in constraint violation are not contained in full cost.'
 
         # check if cost is a scalar symbolic expression
-        if not isinstance(cost,MSX):
-            raise Exception('Cost must be a symbolic expression.')
-        if cost.shape[0] != 1 or cost.shape[1] != 1:
-            raise Exception('Cost must be scalar.')
+        assert cost.shape == (1,1), 'Cost must be scalar.'
         
         # extract upper-level parameters
-        p = self.upperLevel.p
-        x_cl = self.upperLevel.x_cl
-        u_cl = self.upperLevel.u_cl
-        y_cl = self.upperLevel.y_cl
+        p, x_cl, u_cl, y_cl = self.param['p'], self.param['x_cl'], self.param['u_cl'], self.param['y_cl']
         
         # check if cost contains variables that are not not p,x_cl,u_cl,y_cl
-        if len(set(symvar_str(cost)) - set(symvar_str(vcat([p,vec(x_cl),vec(u_cl),vec(y_cl)])))) > 0:
-            raise Exception('Cost contains variables that are not p,x_cl,u_cl,y_cl.')
+        assert len(set(symvar_str(cost)) - set(symvar_str(ca.vcat([p,ca.vec(x_cl),ca.vec(u_cl),ca.vec(y_cl)])))) == 0, 'Cost contains variables that are not p,x_cl,u_cl,y_cl.'
 
         # get number of parameters that are being differentiated
         n_p = self.dim['p']
@@ -185,157 +177,55 @@ class UpperLevel:
         # initialize list of indices representing entries of the parameters
         # that enter the cost
         param_idx = []
+
+        # list containing all jacobians
+        J_param = []
+        J_cost = []
         
-        # check if x_cl appears in the cost
-        try:
-            # this one works with SX variables
-            x_cl_cost_idx_temp = DM(sum1(jacobian(vcat(symvar(cost)),vec(x_cl)))).T
-            x_cl_cost_idx = np.array(x_cl_cost_idx_temp).nonzero()[0]
-        except:
-            # this one works with MX variables
-            if 'x_cl' in symvar_str(cost):
-                x_cl_cost_idx = np.arange(0,vec(x_cl).shape[0])
-            else:
-                x_cl_cost_idx = []
-            pass
-
-        if len(x_cl_cost_idx) > 0:
-
-            # extract only the relevant entries of x_cl
-            x_cl_cost = vec(x_cl)[x_cl_cost_idx]
-
-            # compute jacobian of cost with respect to x_cl
-            J_cost_x = jacobian(cost,vec(x_cl_cost))
-
-            # create symbolic variable for jacobian of x_cl_cost wrt p
-            J_x_p = MSX.sym('J_x_p',x_cl_cost.shape[0],n_p)
-
-            # add to list of parameters entering the cost
-            param_in.append(x_cl_cost)
-            param_idx.append(x_cl_cost_idx)
-
-        else:
-
-            # if no x_cl entries appear in the cost, set J_cost_x and x_cl_cost as an empty matrix
-            J_cost_x = MSX(1,n_p)
-
-            # create symbolic variable for jacobian of x_cl_cost wrt p (needed for compatibility)
-            J_x_p = MSX.sym('J_x_p',1,1)
-
-            # add a None to the parameter list
-            param_in.append(None)
-
-        # check if u_cl appears in the cost
-        try:
-            # this one works with SX variables
-            u_cl_cost_idx_temp = DM(sum1(jacobian(vcat(symvar(cost)),vec(u_cl)))).T
-            u_cl_cost_idx = np.array(u_cl_cost_idx_temp).nonzero()[0]
-        except:
-            # this one works with MX variables
-            if 'u_cl' in symvar_str(cost):
-                u_cl_cost_idx = range(0,vec(u_cl).shape[0])
-            else:
-                u_cl_cost_idx = []
-            pass
-
-        if len(u_cl_cost_idx) > 0:
-
-            # extract only the relevant entries of u_cl
-            u_cl_cost = vec(u_cl)[u_cl_cost_idx]
-
-            # compute jacobian of cost with respect to u_cl
-            J_cost_u = jacobian(cost,vec(u_cl_cost))
-
-            # create symbolic variable for jacobian of u_cl_cost wrt p
-            J_u_p = MSX.sym('J_u_p',u_cl_cost.shape[0],n_p)
-
-            # add to list of parameters entering the cost
-            param_in.append(u_cl_cost)
-            param_idx.append(u_cl_cost_idx)
-
-        else:
-
-            # if no u_cl entries appear in the cost, set J_cost_u and u_cl_cost as an empty matrix
-            J_cost_u = MSX(1,n_p)
-
-            # create symbolic variable for jacobian of u_cl_cost wrt p (needed for compatibility)
-            J_u_p = MSX.sym('J_u_p',1,1)
-
-            # add a None to the parameter list
-            param_in.append(None)
-
-        # check what entries of y_cl appear in the cost
-        try:
-            # this one works with SX variables
-            y_cl_cost_idx_temp = DM(sum1(jacobian(vcat(symvar(cost)),vec(y_cl)))).T
-            y_cl_cost_idx = np.array(y_cl_cost_idx_temp).nonzero()[0]
-        except:
-            # this one works with MX variables
-            if 'y_cl' in symvar_str(cost):
-                y_cl_cost_idx = range(0,vec(y_cl).shape[0])
-            else:
-                y_cl_cost_idx = []
-            pass
-
-        if len(y_cl_cost_idx) > 0:
-
-            # extract only the relevant entries of y_cl
-            y_cl_cost = vec(y_cl)[y_cl_cost_idx]
-
-            # compute jacobian of cost with respect to y_cl
-            J_cost_y = jacobian(cost,vec(y_cl_cost))
-
-            # create symbolic variable for jacobian of y_cl_cost wrt p
-            J_y_p = MSX.sym('J_y_p',y_cl_cost.shape[0],n_p)
-
-            # add to list of parameters entering the cost
-            param_in.append(y_cl_cost)
-            param_idx.append(y_cl_cost_idx)
-
-        else:
-
-            # if no y_cl entries appear in the cost, set J_cost_y and y_cl_cost as an empty matrix
-            J_cost_y = MSX(1,n_p)
-
-            # create symbolic variable for jacobian of y_cl_cost wrt p (needed for compatibility)
-            J_y_p = MSX.sym('J_y_p',1,1)
-
-            # add a None to the parameter list
-            param_in.append(None)
-
-        # check if p appears in the cost
-        try:
-            # this one works with SX variables
-            p_cost_idx_temp = DM(sum1(jacobian(vcat(symvar(cost)),vec(p)))).T
-            p_cost_idx = np.array(p_cost_idx_temp).nonzero()[0]
-        except:
-            # this one works with MX variables
-            if 'p_t' in symvar_str(cost):
-                p_cost_idx = range(0,vec(p).shape[0])
-            else:
-                p_cost_idx = []
-            pass
-
-        if len(p_cost_idx) > 0:
-            
-            # extract only the relevant entries of p
-            p_cost = vec(p)[p_cost_idx]
-
-            # compute jacobian of cost with respect to p
-            J_cost_p = jacobian(cost,vec(p_cost))
-
-            # add to list of parameters entering the cost
-            param_in.append(p_cost)
-            param_idx.append(p_cost_idx)
-
-        else:
-            
-            # if no p entries appear in the cost, set J_cost_p and p_cost as an empty matrix
-            J_cost_p = MSX(1,n_p)
-
-            # add a None to the parameter list
-            param_in.append(None)
+        # loop through all possible parameters that can enter the cost
+        for param, jac_name in zip([x_cl,u_cl,y_cl,p],['J_x_p','J_u_p','J_y_p','J_p_p']):
         
+            # check if parameter enters in the cost
+            param_cost_idx = np.array(ca.DM(ca.sum1(ca.jacobian(ca.vcat(ca.symvar(cost)),ca.vec(param)))).T).nonzero()[0]
+
+            # # this one works with MX variables
+            # if 'x_cl' in symvar_str(cost):
+            #     x_cl_cost_idx = np.arange(0,ca.vec(x_cl).shape[0])
+            # else:
+            #     x_cl_cost_idx = []
+            # pass
+
+            # if so, get parameters entering the cost
+            if len(param_cost_idx) > 0:
+
+                # extract only the relevant entries of x_cl
+                param_cost = ca.vec(param)[param_cost_idx]
+
+                # compute jacobian of cost with respect to x_cl
+                J_cost.append(ca.jacobian(cost,ca.vec(param_cost)))
+
+                # create symbolic variable for jacobian of x_cl_cost wrt p
+                J_param.append(ca.SX.sym(jac_name,param_cost.shape[0],n_p))
+
+                # add to list of parameters entering the cost
+                param_in.append(param_cost)
+                param_idx.append(param_cost_idx)
+
+            else:
+
+                # if no param entries appear in the cost, set J_cost and param_cost to an empty matrix
+                J_cost.append(ca.SX(1,n_p))
+
+                # create symbolic variable for jacobian of param_cost wrt p (needed for compatibility)
+                J_param.append(ca.SX.sym(jac_name,1,1))
+
+                # add a None to the parameter list
+                param_in.append(None)
+
+        # assign Jacobians
+        J_x_p, J_u_p, J_y_p, _ = J_param
+        J_cost_x, J_cost_u, J_cost_y, J_cost_p = J_cost
+
         # create function that retrieves only the indices that enter the cost given
         # the full vectors
         def getCostIdx(x_cl,u_cl,y_cl,p):
@@ -353,10 +243,10 @@ class UpperLevel:
                 if param_in[i] is not None:
 
                     # extract the relevant indices
-                    out.append(vec(inputs[i])[param_idx[i]])
+                    out.append(ca.vec(inputs[i])[param_idx[i]])
 
             # return as list
-            return vcat(out)
+            return ca.vcat(out)
         
         # create function that retrieves the jacobians that are needed to compute the
         # full jacobian of the cost function, given the full jacobian
@@ -388,25 +278,20 @@ class UpperLevel:
             return out
 
         # parameters that are necessary for cost
-        cost_in = vcat([vec(item) for item in param_in if item is not None])
+        cost_in = ca.vcat([ca.vec(item) for item in param_in if item is not None])
 
         # quick test to see if things are working
-        try:
-            if sum1(getCostIdx(x_cl,u_cl,y_cl,p) - cost_in) != 0:
-                raise Exception('Error in getCostIdx function.')
-        except:
-            # TODO make a test for this in MX mode
-            pass
+        assert ca.sum1(getCostIdx(x_cl,u_cl,y_cl,p) - cost_in) == 0, 'Error in getCostIdx function.'
 
         # create cost functions in two steps
-        cost_func_temp = Function('cost',[cost_in],[cost,track_cost,cst_viol])
+        cost_func_temp = ca.Function('cost',[cost_in],[cost,track_cost,cst_viol])
         def cost_func(S):
             # return cost_func_temp(getCostIdx(S.x,S.u,S.y,S.p[:,-1]))
             return cost_func_temp(getCostIdx(S.x,S.u,S.y,S.p))
 
         # create full jacobian functions in two steps
         J_cost = J_cost_p + J_cost_x@J_x_p + J_cost_u@J_u_p + J_cost_y@J_y_p
-        J_cost_func_temp = Function('J_cost',[cost_in,J_x_p,J_u_p,J_y_p],[J_cost.T])
+        J_cost_func_temp = ca.Function('J_cost',[cost_in,J_x_p,J_u_p,J_y_p],[J_cost.T])
         def J_cost_func(S):
 
             # get true input cost
@@ -419,67 +304,47 @@ class UpperLevel:
             return J_cost_func_temp(cost_in,J_x_p,J_u_p,J_y_p)
         
         # store in upper level
-        self.upperLevel._upperLevel__set_cost(cost_func)
-        self.upperLevel._upperLevel__set_J_cost(J_cost_func)
+        self._cost = cost_func
+        self._J_cost = J_cost_func
 
-    def setUpperLevelAlg(self,p_next,psi_init=None,psi_next=None,psi=None):
-
-        # get symbolic variable type
-        MSX = self.__MSX
-
-        # parse inputs
-        if psi_init is None:
-            psi_init = MSX(0)
-        elif not isinstance(psi_init,MSX):
-            raise Exception('psi_init if of the wrong symbolic type.')
-        if psi_next is None:
-            psi_next = MSX(0)
-        elif not isinstance(psi_next,MSX):
-            raise Exception('psi_next if of the wrong symbolic type.')
-        if psi is None:
-            psi = MSX.sym('psi',1,1)
-        elif not isinstance(psi,MSX):
-            raise Exception('psi if of the wrong symbolic type.')
-
+    @typechecked
+    def setAlg(self,
+            p_next,
+            psi_init:Optional[ca.SX]=ca.SX(0),
+            psi_next:Optional[ca.SX]=ca.SX(0),
+            psi:Optional[ca.SX]=ca.SX.sym('psi',1,1)
+        ):
+        
         # check that p_next returns a vector with the same dimension as p
-        if p_next.shape != self.param['p'].shape:
-            raise Exception('Parameters p and p_next must have the same dimension.')
+        assert p_next.shape == self.param['p'].shape, 'Parameters p and p_next must have the same dimension.'
         
         # check if pf is present
-        if 'pf' not in self.param:
-            pf = MSX.sym('pf',1,1)
-        else:
-            pf = self.param['pf']
+        pf = self.param['pf'] if 'pf' in self.param else ca.SX.sym('pf',1,1)
 
         # construct list of parameters on which p_next is allowed to depend
-        param_p_next = [self.param['p'],pf,psi,self.param['k'],self.param['Jp']]
+        param_p_next = [self.param['p'],pf,psi,self.param['k'],self.param['J_p']]
 
         # helper function to check if symbolic variables are correct
         def symvar_str(expr):
-            return [str(v) for v in symvar(expr)]
+            return [str(v) for v in ca.symvar(expr)]
 
         # check if p_next is a function of p, pf, psi, k, and Jp
-        if len(set(symvar_str(p_next)) - set(symvar_str(vcat(param_p_next)))) > 0:
-            raise Exception('Parameter p_next must depend on p, pf, psi, k, and Jp.')
+        assert len(set(symvar_str(p_next)) - set(symvar_str(ca.vcat(param_p_next)))) == 0, 'Parameter p_next must depend on p, pf, psi, k, and Jp.'
         
         # check that psi_init and psi_next have the same dimension as psi
-        if psi_init.shape != psi.shape:
-            raise Exception('Initial value of psi must have the same dimension as psi.')
-        if psi_next.shape != psi.shape:
-            raise Exception('Next value of psi must have the same dimension as psi.')
+        assert psi_init.shape == psi.shape, 'Initial value of psi must have the same dimension as psi.'
+        assert psi_next.shape == psi.shape, 'Next value of psi must have the same dimension as psi.'
         
         # check that psi_next is a function of p, pf, psi, k, and Jp
-        if len(set(symvar_str(psi_next)) - set(symvar_str(vcat(param_p_next)))) > 0:
-            raise Exception('Parameter p_next must depend on p, pf, psi, k, and Jp.')
+        assert len(set(symvar_str(psi_next)) - set(symvar_str(ca.vcat(param_p_next)))) == 0, 'Parameter p_next must depend on p, pf, psi, k, and Jp.'
         
         # check that psi is a function of p, pf, and Jp
-        if len(set(symvar_str(psi_init)) - set(symvar_str(vcat([self.param['p'],pf,self.param['Jp']])))):
-            raise Exception('Initial value of psi must depend on p, pf, and Jp.')
+        assert len(set(symvar_str(psi_init)) - set(symvar_str(ca.vcat([self.param['p'],pf,self.param['J_p']])))) == 0, 'Initial value of psi must depend on p, pf, and Jp.'
         
         # create casadi function
-        psi_next_func = Function('psi_next',[self.param['p'],pf,psi,self.param['k'],self.param['Jp']],[psi_next],['p','pf','psi','k','Jp'],['psi_next'])
-        psi_init_func = Function('psi_init',[self.param['p'],pf,self.param['Jp']],[psi_init],['p','pf','Jp'],['psi_init'])
-        p_next_func = Function('p_next',[self.param['p'],pf,psi,self.param['k'],self.param['Jp']],[p_next],['p','pf','psi','k','Jp'],['p_next'])
+        psi_next_func = ca.Function('psi_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[psi_next],['p','pf','psi','k','Jp'],['psi_next'])
+        psi_init_func = ca.Function('psi_init',[self.param['p'],pf,self.param['J_p']],[psi_init],['p','pf','Jp'],['psi_init'])
+        p_next_func = ca.Function('p_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[p_next],['p','pf','psi','k','Jp'],['p_next'])
 
         # if pf is not passed, wrap a python function around that defaults pf to 0
         if 'pf' not in self.param:
@@ -501,100 +366,7 @@ class UpperLevel:
             psi_init_func_py = psi_init_func
 
         # store in upperLevel
-        self.upperLevel._upperLevel__setAlg({'psi_next':psi_next_func_py,'psi_init':psi_init_func_py,'p_next':p_next_func_py})
-
-    @property
-    def alg(self):
-        return self.__alg
-    
-    def __setAlg(self,value):
-        self.__alg = value
-
-    @property
-    def p(self):
-        return self.__p
-    
-    def __set_p(self, value):
-        if type(value) is not self.__MSX:
-            raise Exception('p is of the wrong symbolic type.')
-        self.__p = value
-
-    @property
-    def pf(self):
-        return self.__pf
-    
-    def __set_pf(self, value):
-        if type(value) is not self.__MSX:
-            raise Exception('pf is of the wrong symbolic type.')
-        self.__pf = value
-
-    @property
-    def Jp(self):
-        return self.__Jp
-    
-    def __set_Jp(self, value):
-        if type(value) is not self.__MSX:
-            raise Exception('Jp is of the wrong symbolic type.')
-        self.__Jp = value
-
-    @property
-    def k(self):
-        return self.__k
-    
-    def __set_k(self, value):
-        if type(value) is not self.__MSX:
-            raise Exception('k is of the wrong symbolic type.')
-        self.__k = value
-
-    @property
-    def x_cl(self):
-        return self.__x_cl
-    
-    def __set_x_cl(self, value):
-        if type(value) is not self.__MSX:
-            raise Exception('x_cl is of the wrong symbolic type.')
-        self.__x_cl = value
-
-    @property
-    def u_cl(self):
-        return self.__u_cl
-
-    def __set_u_cl(self, value):
-        if type(value) is not self.__MSX:
-            raise Exception('u_cl is of the wrong symbolic type.')
-        self.__u_cl = value
-
-    @property
-    def y_cl(self):
-        return self.__y_cl
-
-    def __set_y_cl(self, value):
-        if type(value) is not self.__MSX:
-            raise Exception('y_cl is of the wrong symbolic type.')
-        self.__y_cl = value
-
-    @property
-    def e_cl(self):
-        return self.__e_cl
-
-    def __set_e_cl(self, value):
-        if type(value) is not self.__MSX:
-            raise Exception('e_cl is of the wrong symbolic type.')
-        self.__e_cl = value
-
-    @property
-    def cost(self):
-        return self.__cost
-    
-    def __set_cost(self, value):
-        self.__cost = value
-
-    @property
-    def J_cost(self):
-        return self.__J_cost
-    
-    def __set_J_cost(self, value):
-        self.__J_cost = value
+        self._alg = {'psi_next':psi_next_func_py,'psi_init':psi_init_func_py,'p_next':p_next_func_py}
 
     @property
     def init(self):
@@ -638,24 +410,16 @@ class UpperLevel:
 
     @property   
     def idx(self):
-        return self.__idx
-
-    def __updateIdx(self, idx):
-        self.__idx = self.__idx | idx
+        return self._idx
 
     @property
     def param(self):
-        return {k: v for k, v in {
-            'p': self.__p,
-            'pf':self.__pf,
-            'Jp':self.__Jp,
-            'k':self.__k,
-            'x_cl': self.__x_cl,
-            'u_cl': self.__u_cl,
-            'y_cl': self.__y_cl,
-            'e_cl': self.__e_cl,
-        }.items() if v is not None}
+        return self._sym.var
     
-    # overwrite the __dir__ method
-    def __dir__(self):
-        return [attr for attr in super().__dir__() if not attr.startswith('_UpperLevel__')]
+    @property
+    def dim(self):
+        return self._sym.dim
+    
+    # # overwrite the __dir__ method
+    # def __dir__(self):
+    #     return [attr for attr in super().__dir__() if not attr.startswith('_UpperLevel__')]

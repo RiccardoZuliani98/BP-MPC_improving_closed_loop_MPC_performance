@@ -1,7 +1,7 @@
 from casadi import *
 from BPMPC.dynamics import Dynamics
 from BPMPC.QP import QP
-from BPMPC.upperLevel import upperLevel
+from BPMPC.upperLevel import UpperLevel
 from BPMPC.simVar import simVar
 import time
 from numpy.random import randint

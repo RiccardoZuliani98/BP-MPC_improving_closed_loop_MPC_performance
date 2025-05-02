@@ -468,7 +468,6 @@ class QP:
 
     @property
     def param(self):
-        # dictionary containing all symbolic variables of the class
         return self._sym.var
     
     @property
@@ -478,21 +477,6 @@ class QP:
     @property
     def options(self):
         return self._options
-
-    def _updateOptions(self, value):
-        """
-        Update the options of the class.
-        """
-
-        # check if value is a dictionary
-        if not isinstance(value, dict):
-            raise Exception('Options must be a dictionary.')
-        
-        # remove keys that are not allowed
-        value = {k:v for k,v in value.items() if k in self._allowed_options_keys}
-
-        # update options dictionary
-        self._options = self._options | value
     
     @property
     def init(self):
@@ -517,7 +501,7 @@ class QP:
             _,_,y_all_forward = QP.solve(p_t+ca.DM(v*epsilon),y_all,lam,mu)
             _,_,y_all_backward = QP.solve(p_t-ca.DM(v*epsilon),y_all,lam,mu)
             
-            # get finite difference estimate 
+            # get finite difference estimate
             dy_num = (y_all_forward-y_all_backward)/(2*epsilon)
             
             # store in J_num

@@ -4,8 +4,8 @@ from BPMPC.QP import QP
 from BPMPC.Ingredients import Ingredients
 import BPMPC.utils as utils
 import BPMPC.tests as tests
-import Examples.cart_pend_theta as cart_pend
-from casadi import *
+import Examples.cart_pend as cart_pend
+import casadi as ca
 from BPMPC.plotter import plotter
 from BPMPC.upperLevel import UpperLevel
 
@@ -21,37 +21,37 @@ compile_jac = False
 
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
+# create dictionary with parameters of cart pendulum
 dyn_dict = cart_pend.dynamics(dt=0.015)
 
+# create dynamics object
 dyn = Dynamics(dyn_dict)
 
-# extract dimensions for simplicity
-n = dyn.dim
+# get state and input dimensions
+n_x, n_u = dyn.dim['x'], dyn.dim['u']
 
 # set initial conditions
-x0 = vertcat(0,0,-pi,0)
-u0 = 0.1
-dyn.setInit({'x': x0,'u':u0})
+x0 = ca.vertcat(0,0,-ca.pi,0)
 
 
 ### CREATE MPC -----------------------------------------------------------------------------
 
 # upper level cost
-Q_true = diag(vertcat(100,1,100,1))
+Q_true = ca.diag(ca.vertcat(100,1,100,1))
 R_true = 1e-6
 
 # mpc horizon
 N = 11
 
 # constraints are simple bounds on state and input
-x_max = vertcat(5,5,inf,inf)
+x_max = ca.vertcat(5,5,ca.inf,ca.inf)
 x_min = -x_max
 u_max = 4
 u_min = -u_max
 
 # parameter = terminal state cost and input cost
-c_q = SX.sym('c_q',int(n['x']*(n['x']+1)/2),1)
-c_r = SX.sym('c_r',1,1)
+c_q = ca.SX.sym('c_q',int(n_x*(n_x+1)/2),1)
+c_r = ca.SX.sym('c_r',1,1)
 
 # stage cost (state)
 Qx = [Q_true] * (N-1)
@@ -60,12 +60,11 @@ Qx = [Q_true] * (N-1)
 Ru = c_r**2 + 1e-6
 
 # create parameter
-p = vcat([c_q,c_r])
-# p = c_q
-# pf = c_r
+p = ca.vcat([c_q,c_r])
+# p,pf = c_q,c_r
 
 # MPC terminal cost
-Qn = utils.param2terminalCost(c_q) + 0.01*SX.eye(n['x'])
+Qn = utils.param2terminalCost(c_q) + 0.01*ca.SX.eye(n_x)
 
 # append to Qx
 Qx.append(Qn)
@@ -93,23 +92,22 @@ MPC = QP(ingredients=ing,p=p)
 
 ### UPPER LEVEL -----------------------------------------------------------
 
-# extract linearized dynamics at the origin
-A = dyn.A_nom(DM(n['x'],1),DM(n['u'],1))
-B = dyn.B_nom(DM(n['x'],1),DM(n['u'],1))
-
 # upper-level horizon
 T = 170
 
 # create upper level
 UL = UpperLevel(p=p,T=T,MPC=MPC)
 
+# extract linearized dynamics at the origin
+A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1))
+B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1))
+
 # compute terminal cost initialization
-p_init = vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
-UL.setInit({'p':p_init})
+p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
 
 # extract closed-loop variables for upper level
-x_cl = vec(UL.param['x_cl'])
-u_cl = vec(UL.params['u_cl'])
+x_cl = ca.vec(UL.param['x_cl'])
+u_cl = ca.vec(UL.param['u_cl'])
 
 track_cost, cst_viol_l1, cst_viol_l2 = utils.quadCostAndBounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
@@ -119,29 +117,31 @@ cost = track_cost
 # create upper-level constraints
 Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,T+1)
 _,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,T)
-cst = vcat([Hx@vec(x_cl)-hx,Hu@vec(u_cl)-hu])
+cst_viol = ca.vcat([Hx@ca.vec(x_cl)-hx,Hu@ca.vec(u_cl)-hu])
 
 # store in upper-level
-UL.setUpperLevelCost(cost,track_cost,cst)
+UL.setCost(cost,track_cost,cst_viol)
 
 # create algorithm
-p = params['p']
-Jp = params['Jp']
-k = params['k']
+p = UL.param['p']
+J_p = UL.param['J_p']
+k = UL.param['k']
 
 # hyperparameters
 rho = 0.0001
 eta = 0.51
 
 # create GD update rule
-# p_next = p -(rho*log(k+1)/(k+1)**eta)*if_else(norm_2(Jp)>50000,Jp*50000/norm_2(Jp),Jp)
-p_next = p -(rho*log(k+2)/(k+2)**eta)*Jp
+p_next = p -(rho*ca.log(k+2)/(k+2)**eta)*J_p
 
 # create update function
-mod.setUpperLevelAlg(p_next)
+UL.setAlg(p_next)
 
 # # test derivatives
 # # out = tests.derivatives(mod)
+
+# UL.setInit({'p':p_init})
+# dyn.setInit({'x': x0,'u':u0})
 
 # # simulate with initial parameter
 # S,qp_data_sparse,_ = mod.simulate()

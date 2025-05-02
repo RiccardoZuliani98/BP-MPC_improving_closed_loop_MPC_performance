@@ -409,9 +409,9 @@ class Ingredients:
         
         # if a linearization trajectory is used, add entry to idx
         if self._options['linearization'] == 'trajectory':
-            idx['y_next'] = lambda t: self.QP.idx['out']['y']
+            idx['y_next'] = idx['y']
         elif self._options['linearization'] == 'initial_state':
-            idx['y_next'] = lambda t: self.QP.idx['out']['u1']
+            idx['y_next'] = idx['u1']
 
         return idx
 
