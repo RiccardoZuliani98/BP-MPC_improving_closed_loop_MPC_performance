@@ -85,7 +85,7 @@ class Ingredients:
         self._sparse = self._makeSparseQP(processed_data)
 
         # create index
-        self._idx = self._makeIdx()
+        self._idx = {'out': self._makeIdx()}
 
         # create dense QP if requested
         if self._options['make_dense']:
@@ -406,6 +406,12 @@ class Ingredients:
         idx['x_shift'] = idx_x_shifted
         idx['u_shift'] = idx_u_shifted
         idx['y_shift'] = idx_shifted
+        
+        # if a linearization trajectory is used, add entry to idx
+        if self._options['linearization'] == 'trajectory':
+            idx['y_next'] = lambda t: self.QP.idx['out']['y']
+        elif self._options['linearization'] == 'initial_state':
+            idx['y_next'] = lambda t: self.QP.idx['out']['u1']
 
         return idx
 

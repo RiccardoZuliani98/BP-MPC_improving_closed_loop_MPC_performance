@@ -7,6 +7,7 @@ import BPMPC.tests as tests
 import Examples.cart_pend_theta as cart_pend
 from casadi import *
 from BPMPC.plotter import plotter
+from BPMPC.upperLevel import UpperLevel
 
 # cleanup jit files
 utils.cleanup()
@@ -92,53 +93,52 @@ MPC = QP(ingredients=ing,p=p)
 
 ### UPPER LEVEL -----------------------------------------------------------
 
-# # extract linearized dynamics at the origin
-# A = mod.dyn.A_nom(DM(n['x'],1),DM(n['u'],1))
-# B = mod.dyn.B_nom(DM(n['x'],1),DM(n['u'],1))
+# extract linearized dynamics at the origin
+A = dyn.A_nom(DM(n['x'],1),DM(n['u'],1))
+B = dyn.B_nom(DM(n['x'],1),DM(n['u'],1))
 
-# # upper-level horizon
-# T = 170
+# upper-level horizon
+T = 170
 
-# # create upper level
-# mod.makeUpperLevel(T=T)
+# create upper level
+UL = UpperLevel(p=p,T=T,MPC=MPC)
 
-# # compute terminal cost initialization
-# p_init = vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
-# mod.setInit({'p':p_init})
+# compute terminal cost initialization
+p_init = vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
+UL.setInit({'p':p_init})
 
-# # extract closed-loop variables for upper level
-# params = mod.param
-# x_cl = vec(params['x_cl'])
-# u_cl = vec(params['u_cl'])
+# extract closed-loop variables for upper level
+x_cl = vec(UL.param['x_cl'])
+u_cl = vec(UL.params['u_cl'])
 
-# track_cost, cst_viol_l1, cst_viol_l2 = utils.quadCostAndBounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
+track_cost, cst_viol_l1, cst_viol_l2 = utils.quadCostAndBounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
-# # put together
-# cost = track_cost
+# put together
+cost = track_cost
 
-# # create upper-level constraints
-# Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,T+1)
-# _,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,T)
-# cst = vcat([Hx@vec(x_cl)-hx,Hu@vec(u_cl)-hu])
+# create upper-level constraints
+Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,T+1)
+_,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,T)
+cst = vcat([Hx@vec(x_cl)-hx,Hu@vec(u_cl)-hu])
 
-# # store in upper-level
-# mod.setUpperLevelCost(cost,track_cost,cst)
+# store in upper-level
+UL.setUpperLevelCost(cost,track_cost,cst)
 
-# # create algorithm
-# p = params['p']
-# Jp = params['Jp']
-# k = params['k']
+# create algorithm
+p = params['p']
+Jp = params['Jp']
+k = params['k']
 
-# # hyperparameters
-# rho = 0.0001
-# eta = 0.51
+# hyperparameters
+rho = 0.0001
+eta = 0.51
 
-# # create GD update rule
-# # p_next = p -(rho*log(k+1)/(k+1)**eta)*if_else(norm_2(Jp)>50000,Jp*50000/norm_2(Jp),Jp)
-# p_next = p -(rho*log(k+2)/(k+2)**eta)*Jp
+# create GD update rule
+# p_next = p -(rho*log(k+1)/(k+1)**eta)*if_else(norm_2(Jp)>50000,Jp*50000/norm_2(Jp),Jp)
+p_next = p -(rho*log(k+2)/(k+2)**eta)*Jp
 
-# # create update function
-# mod.setUpperLevelAlg(p_next)
+# create update function
+mod.setUpperLevelAlg(p_next)
 
 # # test derivatives
 # # out = tests.derivatives(mod)

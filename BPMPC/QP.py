@@ -436,7 +436,7 @@ class QP:
 
     @property
     def idx(self):
-        return self._idx
+        return self._ingredients.idx
 
     @property
     def solve(self):
@@ -507,15 +507,15 @@ class QP:
         J_QP = QP.J_y_p(lam,mu,p_t)
         
         # prepare vector containing derivative
-        J_num = DM(*J_QP.shape)
+        J_num = ca.DM(*J_QP.shape)
         
         # check against numerical differences
         j = 0
         for v in np.eye(p_t.shape[0]):
         
             # compute y_all for small perturbations around p_t
-            _,_,y_all_forward = QP.solve(p_t+DM(v*epsilon),y_all,lam,mu)
-            _,_,y_all_backward = QP.solve(p_t-DM(v*epsilon),y_all,lam,mu)
+            _,_,y_all_forward = QP.solve(p_t+ca.DM(v*epsilon),y_all,lam,mu)
+            _,_,y_all_backward = QP.solve(p_t-ca.DM(v*epsilon),y_all,lam,mu)
             
             # get finite difference estimate 
             dy_num = (y_all_forward-y_all_backward)/(2*epsilon)
