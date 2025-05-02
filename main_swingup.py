@@ -1,4 +1,4 @@
-from BPMPC.scenario import scenario
+from BPMPC.scenario import Scenario
 from BPMPC.dynamics import Dynamics
 from BPMPC.QP import QP
 from BPMPC.Ingredients import Ingredients
@@ -140,11 +140,16 @@ UL.setAlg(p_next)
 # # test derivatives
 # # out = tests.derivatives(mod)
 
-# UL.setInit({'p':p_init})
-# dyn.setInit({'x': x0,'u':u0})
 
-# # simulate with initial parameter
-# S,qp_data_sparse,_ = mod.simulate()
+### CREATE SCENARIO -----------------------------------------------------------
+
+scen = Scenario(dyn,MPC,UL)
+
+# initialize
+scen.setInit({'p':p_init,'x': x0})
+
+# simulate with initial parameter
+S,qp_data_sparse,_ = scen.simulate()
 
 # # create plot but do not show
 # plotter.plotTrajectory(S,options={'x':[0,1,2,3],'x_legend':['Position untrained','Velocity untrained','Angle untrained','Angular velocity untrained'],'u':[0],'u_legend':['Force untrained'],'color':'blue'},show=False)

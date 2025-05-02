@@ -8,13 +8,10 @@ from numpy.random import randint
 
 """
 TODO:
-* options should be stored in an "options" class
-* I should implement a way to efficiently merge options belonging to different subclasses
+* descriptions
 """
 
-
-
-class scenario:
+class Scenario:
 
     def __init__(self,MSX='SX'):
 
@@ -40,16 +37,10 @@ class scenario:
 
         pass
 
-
-    ### COMPUTATION TIMES --------------------------------------------------
-
     @property
     def compTimes(self):
         return self.__compTimes
     
-
-    ### DIMENSIONS ---------------------------------------------------------
-
     @property
     def dim(self):
         return self.__dim
@@ -57,21 +48,13 @@ class scenario:
     def __addDim(self, dim):
         self.__dim = self.__dim | dim
 
-
-    ### OPTIONS ------------------------------------------------------------
-
     @property
     def options(self):
         return self.QP.options | self.upperLevel.options
 
-    ### PARAMETERS ---------------------------------------------------------
-    
     @property
     def param(self):
         return self.dyn.param | self.QP.param | self.upperLevel.param
-
-
-    # INITIAL VALUES -------------------------------------------------------
 
     @property
     def init(self):
@@ -96,8 +79,6 @@ class scenario:
 
         return out
 
-    ### DYNAMICS -----------------------------------------------------------
-
     @property
     def dyn(self):
         return self.__dyn
@@ -105,8 +86,6 @@ class scenario:
     @property
     def QP(self):
         return self.__QP
-
-    ### UPPER-LEVEL COST FUNCTION -------------------------------------------
 
     @property
     def upperLevel(self):

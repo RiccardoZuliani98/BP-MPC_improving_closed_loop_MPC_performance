@@ -381,7 +381,7 @@ class UpperLevel:
                 raise Exception('Define parameter p before setting its initial value.')
 
             # turn into DM
-            p_init = DM(value['p'])
+            p_init = ca.DM(value['p'])
 
             if p_init.shape == self.p.shape:
                 out = out | {'p':p_init}
@@ -394,7 +394,7 @@ class UpperLevel:
                 raise Exception('Define parameter pf before setting its initial value.')
 
             # turn into DM
-            pf_init = DM(value['pf'])
+            pf_init = ca.DM(value['pf'])
 
             if pf_init.shape == self.pf.shape:
                 out = out | {'pf':pf_init}
