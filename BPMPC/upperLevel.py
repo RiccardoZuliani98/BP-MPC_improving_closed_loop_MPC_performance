@@ -14,11 +14,6 @@ TODO
 
 class UpperLevel:
 
-    #     self.__cost = None
-    #     self.__J_cost = None
-    #     self.__init = {'p':None, 'pf':None}
-    #     self.__alg = None
-
     @typechecked
     def __init__(
             self,
