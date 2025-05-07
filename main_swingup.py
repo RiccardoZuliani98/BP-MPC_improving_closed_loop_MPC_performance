@@ -28,10 +28,13 @@ dyn_dict = cart_pend.dynamics(dt=0.015)
 dyn = Dynamics(dyn_dict)
 
 # get state and input dimensions
-n_x, n_u = dyn.dim['x'], dyn.dim['u']
+n_x, n_u, n_w, n_d = dyn.dim['x'], dyn.dim['u'], dyn.dim['w'], dyn.dim['d']
 
 # set initial conditions
 x0 = ca.vertcat(0,0,-ca.pi,0)
+u0 = 0.1
+w0 = ca.DM(n_w,1)
+d0 = ca.DM(n_d,1)
 
 
 ### CREATE MPC -----------------------------------------------------------------------------
@@ -96,7 +99,7 @@ MPC = QP(ingredients=ing,p=p)
 T = 170
 
 # create upper level
-UL = UpperLevel(p=p,T=T,mpc=MPC)
+UL = UpperLevel(p=p,horizon=T,mpc=MPC)
 
 # extract linearized dynamics at the origin
 A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1))
@@ -146,7 +149,7 @@ UL.set_alg(p_next)
 scenario = Scenario(dyn,MPC,UL)
 
 # initialize
-scenario.setInit({'p':p_init,'x': x0})
+scenario.set_init({'p':p_init,'x': x0,'u': u0, 'w': w0, 'd': d0})
 
 # simulate with initial parameter
 S,qp_data_sparse,_ = scenario.simulate()

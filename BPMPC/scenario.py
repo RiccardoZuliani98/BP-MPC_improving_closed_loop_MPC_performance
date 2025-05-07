@@ -1,4 +1,4 @@
-from casadi import *
+import casadi as ca
 from BPMPC.dynamics import Dynamics
 from BPMPC.QP import QP
 from BPMPC.UpperLevel import UpperLevel
@@ -12,7 +12,7 @@ from BPMPC.options import Options
 TODO:
 * descriptions
 * trajectory optimization should be a separate class!
-* 
+* for now symb does not allow to have lists as init, should I change that?
 """
 
 class Scenario:
@@ -29,18 +29,21 @@ class Scenario:
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,ul:UpperLevel):
-        
+
         # initialize properties
         self._dyn = dyn
         self._qp = mpc
         self._upper_level = ul
 
+        # create symbols
+        self._sym = self._dyn._sym + self._qp._sym + self._upper_level._sym
+        
         # create options
         self._options = self._qp.options + Options(self._OPTIONS_ALLOWED_VALUES,self._OPTIONS_DEFAULT_VALUES)
 
     @property
-    def _sym(self):
-        return self._dyn._sym + self._qp._sym + self._upper_level._sym
+    def sym(self):
+        return self._sym
     
     @property
     def dim(self):
@@ -161,59 +164,46 @@ class Scenario:
 
     ### SIMULATION FUNCTIONS ---------------------------------------------------
 
-    def __getInitParameters(self,init={}):
+    def _get_init_parameters(self,init=None):
 
-        """
-        This function takes in a dictionary containing user-defined initial conditions
-        and returns the following quantities in a list: p,pf,w,d,y,x, where each quantity
-        is either a single DM vector or a list of DM vectors, depending on whether the
-        user passed a single vector or a list of vectors in init.
+        if init is not None:
+            self.set_init(init)
 
-        Note that w should be passed either as single vector of dimension (n_w,1), which
-        will be repeated for all time steps, as a matrix of dimension (n_w,T), where
-        each column represents the noise at a given time step, or as a list of matrices
-        of dimension (n_w,T), where each element of the list is the noise at each time 
-        step for a given scenario.
-
-        Accepted keys in the dictionary are: p,pf,w,d,y_lin,x.
-        """
-
-        # create out vector
-        out = self.init | init
+        # get initialization
+        init_values = self.init
 
         # first check if at least one of the parameters is a list
-        lengths = [len(v) if isinstance(v,list) else 1 for v in out.values()]
+        lengths = [len(v) if isinstance(v,list) else 1 for v in init_values.values()]
         
         # if there are multiple nonzero lengths, check that they match
-        if len(set([item for item in lengths if item != 1])) > 1:
-            raise Exception('All parameters must have the same length.')
+        assert len(set([item for item in lengths if item != 1])) <= 1, 'All parameters must have the same length.'
         
         # get final length
         max_length = max(lengths)
 
         # if w is passed as a single vector (and it is not a list or None), repeat it
-        if (out['w'] is not None) and (not isinstance(out['w'],list)) and (out['w'].shape[1] == 1):
-            out['w'] = repmat(out['w'],1,self.dim['T'])
+        if (init_values['w'] is not None) and (not isinstance(init_values['w'],list)) and (init_values['w'].shape[1] == 1):
+            init_values['w'] = ca.repmat(init_values['w'],1,self.dim['T'])
 
         # check dimension of w
-        if out['w'] is not None:
+        if init_values['w'] is not None:
 
             # if w is a list, check that all elements have the same number of columns
-            if isinstance(out['w'],list):
-                if len(set([v.shape[1] for v in out['w']])) > 1:
+            if isinstance(init_values['w'],list):
+                if len(set([v.shape[1] for v in init_values['w']])) > 1:
                     raise Exception('All noise w must have the same number of columns.')
-                if out['w'][0].shape[1] != self.dim['T']:
+                if init_values['w'][0].shape[1] != self.dim['T']:
                     raise Exception('Noise w must have the same number of columns as the prediction horizon.')
             
             # otherwise, check that w has the same number of columns as the prediction horizon
-            elif out['w'].shape[1] != self.dim['T']:
+            elif init_values['w'].shape[1] != self.dim['T']:
                 raise Exception('Noise w must have the same number of columns as the prediction horizon.')
 
         # if there is at least one nonzero length, extend all "dynamics" parameters to that length
         if max_length > 1:
             
             # at least one parameter in "dynamics" is a list of a certain length
-            for k,v in out.items():
+            for k,v in init_values.items():
                 
                 # only check among parameters that are inside dynamics subclass
                 if k in self.dyn.param:
@@ -222,141 +212,97 @@ class Scenario:
                     # do nothing. Only extend to a list of appropriate length the
                     # parameters that are currently not lists
                     if (v is not None) and (not isinstance(v,list)):
-                        out[k] = [v]*max_length
+                        init_values[k] = [v]*max_length
 
-        # now "out" contains x,u,w,d as lists of the same length if max_length > 1,
+        # now "init_values" contains x,u,w,d as lists of the same length if max_length > 1,
         # otherwise they are all vectors. Moreover, p,pf,y_lin are always vectors.
         # Note that any one of these variables may also be None if it was not passed.
 
         # under the "trajectory" linearization mode, we need y_lin to be a trajectory
-        if self.QP.options['linearization'] == 'trajectory':
+        if self.options['linearization'] == 'trajectory':
             
             # if adaptive mode is used, copy x and u to create y_lin
-            if (out['y_lin'] is None) or (out['y_lin']=='adaptive'):
+            if (init_values['y_lin'] is None) or (init_values['y_lin']=='adaptive'):
             
                 # if u was not passed return an error
-                if out['u'] is None:
+                if init_values['u'] is None:
                     raise Exception('Either pass an input or a linearization trajectory.')
                 
                 # check if y_lin should be a list or a single value
                 if max_length > 1:
-                    out['y_lin'] = [vertcat(repmat(out['x'][i],self.dim['N'],1),repmat(out['u'][i],self.dim['N'],1)) for i in range(max_length)]
+                    init_values['y_lin'] = [ca.vertcat(ca.repmat(init_values['x'][i],self.dim['N'],1),ca.repmat(init_values['u'][i],self.dim['N'],1)) for i in range(max_length)]
                 else:
-                    out['y_lin'] = vertcat(repmat(out['x'],self.dim['N'],1),repmat(out['u'],self.dim['N'],1))
+                    init_values['y_lin'] = ca.vertcat(ca.repmat(init_values['x'],self.dim['N'],1),ca.repmat(init_values['u'],self.dim['N'],1))
             
             # check if optimal mode is used
-            elif out['y_lin'] == 'optimal':
+            elif init_values['y_lin'] == 'optimal':
                 raise Exception('Optimal linearization trajectory not implemented yet.')
                 # TODO implement optimal linearization trajectory
             
             # last case is if y_lin was passed (either as a vector or as a list)
             else:
                 # if it was not a list, make it a list
-                if not isinstance(out['y_lin'],list):
-                    out['y_lin'] = [out['y_lin']] * max_length
+                if not isinstance(init_values['y_lin'],list):
+                    init_values['y_lin'] = [init_values['y_lin']] * max_length
 
         # under the "initial_state" linearization mode, we need y_lin to be a single input
-        if self.QP.options['linearization'] == 'initial_state':
+        if self.options['linearization'] == 'initial_state':
             
             # check if y_lin is not passed
-            if out['y_lin'] is None:
+            if init_values['y_lin'] is None:
                 
                 # if so, check if an input is passed
-                if out['u'] is None:
+                if init_values['u'] is None:
 
                     # if none is passed, raise an exception
                     raise Exception('Either pass an input or a linearization trajectory.')
                 
                 # set equal to input (note that input is already either a list or a vector)
-                out['y_lin'] = out['u']
+                init_values['y_lin'] = init_values['u']
                     
         # construct a dictionary to check the dimension. You need to concatenate horizontally
-        # any list within out and leave all vectors as they are
-        out_not_none = {k:v for k,v in out.items() if v is not None}
-        out_concat = {k:hcat(v) if isinstance(v,list) else v for k,v in out_not_none.items()}
-        _ = self.__checkInit(out_concat)
+        # any list within init_values and leave all vectors as they are
+        init_values_not_none = {k:v for k,v in init_values.items() if v is not None}
+
+        # init_values_concat = {k:ca.hcat(v) if isinstance(v,list) else v for k,v in init_values_not_none.items()}
+        # _ = self.__checkInit(init_values_concat)
 
         # initial condition
-        if out['x'] is None:
-            raise Exception('Initial state x is required to simulate the system.')
+        assert init_values['x'] is not None, 'Initial state x is required to simulate the system.'
         
-        if out['p'] is None and 'p' in self.param:
+        if 'p' in self.param and init_values['p'] is None:
             raise Exception('Parameters p are required to simulate the system.')
         
-        if out['pf'] is None and 'pf' in self.param:
+        if 'pf' in self.param and init_values['pf'] is None:
             raise Exception('Fixed parameters pf are required to simulate the system.')
         
-        if out['w'] is None and 'w' in self.param:
+        if 'w' in self.param and init_values['w'] is None:
             raise Exception('Noise w is required to simulate the system.')
         
-        if out['d'] is None and 'd' in self.param:
+        if 'd' in self.param and init_values['d'] is None:
             raise Exception('Model uncertainty d is required to simulate the system.')
 
         # extract variables
-        p = out['p']        # parameters
-        pf = out['pf']      # fixed parameters
-        w = out['w']        # noise
-        d = out['d']        # model uncertainty
-        y = out['y_lin']    # linearization trajectory
-        x = out['x']        # initial state
+        p = init_values['p']        # parameters
+        pf = init_values['pf']      # fixed parameters
+        w = init_values['w']        # noise
+        d = init_values['d']        # model uncertainty
+        y = init_values['y_lin']    # linearization trajectory
+        x = init_values['x']        # initial state
 
         return p,pf,w,d,y,x
 
-    def simulate(self,init={},options={}):
-
-        """
-        This function runs a single simulation of the closed-loop system and returns a list
-        S, out_dict, qp_failed
-
-            - S: simVar object containing the simulation results
-            - out_dict: dictionary containing debug information about the QP calls, possible keys
-                        could be 'qp_time', 'jac_time', 'qp_debug', 'qp_ingredients'
-            - qp_failed: boolean indicating whether the QP failed (and simulation was interrupted)
-
-        The function takes the following inputs:
-
-            - init: dictionary containing the initial conditions for the simulation. The dictionary
-                    can contain the following keys:
-
-                    - x: initial state of the system (required)
-                    - p: parameters of the system (required if p is a parameter)
-                    - pf: fixed parameters of the system (required if pf is a parameter)
-                    - w: noise of the system (required if w is a parameter)
-                    - d: model uncertainty of the system (required if d is a parameter)
-                    - y_lin: linearization trajectory of the system
-                
-                    Note that w should be passed either as single vector of dimension (n_w,1), which
-                    will be repeated for all time steps, as a matrix of dimension (n_w,T), where
-                    each column represents the noise at a given time step, or as a list of matrices
-                    of dimension (n_w,T), where each element of the list is the noise at each time 
-                    step for a given scenario.
-                    
-            - options: dictionary containing the following keys:
-
-                    - mode: 'optimize' (jacobians are computed) or 'simulate' (jacobians are not computed) 
-                            or 'dense' (dense mode is used and jacobians are not computed)
-                    - shift_linearization: True (default) if the input-state trajectory used for 
-                                           linearization should be shifted, False otherwise
-                    - 'warmstart_first_qp':True (default) if the first QP should be solved twice (with
-                                           propagation of the sensitivity)
-                    - 'debug_qp': False (default), or True if debug information about the QP should be stored
-                    - epsilon: perturbation magnitude used to compute finite difference derivatives of QP,
-                               default is 1e-6
-                    - roundoff_qp: number of digits below which QP derivative error is considered zero,
-                                   default is 10
-                    - 'compute_qp_ingredients':False (default), or True if QP ingredients should be saved
-                    - 'warmstart_shift': True (default) if the primal (or primal-dual) warmstart should be shifted
-        """
+    def simulate(self,init=None,options=None):
 
         # get initial parameters
-        p,pf,w,d,y,x = self.__getInitParameters(init)
+        p,pf,w,d,y,x = self._get_init_parameters(init)
 
         # simulate
-        S, out_dict, qp_failed = self.__simulate(p,pf,w,d,y,x,options)
+        s, out_dict, qp_failed = self._simulate(p,pf,w,d,y,x,options)
 
-        return S, out_dict, qp_failed
+        return s, out_dict, qp_failed
 
-    def __simulate(self,p,pf,w,d,y,x,options={}):
+    def _simulate(self,p,pf,w,d,y,x,options=None):
 
         """
         Low-level simulate function, unlike simulate, this needs the inputs to be passed separately (as

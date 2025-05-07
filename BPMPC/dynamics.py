@@ -290,7 +290,7 @@ class Dynamics:
         elif method == 'trajectory':
 
             # create symbolic variable for linearization trajectory
-            y_lin = ca.SX.sym('y_lin',(n_x+n_u)*N,1)
+            y_lin = ca.SX.sym('y_lin',(n_x+n_u)*horizon,1)
 
             # extract linearization input and state
             x_lin = y_lin[:horizon*n_x]

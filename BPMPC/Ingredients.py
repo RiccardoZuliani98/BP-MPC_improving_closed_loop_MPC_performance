@@ -28,11 +28,14 @@ class Ingredients:
     
     _ALL_DIMENSIONS = ['x','u','one','cst_x','eps','cst_u']
 
-    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'],'make_dense':bool}
+    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'],'make_dense':bool,'slack':bool}
     
-    _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'make_dense':True}
+    _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'make_dense':True, 'slack':False}
 
-    def __init__(self,N,dynamics,cost,constraints,options={}):
+    def __init__(self,N,dynamics,cost,constraints,options=None):
+
+        if options is None:
+            options = {}
 
         assert isinstance(dynamics,Dynamics), 'The system dynamics must be an instance of class Dynamics'
         assert isinstance(options,dict), 'Options must be passed as a dictionary'
@@ -48,7 +51,7 @@ class Ingredients:
         self._options.update(options)
 
         # check if user passed a special option for linearization
-        used_linearization_method = dynamics_copy._linearize(N=N,method=self._options['linearization'])
+        used_linearization_method = dynamics_copy._linearize(horizon=N,method=self._options['linearization'])
 
         # retrieve prediction model
         model = dynamics_copy.model

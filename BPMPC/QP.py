@@ -28,7 +28,7 @@ class QP:
         assert isinstance(ingredients,Ingredients), 'Ingredients must be of a class instance of type Ingredients'
 
         # create options
-        self._options = Options(self._OPTIONS_ALLOWED_VALUES,self._OPTIONS_DEFAULT_VALUES)
+        self._options = Options(self._OPTIONS_ALLOWED_VALUES,self._OPTIONS_DEFAULT_VALUES) + ingredients.options
 
         # add user-specified options
         self._options.update(options)

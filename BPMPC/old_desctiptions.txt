@@ -547,3 +547,66 @@ SCENARIO
             - S: simVar object containing the solution (note that only S.x, S.u, and S.cost are nonzero)
             - solved: boolean indicating whether the problem was solved successfully
         """
+
+    def __getInitParameters(self,init={}):
+
+        """
+        This function takes in a dictionary containing user-defined initial conditions
+        and returns the following quantities in a list: p,pf,w,d,y,x, where each quantity
+        is either a single DM vector or a list of DM vectors, depending on whether the
+        user passed a single vector or a list of vectors in init.
+
+        Note that w should be passed either as single vector of dimension (n_w,1), which
+        will be repeated for all time steps, as a matrix of dimension (n_w,T), where
+        each column represents the noise at a given time step, or as a list of matrices
+        of dimension (n_w,T), where each element of the list is the noise at each time
+        step for a given scenario.
+
+        Accepted keys in the dictionary are: p,pf,w,d,y_lin,x.
+        """
+
+    def simulate(self,init=None,options=None):
+
+        """
+        This function runs a single simulation of the closed-loop system and returns a list
+        S, out_dict, qp_failed
+
+            - S: simVar object containing the simulation results
+            - out_dict: dictionary containing debug information about the QP calls, possible keys
+                        could be 'qp_time', 'jac_time', 'qp_debug', 'qp_ingredients'
+            - qp_failed: boolean indicating whether the QP failed (and simulation was interrupted)
+
+        The function takes the following inputs:
+
+            - init: dictionary containing the initial conditions for the simulation. The dictionary
+                    can contain the following keys:
+
+                    - x: initial state of the system (required)
+                    - p: parameters of the system (required if p is a parameter)
+                    - pf: fixed parameters of the system (required if pf is a parameter)
+                    - w: noise of the system (required if w is a parameter)
+                    - d: model uncertainty of the system (required if d is a parameter)
+                    - y_lin: linearization trajectory of the system
+
+                    Note that w should be passed either as single vector of dimension (n_w,1), which
+                    will be repeated for all time steps, as a matrix of dimension (n_w,T), where
+                    each column represents the noise at a given time step, or as a list of matrices
+                    of dimension (n_w,T), where each element of the list is the noise at each time
+                    step for a given scenario.
+
+            - options: dictionary containing the following keys:
+
+                    - mode: 'optimize' (jacobians are computed) or 'simulate' (jacobians are not computed)
+                            or 'dense' (dense mode is used and jacobians are not computed)
+                    - shift_linearization: True (default) if the input-state trajectory used for
+                                           linearization should be shifted, False otherwise
+                    - 'warmstart_first_qp':True (default) if the first QP should be solved twice (with
+                                           propagation of the sensitivity)
+                    - 'debug_qp': False (default), or True if debug information about the QP should be stored
+                    - epsilon: perturbation magnitude used to compute finite difference derivatives of QP,
+                               default is 1e-6
+                    - roundoff_qp: number of digits below which QP derivative error is considered zero,
+                                   default is 10
+                    - 'compute_qp_ingredients':False (default), or True if QP ingredients should be saved
+                    - 'warmstart_shift': True (default) if the primal (or primal-dual) warmstart should be shifted
+        """

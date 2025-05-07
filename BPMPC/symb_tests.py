@@ -18,7 +18,7 @@ sym2.addVar('y',y,y0)
 
 sym1 += sym2
 
-print(sym1.getVar('y'))
+print(sym1.get_var('y'))
 print(sym1.var)
 
 

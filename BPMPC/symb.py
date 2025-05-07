@@ -1,4 +1,5 @@
 import casadi as ca
+from copy import copy
 
 """
 TODO:
@@ -33,19 +34,28 @@ class Symb:
         
             assert name in self._var, 'Cannot initialize variable that does not exist'
 
-            try:
-                value = ca.DM(value)
-            except:
-                raise Exception('Cannot convert init value to DM')
+            if isinstance(value,list):
 
-            assert self.var[name].shape == value.shape, 'Dimension of initialization does not match dimension of symbolic variable'
+                try:
+                    value = [ca.DM(item) for item in value]
+                except:
+                    raise Exception('Cannot convert init value to DM')
 
-            try:
-                self._init[name] = ca.DM(value)
-            except:
-                raise Exception('Provided type cannot be converted to DM')
+                assert all([self.var[name].shape == item.shape for item in value]), 'Dimension of initialization does not match dimension of symbolic variable'
+
+            else:
+
+                try:
+                    value = ca.DM(value)
+                except:
+                    raise Exception('Cannot convert init value to DM')
+
+                assert self.var[name].shape == value.shape, 'Dimension of initialization does not match dimension of symbolic variable'
+
+            # add to initialization
+            self._init[name] = ca.DM(value)
        
-    def getVar(self,name):
+    def get_var(self,name):
         return self.var[name],self.dim[name],self.init[name]
     
     def addVar(self,name,var,init=None):
@@ -68,10 +78,10 @@ class Symb:
 
     def __add__(self,other):
 
-        assert self.type is other.type, 'Type of addends must match'
+        assert isinstance(other,Symb), 'Type of addends must match'
 
         # create copy of class
-        self_copy = self.__class__(self.__typeString)
+        self_copy = copy(self)
 
         self_copy._dim = self.dim | other.dim
         self_copy._var = self.var | other.var
