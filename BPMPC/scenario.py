@@ -283,12 +283,12 @@ class Scenario:
             raise Exception('Model uncertainty d is required to simulate the system.')
 
         # extract variables
-        p = init_values['p']        # parameters
-        pf = init_values['pf']      # fixed parameters
-        w = init_values['w']        # noise
-        d = init_values['d']        # model uncertainty
-        y = init_values['y_lin']    # linearization trajectory
-        x = init_values['x']        # initial state
+        p = init_values['p'] if 'p' in init_values else None            # parameters
+        pf = init_values['pf'] if 'pf' in init_values else None         # fixed parameters
+        w = init_values['w'] if 'w' in init_values else None            # noise
+        d = init_values['d'] if 'd' in init_values else None            # model uncertainty
+        y = init_values['y_lin'] if 'y_lin' in init_values else None    # linearization trajectory
+        x = init_values['x']                                            # initial state
 
         return p,pf,w,d,y,x
 
@@ -306,17 +306,18 @@ class Scenario:
 
         """
         Low-level simulate function, unlike simulate, this needs the inputs to be passed separately (as
-        returned by __getInitParameters).
+        returned by _get_init_parameters).
         """
 
         # extract QP for simplicity
-        QP = self.QP
+        qp = self.qp
 
         # extract dimensions for simplicity
         n = self.dim
 
         # update options if provided
-        options = self.__default_options['simulate'] | options
+        if options is not None:
+            self._options.update(options)
 
         # check if w is None
         if w is None:
@@ -347,48 +348,48 @@ class Scenario:
         idx_jac = self.upper_level.idx['jac']
 
         # extract solver
-        if options['mode'] == 'dense':
+        if self._options['mode'] == 'dense':
 
             # if in dense mode, choose dense solver
-            solver = QP.denseSolve
+            solver = qp.denseSolve
         else:
 
             # otherwise, choose sparse solver
-            solver = QP.solve
+            solver = qp.solve
         
         # in optimize mode, initialize Jacobians
-        if options['mode'] == 'optimize':
+        if self._options['mode'] == 'optimize':
             # initialize Jacobians
-            J_x_p = DM(n['x'],n['p'])
-            J_y_p = DM(n['y'],n['p'])
-            S.setJx(0,J_x_p)
+            j_x_p = ca.DM(n['x'],n['p'])
+            j_y_p = ca.DM(n['y'],n['p'])
+            S.setJx(0,j_x_p)
             # S.setJy(0,J_y_p)
 
         # check if QP warmstart was passed
-        if options['warmstart_first_qp']:
+        if self._options['warmstart_first_qp']:
 
             # get qp parameter
             p_0 = idx_qp(x,y,p,pf,0)
 
             # run QP once to get better initialization
-            lam,mu,y_all = QP.solve(p_0)
+            lam,mu,y_all = qp.solve(p_0)
 
             # update y0
-            y0_x = y_all[QP.idx['out']['x'][:-n['x']]]
-            y0_u = y_all[QP.idx['out']['u']]
-            y = vertcat(self.init['x'],y0_x,y0_u)
+            y0_x = y_all[qp.idx['out']['x'][:-n['x']]]
+            y0_u = y_all[qp.idx['out']['u']]
+            y = ca.vertcat(self.init['x'],y0_x,y0_u)
 
-            if options['mode'] == 'optimize':
+            if self._options['mode'] == 'optimize':
 
-                # extract jacobian of QP variables
-                J_qp_p = QP.J_y_p(lam,mu,p_0,idx_jac(J_x_p,J_y_p,0))
+                # extract jacobian of qp variables
+                j_qp_p = qp.J_y_p(lam,mu,p_0,idx_jac(j_x_p,j_y_p,0))
 
                 # extract portion associated to y
-                J_y_p = J_qp_p[QP.idx['out']['y'],:]
+                j_y_p = j_qp_p[qp.idx['out']['y'],:]
 
                 # rearrange appropriately (note that the first entry of
                 # y is x0)
-                J_y_p = vertcat(J_x_p,J_y_p[QP.idx['out']['x'][:-n['x']],:],J_y_p[QP.idx['out']['u'],:])
+                j_y_p = ca.vertcat(j_x_p,j_y_p[qp.idx['out']['x'][:-n['x']],:],j_y_p[qp.idx['out']['u'],:])
         else:
             lam = None
             mu = None
@@ -401,12 +402,12 @@ class Scenario:
         total_jac_time = []
 
         # create list to store debug information
-        if options['debug_qp']:
-            QP_debug = []
+        if self._options['debug_qp']:
+            qp_debug = []
 
-        # create list to store QP ingredients
-        if options['compute_qp_ingredients']:
-            QP_ingredients = []
+        # create list to store qp ingredients
+        if self._options['compute_qp_ingredients']:
+            qp_ingredients = []
 
         # simulation loop
         for t in range(n['T']):
@@ -418,9 +419,9 @@ class Scenario:
             p_t = idx_qp(x,y_lin,p,pf,t)
 
             # check if warm start should be shifted
-            if options['warmstart_shift']:
+            if self._options['warmstart_shift']:
                 if t > 0:
-                    y_all = y_all[QP.idx['out']['y_shift']]
+                    y_all = y_all[qp.idx['out']['y_shift']]
 
             # solve QP
             try:
@@ -436,42 +437,42 @@ class Scenario:
                 break
 
             # if QP needs to be checked, compute full conservative Jacobian
-            if options['debug_qp']:
+            if self._options['debug_qp']:
 
                 # debug current QP
-                qp_debug_out = QP.debug(lam,mu,p_t,options['epsilon'],options['roundoff_qp'],y_all)
+                qp_debug_out = QP.debug(lam,mu,p_t,self._options['epsilon'],self._options['roundoff_qp'],y_all)
                 
                 # pack results
-                QP_debug.append(qp_debug_out)
+                qp_debug.append(qp_debug_out)
 
-            if options['compute_qp_ingredients']:
+            if self._options['compute_qp_ingredients']:
 
-                # compute QP ingredients
-                QP_ingredients.append(QP._qp__qp_sparse(p=p_t))
+                # compute qp ingredients
+                qp_ingredients.append(qp._qp_sparse(p=p_t))
 
             # store optimization variables
-            S.setOptVar(t,lam,mu,y_all[QP.idx['out']['y']],p_t)
+            S.setOptVar(t,lam,mu,y_all[qp.idx['out']['y']],p_t)
 
             # get next linearization trajectory
-            if options['shift_linearization']:
+            if self._options['shift_linearization']:
                 # shift input trajectory
-                x_qp = y_all[QP.idx['out']['x']]
-                u_qp = y_all[QP.idx['out']['u']]
-                y = vertcat(x_qp,u_qp[n['u']:],u_qp[-n['u']:])
+                x_qp = y_all[qp.idx['out']['x']]
+                u_qp = y_all[qp.idx['out']['u']]
+                y = ca.vertcat(x_qp,u_qp[n['u']:],u_qp[-n['u']:])
             else:
                 # do not shift
-                y = y_all[QP.idx['out']['y']]
+                y = y_all[qp.idx['out']['y']]
             
-            if 'eps' in QP.idx['out']:
+            if 'eps' in qp.idx['out']:
 
                 # get slack variables
-                e = y_all[QP.idx['out']['eps']]
+                e = y_all[qp.idx['out']['eps']]
 
                 # store slack
                 S.setSlack(t,e)
 
             # get first input entry
-            u = y_all[QP.idx['out']['u0']]
+            u = y_all[qp.idx['out']['u0']]
 
             # store input
             S.setInput(t,u)
@@ -480,41 +481,41 @@ class Scenario:
             var_in = [x,u,d,w[t]]
             var_in = [var for var in var_in if var is not None]
 
-            if options['mode'] == 'optimize':
+            if self._options['mode'] == 'optimize':
             
                 # count time for conservative Jacobians at this time-step
                 cons_jac_time = time.time()
 
                 # get conservative jacobian of optimal solution of QP with respect to parameter
                 # vector p.
-                J_qp_p = QP.J_y_p(lam,mu,p_t,idx_jac(J_x_p,J_y_p,t))
+                j_qp_p = qp.J_y_p(lam,mu,p_t,idx_jac(j_x_p,j_y_p,t))
 
                 # select entries associated to y
-                if options['shift_linearization']:
-                    J_x_qp_p = J_qp_p[QP.idx['out']['x'],:]
-                    J_u_qp_p = J_qp_p[QP.idx['out']['u'],:]
-                    J_y_p = vertcat(J_x_qp_p,J_u_qp_p[n['u']:,:],J_u_qp_p[-n['u']:,:])
+                if self._options['shift_linearization']:
+                    j_x_qp_p = j_qp_p[qp.idx['out']['x'],:]
+                    j_u_qp_p = j_qp_p[qp.idx['out']['u'],:]
+                    j_y_p = ca.vertcat(j_x_qp_p,j_u_qp_p[n['u']:,:],j_u_qp_p[-n['u']:,:])
                 else:
-                    J_y_p = J_qp_p[QP.idx['out']['y'],:]
+                    j_y_p = j_qp_p[qp.idx['out']['y'],:]
 
-                if 'eps' in QP.idx['out']:
+                if 'eps' in qp.idx['out']:
                     # select entries associated to slack variables and store them
-                    J_eps_p = J_qp_p[QP.idx['out']['eps'],:]
-                    S.setJeps(t,J_eps_p)
+                    j_eps_p = j_qp_p[qp.idx['out']['eps'],:]
+                    S.setJeps(t,j_eps_p)
 
                 # select rows corresponding to first input u0
-                J_u0_p = J_qp_p[QP.idx['out']['u0'],:]
+                j_u0_p = j_qp_p[qp.idx['out']['u0'],:]
 
                 # propagate jacobian of closed loop state x
-                J_x_p = A(*var_in)@J_x_p + B(*var_in)@J_u0_p
+                j_x_p = A(*var_in)@j_x_p + B(*var_in)@j_u0_p
 
                 # store in total cons jac time
                 total_jac_time.append(time.time() - cons_jac_time)
 
                 # store conservative jacobians of state and input
-                S.setJx(t+1,J_x_p)
-                S.setJu(t,J_u0_p)
-                S.setJy(t,J_y_p)
+                S.setJx(t+1,j_x_p)
+                S.setJu(t,j_u0_p)
+                S.setJy(t,j_y_p)
 
             # get next state
             x = f(*var_in)
@@ -525,11 +526,11 @@ class Scenario:
         # construct output dictionary
         out_dict = {'qp_time':total_qp_time,'jac_time':total_jac_time}
 
-        if options['debug_qp']:
-            out_dict = out_dict | {'qp_debug':QP_debug}
+        if self._options['debug_qp']:
+            out_dict = out_dict | {'qp_debug':qp_debug}
 
-        if options['compute_qp_ingredients']:
-            out_dict = out_dict | {'qp_ingredients':QP_ingredients}
+        if self._options['compute_qp_ingredients']:
+            out_dict = out_dict | {'qp_ingredients':qp_ingredients}
 
         return S, out_dict, qp_failed
 

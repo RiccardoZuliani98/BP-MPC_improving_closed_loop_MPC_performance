@@ -412,9 +412,9 @@ class Ingredients:
         
         # if a linearization trajectory is used, add entry to idx
         if self._options['linearization'] == 'trajectory':
-            idx['y_next'] = idx['y']
+            idx['y_next'] = lambda time: idx['y']
         elif self._options['linearization'] == 'initial_state':
-            idx['y_next'] = idx['u1']
+            idx['y_next'] = lambda time: idx['u1']
 
         return idx
 

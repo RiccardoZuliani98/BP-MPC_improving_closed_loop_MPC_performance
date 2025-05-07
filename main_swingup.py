@@ -154,11 +154,11 @@ scenario.set_init({'p':p_init,'x': x0,'u': u0, 'w': w0, 'd': d0})
 # simulate with initial parameter
 S,qp_data_sparse,_ = scenario.simulate()
 
-# # create plot but do not show
+# create plot but do not show
 # plotter.plotTrajectory(S,options={'x':[0,1,2,3],'x_legend':['Position untrained','Velocity untrained','Angle untrained','Angular velocity untrained'],'u':[0],'u_legend':['Force untrained'],'color':'blue'},show=False)
 
-# # test closed loop
-# SIM,time_sparse,p_final = mod.closedLoop(options={'max_k':5})
+# test closed loop
+SIM,time_sparse,p_final = scenario.closedLoop(options={'max_k':5})
 
 # # get last value of p
 # p_final = SIM[-1].p
