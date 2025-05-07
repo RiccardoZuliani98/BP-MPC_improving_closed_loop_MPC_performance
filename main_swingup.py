@@ -96,7 +96,7 @@ MPC = QP(ingredients=ing,p=p)
 T = 170
 
 # create upper level
-UL = UpperLevel(p=p,T=T,MPC=MPC)
+UL = UpperLevel(p=p,T=T,mpc=MPC)
 
 # extract linearized dynamics at the origin
 A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1))
@@ -120,7 +120,7 @@ _,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,T)
 cst_viol = ca.vcat([Hx@ca.vec(x_cl)-hx,Hu@ca.vec(u_cl)-hu])
 
 # store in upper-level
-UL.setCost(cost,track_cost,cst_viol)
+UL.set_cost(cost,track_cost,cst_viol)
 
 # create algorithm
 p = UL.param['p']
@@ -137,7 +137,7 @@ p_next = p -(rho*ca.log(k+2)/(k+2)**eta)*J_p
 # create update function
 UL.setAlg(p_next)
 
-# # test derivatives
+# test derivatives
 # # out = tests.derivatives(mod)
 
 

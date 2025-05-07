@@ -1,4 +1,4 @@
-from BPMPC.scenario import scenario
+from BPMPC.scenario import Scenario
 from casadi import *
 from BPMPC import utils
 

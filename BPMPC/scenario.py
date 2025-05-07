@@ -9,26 +9,18 @@ from numpy.random import randint
 """
 TODO:
 * descriptions
+* trajectory optimization should be a separate class!
+* 
 """
 
 class Scenario:
 
-    def __init__(self,MSX='SX'):
-
-        # check type of symbolic variables
-        if MSX == 'SX':
-            self.__MSX = SX
-        elif MSX == 'MX':
-            self.__MSX = MX
-        else:
-            raise Exception('MSX must be either SX or MX.')
-
+    def __init__(self,dyn:Dynamics,mpc:QP,ul:UpperLevel):
+        
         # initialize properties
-        self.__dim = {}
-        self.__dyn = dynamics(MSX)
-        self.__QP = QP(MSX)
-        self.__upperLevel = upperLevel(MSX)
-        self.__compTimes = {}
+        self._dyn = dyn
+        self._QP = mpc
+        self._upperLevel = ul
 
         # default options
         defaultClosedLoop = {'mode':'optimize','gd_type':'gd','figures':False,'random_sampling':False,'debug_qp':False,'compute_qp_ingredients':False,'verbosity':1,'max_k':200}
