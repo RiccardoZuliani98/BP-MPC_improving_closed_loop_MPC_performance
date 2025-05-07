@@ -25,7 +25,7 @@ class Symb:
         # return {key:val for key,val in self.init.items() if val is not None}
         return self._init
     
-    def setInit(self,data):
+    def set_init(self,data):
 
         assert isinstance(data,dict), 'Pass a dictionary to initialize variables'
 

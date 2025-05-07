@@ -1,3 +1,5 @@
+from copy import copy
+
 """
 TODO:
 * add descriptions
@@ -6,12 +8,29 @@ TODO:
 
 class Options:
 
-    def __init__(self,allowed_options,default_options={}):
+    def __init__(self,allowed_options,default_options=None):
+
+        if default_options is None:
+            default_options = {}
 
         assert isinstance(allowed_options,dict), 'Allowed options must be a dictionary'
 
         self._allowed_options = allowed_options
         self.update(default_options)
+
+    def __add__(self,other):
+
+        assert isinstance(other,Options), 'You can only sum two options objects'
+
+        # create a copy of the current Object
+        out = copy(self)
+
+        # add other object
+        out._allowed_options = out._allowed_options | other._allowed_options
+        out.update(other)
+
+        return out
+
     
     def __getitem__(self, key):
         # Allow dictionary-like access: obj['key']
@@ -35,7 +54,7 @@ class Options:
 
     def update(self,dict_in):
 
-        assert isinstance(dict_in,dict), 'A dictionary must be passed to update options'
+        assert isinstance(dict_in,(dict,Options)), 'A dictionary or another Options class must be passed to update options'
 
         for key,val in dict_in.items():
 

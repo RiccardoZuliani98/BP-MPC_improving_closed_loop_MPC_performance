@@ -18,7 +18,7 @@ class UpperLevel:
     def __init__(
             self,
             p: ca.SX,
-            T: int,
+            horizon: int,
             mpc: QP,
             pf: Optional[ca.SX] = None,
             idx_p: Optional[Callable[[int], Union[range, np.ndarray]]] = None,
@@ -29,7 +29,7 @@ class UpperLevel:
         self._sym = Symb()
             
         # add to dimensions
-        self._sym.addDim('T',T)
+        self._sym.addDim('T',horizon)
 
         # add p to set of symbolic variables
         self._sym.addVar('p',p)
@@ -41,11 +41,11 @@ class UpperLevel:
         self._sym.addVar('k',ca.SX.sym('k',1,1))
 
         # save all symbolic variables
-        self._sym.addVar('x_cl',ca.SX.sym('x_cl',mpc.dim['x'],T+1))
-        self._sym.addVar('u_cl',ca.SX.sym('u_cl',mpc.dim['u'],T))
-        self._sym.addVar('y_cl',ca.SX.sym('y_cl',mpc.dim['y'],T))
+        self._sym.addVar('x_cl',ca.SX.sym('x_cl',mpc.dim['x'],horizon+1))
+        self._sym.addVar('u_cl',ca.SX.sym('u_cl',mpc.dim['u'],horizon))
+        self._sym.addVar('y_cl',ca.SX.sym('y_cl',mpc.dim['y'],horizon))
         if 'eps' in mpc.dim:
-            self._sym.addVar('e_cl',ca.SX.sym('e_cl',mpc.dim['eps'],T))
+            self._sym.addVar('e_cl',ca.SX.sym('e_cl',mpc.dim['eps'],horizon))
 
         # if idx_p was not passed, assume p if time-invariant
         if idx_p is None:
@@ -55,7 +55,7 @@ class UpperLevel:
         n_p_qp_t = mpc.param['p_t'].shape[0]
 
         # check that idx_p returns the correct dimension
-        assert all([self.param['p'][idx_p(t)].shape[0] == n_p_qp_t for t in range(T)]), 'Indexing function idx_p does not return the correct dimension.'
+        assert all([self.param['p'][idx_p(t)].shape[0] == n_p_qp_t for t in range(horizon)]), 'Indexing function idx_p does not return the correct dimension.'
         
         # store in upperLevel
         self._idx = {'p':idx_p}
@@ -80,7 +80,7 @@ class UpperLevel:
                 n_pf_qp_t = mpc.param['pf_t'].shape[0]
 
                 # check that idx_p returns the correct dimension
-                assert all([self.param['pf'][idx_pf(t)].shape[0] == n_pf_qp_t for t in range(T)]), 'Indexing function idx_pf does not return the correct dimension.'
+                assert all([self.param['pf'][idx_pf(t)].shape[0] == n_pf_qp_t for t in range(horizon)]), 'Indexing function idx_pf does not return the correct dimension.'
 
         # flag saying that a linearization trajectory is needed
         y_idx = False
@@ -379,6 +379,13 @@ class UpperLevel:
     @property
     def dim(self):
         return self._sym.dim
+
+    @property
+    def init(self):
+        return {key: val for key, val in self._sym.init.items() if val is not None}
+
+    def _set_init(self, data):
+        self._sym.set_init(data)
     
     # # overwrite the __dir__ method
     # def __dir__(self):

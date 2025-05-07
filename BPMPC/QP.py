@@ -19,7 +19,11 @@ class QP:
     # default values of options dictionary
     _OPTIONS_DEFAULT_VALUES = {'solver':'qpoases','warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,'compile_qp_sparse':False,'compile_jac':False,}
 
-    def __init__(self,ingredients,p=None,pf=None,options={}):
+    def __init__(self,ingredients,p=None,pf=None,options=None):
+
+        # check if options is not passed
+        if options is None:
+            options = {}
 
         assert isinstance(ingredients,Ingredients), 'Ingredients must be of a class instance of type Ingredients'
 
@@ -480,10 +484,10 @@ class QP:
     
     @property
     def init(self):
-        return {k:v for k,v in self._init.items()}
+        return {key:val for key,val in self._sym.init.items() if val is not None}
     
-    def _setInit(self, value):
-        self._init = self._init | self._checkInit(value)
+    def _set_init(self, data):
+        self._sym.set_init(data)
 
     def debug(self,lam,mu,p_t,epsilon=1e-6,roundoff=10,y_all=None):
 

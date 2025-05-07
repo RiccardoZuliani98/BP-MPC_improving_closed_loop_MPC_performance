@@ -526,3 +526,24 @@ SCENARIO
 
         # create QP
         self.makeQP(G,g,F,f,Q,Qinv,q,idx,y_lin,denseQP,p,pf,options)
+
+SCENARIO
+
+    def make_trajectory_opt(self):
+
+        """
+        This function creates a (possibly nonlinear) trajectory optimization solver for the full
+        upper-level problem. The solver uses the tracking cost and the constraint violation of the
+        upper-level combined with the nominal (possibly nonlinear) dynamics.
+
+        This function returns a solver that takes the following inputs
+
+            - x0: initial condition (n_x,1)
+            - x_init: state trajectory warm start (n_x,T+1)
+            - u_init: input trajectory warm start (n_u,T)
+
+        and returns the following outputs
+
+            - S: simVar object containing the solution (note that only S.x, S.u, and S.cost are nonzero)
+            - solved: boolean indicating whether the problem was solved successfully
+        """

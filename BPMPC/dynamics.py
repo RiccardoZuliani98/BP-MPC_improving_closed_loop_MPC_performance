@@ -203,10 +203,10 @@ class Dynamics:
     def init(self):
         return {key:val for key,val in self._sym.init.items() if val is not None}
     
-    def setInit(self,data):
-        self._sym.setInit(data)
+    def _set_init(self,data):
+        self._sym.set_init(data)
 
-    def _linearize(self,N,method='trajectory'):
+    def _linearize(self,horizon,method='trajectory'):
 
         """
         This function constructs the prediction model for the MPC problem. There are multiple options:
@@ -228,7 +228,7 @@ class Dynamics:
 
         The inputs are
 
-            * N: horizon of the MPC
+            * horizon: horizon of the MPC
 
             * linearization: type of chosen linearization (default is 'trajectory')
 
@@ -259,9 +259,9 @@ class Dynamics:
             c_mat = -(list(fd(param_nom).values())[0] - A_mat@x - B_mat@u)
 
             # stack in list
-            A_list = [A_mat] * N
-            B_list = [B_mat] * N
-            c_list = [c_mat] * N
+            A_list = [A_mat] * horizon
+            B_list = [B_mat] * horizon
+            c_list = [c_mat] * horizon
 
         # if mode is 'initial_state', linearize around the initial state
         elif method == 'initial_state':
@@ -279,9 +279,9 @@ class Dynamics:
             c_lin = - ( list(fd(param_nom).values())[0] - A_lin@x - B_lin@u_lin )
 
             # stack in list
-            A_list = [A_lin] * N
-            B_list = [B_lin] * N
-            c_list = [c_lin] * N
+            A_list = [A_lin] * horizon
+            B_list = [B_lin] * horizon
+            c_list = [c_lin] * horizon
 
             # store y_lin
             self._sym.addVar('y_lin', y_lin)
@@ -293,8 +293,8 @@ class Dynamics:
             y_lin = ca.SX.sym('y_lin',(n_x+n_u)*N,1)
 
             # extract linearization input and state
-            x_lin = y_lin[:N*n_x]
-            u_lin = y_lin[N*n_x:]
+            x_lin = y_lin[:horizon*n_x]
+            u_lin = y_lin[horizon*n_x:]
 
             # preallocate matrices
             A_list, B_list, c_list = [], [], []
@@ -325,6 +325,9 @@ class Dynamics:
 
             # store y_lin
             self._sym.addVar('y_lin', y_lin)
+
+        else:
+            raise Exception('unknown linearization method')
 
         # store output dictionary
         self._model = {'A':A_list, 'B':B_list, 'c':c_list}

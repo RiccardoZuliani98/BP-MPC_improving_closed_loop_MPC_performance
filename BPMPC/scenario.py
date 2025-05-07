@@ -1,10 +1,12 @@
 from casadi import *
 from BPMPC.dynamics import Dynamics
 from BPMPC.QP import QP
-from BPMPC.upperLevel import UpperLevel
+from BPMPC.UpperLevel import UpperLevel
 from BPMPC.simVar import simVar
 import time
 from numpy.random import randint
+from typeguard import typechecked
+from BPMPC.options import Options
 
 """
 TODO:
@@ -15,101 +17,69 @@ TODO:
 
 class Scenario:
 
+    _OPTIONS_ALLOWED_VALUES = {'shift_linearization': bool, 'warmstart_first_qp': bool, 'warmstart_shift': bool,
+                               'epsilon': float, 'roundoff_qp': int, 'mode': ['optimize', 'simulate'],
+                               'gd_type': ['gd', 'sgd'], 'figures': bool, 'random_sampling': bool, 'debug_qp': bool,
+                               'compute_qp_ingredients': bool, 'verbosity': [0, 1, 2], 'max_k': int}
+
+    _OPTIONS_DEFAULT_VALUES = {'shift_linearization': True, 'warmstart_first_qp': True, 'warmstart_shift': True,
+                               'epsilon': 1e-6, 'roundoff_qp': 10, 'mode': 'optimize', 'gd_type': 'gd',
+                               'figures': False, 'random_sampling': False, 'debug_qp': False,
+                               'compute_qp_ingredients': False, 'verbosity': 1, 'max_k': 200}
+
+    @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,ul:UpperLevel):
         
         # initialize properties
         self._dyn = dyn
-        self._QP = mpc
-        self._upperLevel = ul
+        self._qp = mpc
+        self._upper_level = ul
 
-        # default options
-        defaultClosedLoop = {'mode':'optimize','gd_type':'gd','figures':False,'random_sampling':False,'debug_qp':False,'compute_qp_ingredients':False,'verbosity':1,'max_k':200}
-        defaultSimulate = {'mode':'optimize','shift_linearization':True,'warmstart_first_qp':True,'debug_qp':False,'compute_qp_ingredients':False,'warmstart_shift':True,'epsilon':1e-6,'roundoff_qp':10}
-        self.__default_options = {'closedLoop':defaultClosedLoop,'simulate':defaultSimulate}
-
-        pass
+        # create options
+        self._options = self._qp.options + Options(self._OPTIONS_ALLOWED_VALUES,self._OPTIONS_DEFAULT_VALUES)
 
     @property
-    def compTimes(self):
-        return self.__compTimes
+    def _sym(self):
+        return self._dyn._sym + self._qp._sym + self._upper_level._sym
     
     @property
     def dim(self):
-        return self.__dim
-    
-    def __addDim(self, dim):
-        self.__dim = self.__dim | dim
+        return self._sym.dim
 
     @property
     def options(self):
-        return self.QP.options | self.upperLevel.options
+        return self._options
 
     @property
     def param(self):
-        return self.dyn.param | self.QP.param | self.upperLevel.param
+        return self._sym.var
 
     @property
     def init(self):
-        return self.dyn.init | self.QP.init | self.upperLevel.init
+        return self._sym.init
     
-    def setInit(self, init):
-
-        # set initial values
-        self.dyn._dynamics__setInit(init)
-        self.QP._QP__setInit(init)
-        self.upperLevel._upperLevel__setInit(init)
-
-    def __checkInit(self,value):
-
-        # preallocate output dictionary
-        out = {}
-
-        # call check init functions of subclasses
-        out = out | self.dyn._dynamics__checkInit(value)
-        out = out | self.QP._QP__checkInit(value)
-        out = out | self.upperLevel._upperLevel__checkInit(value)
-
-        return out
+    def set_init(self, init):
+        self._sym.set_init(init)
 
     @property
     def dyn(self):
-        return self.__dyn
+        return self._dyn
 
     @property
-    def QP(self):
-        return self.__QP
+    def qp(self):
+        return self._qp
 
     @property
-    def upperLevel(self):
-        return self.__upperLevel
-    
-
-
+    def upper_level(self):
+        return self._upper_level
 
     ### NONLINEAR SOLVER FOR TRAJECTORY OPT PROBLEM ---------------------------
 
     @property
-    def trajectoryOpt(self):
-        return self.__trajectoryOpt
+    def trajectory_opt(self):
+        return self._trajectory_opt
     
-    def makeTrajectoryOpt(self):
-
-        """
-        This function creates a (possibly nonlinear) trajectory optimization solver for the full
-        upper-level problem. The solver uses the tracking cost and the constraint violation of the
-        upper-level combined with the nominal (possibly nonlinear) dynamics.
-
-        This function returns a solver that takes the following inputs
-
-            - x0: initial condition (n_x,1)
-            - x_init: state trajectory warmstart (n_x,T+1)
-            - u_init: input trajectory warmstart (n_u,T)
-
-        and returns the following outputs
-
-            - S: simVar object containing the solution (note that only S.x, S.u, and S.cost are nonzero)
-            - solved: boolean indicating whether the problem was solved successfully
-        """
+    def make_trajectory_opt(self):
   
         # extract system dynamics
         f = self.dyn.f_nom
@@ -144,7 +114,7 @@ class Scenario:
         S._simVar__u = u
 
         # now get cost as a symbolic function of x and u
-        _,cost,cst = self.upperLevel._upperLevel__cost(S)
+        _,cost,cst = self.upper_level._upper_level__cost(S)
         
         # set constraints
         opti.subject_to(cst <= 0)
@@ -427,8 +397,8 @@ class Scenario:
         S.setState(0,x)
 
         # extract parameter indexing
-        idx_qp = self.upperLevel.idx['qp']
-        idx_jac = self.upperLevel.idx['jac']
+        idx_qp = self.upper_level.idx['qp']
+        idx_jac = self.upper_level.idx['jac']
 
         # extract solver
         if options['mode'] == 'dense':
@@ -465,10 +435,10 @@ class Scenario:
             if options['mode'] == 'optimize':
 
                 # extract jacobian of QP variables
-                J_QP_p = QP.J_y_p(lam,mu,p_0,idx_jac(J_x_p,J_y_p,0))
+                J_qp_p = QP.J_y_p(lam,mu,p_0,idx_jac(J_x_p,J_y_p,0))
 
                 # extract portion associated to y
-                J_y_p = J_QP_p[QP.idx['out']['y'],:]
+                J_y_p = J_qp_p[QP.idx['out']['y'],:]
 
                 # rearrange appropriately (note that the first entry of
                 # y is x0)
@@ -523,7 +493,7 @@ class Scenario:
             if options['debug_qp']:
 
                 # debug current QP
-                qp_debug_out = QP.debug(lam,mu,p_t,options['epsilon'],options['roundoff_QP'],y_all)
+                qp_debug_out = QP.debug(lam,mu,p_t,options['epsilon'],options['roundoff_qp'],y_all)
                 
                 # pack results
                 QP_debug.append(qp_debug_out)
@@ -531,7 +501,7 @@ class Scenario:
             if options['compute_qp_ingredients']:
 
                 # compute QP ingredients
-                QP_ingredients.append(QP._QP__qp_sparse(p=p_t))
+                QP_ingredients.append(QP._qp__qp_sparse(p=p_t))
 
             # store optimization variables
             S.setOptVar(t,lam,mu,y_all[QP.idx['out']['y']],p_t)
@@ -571,23 +541,23 @@ class Scenario:
 
                 # get conservative jacobian of optimal solution of QP with respect to parameter
                 # vector p.
-                J_QP_p = QP.J_y_p(lam,mu,p_t,idx_jac(J_x_p,J_y_p,t))
+                J_qp_p = QP.J_y_p(lam,mu,p_t,idx_jac(J_x_p,J_y_p,t))
 
                 # select entries associated to y
                 if options['shift_linearization']:
-                    J_x_qp_p = J_QP_p[QP.idx['out']['x'],:]
-                    J_u_qp_p = J_QP_p[QP.idx['out']['u'],:]
+                    J_x_qp_p = J_qp_p[QP.idx['out']['x'],:]
+                    J_u_qp_p = J_qp_p[QP.idx['out']['u'],:]
                     J_y_p = vertcat(J_x_qp_p,J_u_qp_p[n['u']:,:],J_u_qp_p[-n['u']:,:])
                 else:
-                    J_y_p = J_QP_p[QP.idx['out']['y'],:]
+                    J_y_p = J_qp_p[QP.idx['out']['y'],:]
 
                 if 'eps' in QP.idx['out']:
                     # select entries associated to slack variables and store them
-                    J_eps_p = J_QP_p[QP.idx['out']['eps'],:]
+                    J_eps_p = J_qp_p[QP.idx['out']['eps'],:]
                     S.setJeps(t,J_eps_p)
 
                 # select rows corresponding to first input u0
-                J_u0_p = J_QP_p[QP.idx['out']['u0'],:]
+                J_u0_p = J_qp_p[QP.idx['out']['u0'],:]
 
                 # propagate jacobian of closed loop state x
                 J_x_p = A(*var_in)@J_x_p + B(*var_in)@J_u0_p
@@ -688,15 +658,15 @@ class Scenario:
         max_k = options['max_k'] * batch_size
 
         # extract cost function
-        cost_f = self.upperLevel.cost
+        cost_f = self.upper_level.cost
 
         # extract gradient of cost function
-        J_cost_f = self.upperLevel.J_cost
+        J_cost_f = self.upper_level.J_cost
 
         if options['mode'] == 'optimize':
 
             # extract parameter update law
-            alg = self.upperLevel.alg
+            alg = self.upper_level.alg
             p_next = alg['p_next']
             psi_next = alg['psi_next']
             psi_init = alg['psi_init']

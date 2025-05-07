@@ -3,3 +3,4 @@
 *.so
 *.pyc
 BPMPC/__pycache__/
+.idea

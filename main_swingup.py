@@ -7,7 +7,7 @@ import BPMPC.tests as tests
 import Examples.cart_pend as cart_pend
 import casadi as ca
 from BPMPC.plotter import plotter
-from BPMPC.upperLevel import UpperLevel
+from BPMPC.UpperLevel import UpperLevel
 
 # cleanup jit files
 utils.cleanup()
@@ -135,7 +135,7 @@ eta = 0.51
 p_next = p -(rho*ca.log(k+2)/(k+2)**eta)*J_p
 
 # create update function
-UL.setAlg(p_next)
+UL.set_alg(p_next)
 
 # test derivatives
 # # out = tests.derivatives(mod)
@@ -143,13 +143,13 @@ UL.setAlg(p_next)
 
 ### CREATE SCENARIO -----------------------------------------------------------
 
-scen = Scenario(dyn,MPC,UL)
+scenario = Scenario(dyn,MPC,UL)
 
 # initialize
-scen.setInit({'p':p_init,'x': x0})
+scenario.setInit({'p':p_init,'x': x0})
 
 # simulate with initial parameter
-S,qp_data_sparse,_ = scen.simulate()
+S,qp_data_sparse,_ = scenario.simulate()
 
 # # create plot but do not show
 # plotter.plotTrajectory(S,options={'x':[0,1,2,3],'x_legend':['Position untrained','Velocity untrained','Angle untrained','Angular velocity untrained'],'u':[0],'u_legend':['Force untrained'],'color':'blue'},show=False)
