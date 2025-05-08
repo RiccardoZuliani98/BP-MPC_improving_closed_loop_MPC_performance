@@ -197,5 +197,5 @@ SIM_dense,time_dense,p_final = scenario.closed_loop(init={'p':p_final},options={
 
 # printout
 max_time = np.max(time_dense['qp'])
-mean_time = np.mean(DM(time_dense['qp']))
+mean_time = np.mean(ca.DM(time_dense['qp']))
 print(f'Max qp time (sparse): {max_time}, mean qp time (sparse): {mean_time}')

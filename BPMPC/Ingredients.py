@@ -331,8 +331,19 @@ class Ingredients:
         c_t = -ca.vcat(c_list)
         g_c = G_c@c_t
 
-        # create dictionary
-        return {'G_x':G_x,'G_u':G_u,'g_c':g_c}
+        # create output dictionary
+        out = {'G_x':G_x,'G_u':G_u,'g_c':g_c,
+               'Hx':matrixify(processed_data['Hx']),'hx':ca.vcat(processed_data['hx']),
+               'Hu':matrixify(processed_data['Hu']),'hu':ca.vcat(processed_data['hu']),
+               'Qx':matrixify(processed_data['Qx']),'Ru':matrixify(processed_data['Ru'])}
+
+        # add references if present
+        if 'x_ref' in processed_data:
+            out = out | {'x_ref':ca.vcat(processed_data['x_ref'])}
+        if 'u_ref' in processed_data:
+            out = out | {'u_ref': ca.vcat(processed_data['u_ref'])}
+
+        return out
 
     def _makeDualQP(self):
 

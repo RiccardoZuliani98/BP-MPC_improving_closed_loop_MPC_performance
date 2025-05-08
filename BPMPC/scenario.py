@@ -362,7 +362,7 @@ class Scenario:
         if self._options['mode'] == 'dense':
 
             # if in dense mode, choose dense solver
-            solver = qp.denseSolve
+            solver = qp._dense_solve
         else:
 
             # otherwise, choose sparse solver

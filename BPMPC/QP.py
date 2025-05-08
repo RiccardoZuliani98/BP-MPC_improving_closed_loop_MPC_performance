@@ -3,6 +3,7 @@ import time
 from BPMPC.Ingredients import Ingredients
 from BPMPC.options import Options
 import numpy as np
+from copy import copy
 
 """
 TODO
@@ -249,7 +250,7 @@ class QP:
         self._compTimes['QP_dense_func'] = time.time()-start
 
         # get p_qp_full parameter
-        p_qp_full = self.param['p_qp_full'].copy()
+        p_qp_full = copy(self.param['p_qp_full'])
 
         # get symbolic value of p
         p_symb = self.param['p_t']
@@ -258,17 +259,20 @@ class QP:
         p_qp_full = ca.substitute(p_qp_full,p_symb,p)
 
         # get data from qp_dense function
-        G_x,G_u,g_c,Qx,Ru,x_ref,u_ref,Hx,Hu,hx,hu = QP_dense_func(p_qp_full)
+        ingredients = QP_dense_func(p=p_qp_full)
+
+        # get ingredients
+        G_x = ingredients['G_x']
+        G_u = ingredients['G_u']
+        g_c = ingredients['g_c']
 
         # turn to DM
-        Qx = ca.DM(Qx)
-        Ru = ca.DM(Ru)
-        x_ref = ca.DM(x_ref)
-        u_ref = ca.DM(u_ref)
-        Hx = ca.DM(Hx)
-        Hu = ca.DM(Hu)
-        hx = ca.DM(hx)
-        hu = ca.DM(hu)
+        Qx = ca.DM(ingredients['Qx'])
+        Ru = ca.DM(ingredients['Ru'])
+        Hx = ca.DM(ingredients['Hx'])
+        Hu = ca.DM(ingredients['Hu'])
+        hx = ca.DM(ingredients['hx'])
+        hu = ca.DM(ingredients['hu'])
 
         # get initial state
         x = self.param['x']
@@ -278,7 +282,14 @@ class QP:
 
         # create cost
         Q = G_u.T@Qx@G_u + Ru
-        q = G_u.T@Qx@(x_prop - x_ref) - Ru@u_ref
+        if 'x_ref' in ingredients:
+            x_ref = ca.DM(ingredients['x_ref'])
+            q = G_u.T @ Qx @ (x_prop - x_ref)
+        else:
+            q = G_u.T @ Qx @ x_prop
+        if 'u_ref' in ingredients:
+            u_ref = ca.DM(ingredients['u_ref'])
+            q = q - Ru@u_ref
 
         # create inequality constraint matrices
         G = ca.vertcat(Hx@G_u,Hu)
@@ -291,7 +302,7 @@ class QP:
 
         # re-create function
         start = time.time()
-        QP_func = ca.Function('QP_dense',[ca.vcat(self.param['p_qp'])],out_list_symbolic,['p'],out_list_symbolic_names,options)
+        QP_func = ca.Function('QP_dense',[self.param['p_qp']],out_list_symbolic,['p'],out_list_symbolic_names,options)
         comp_time_dict = {'QP_dense':time.time()-start}
 
         # implement QP using conic interface to retrieve multipliers
