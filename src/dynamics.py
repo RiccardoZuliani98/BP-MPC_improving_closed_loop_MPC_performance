@@ -1,6 +1,6 @@
 import casadi as ca
 import time
-from BPMPC.symb import Symb
+from src.symb import Symb
 
 """
 TODO:

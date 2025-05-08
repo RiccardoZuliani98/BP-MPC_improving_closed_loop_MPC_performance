@@ -1,9 +1,9 @@
 import casadi as ca
-from BPMPC.utils import matrixify
-from BPMPC.dynamics import Dynamics
+from src.utils import matrixify
+from src.dynamics import Dynamics
 from copy import copy
 import numpy as np
-from BPMPC.options import Options
+from src.options import Options
 
 """
 TODO:

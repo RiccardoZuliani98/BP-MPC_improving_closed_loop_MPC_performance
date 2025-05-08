@@ -1,8 +1,8 @@
 import casadi as ca
-from BPMPC.QP import QP
+from src.qp import QP
 from typing import Callable, Union, Optional
 import numpy as np
-from BPMPC.symb import Symb
+from src.symb import Symb
 from typeguard import typechecked
 
 """

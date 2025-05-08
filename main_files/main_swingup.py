@@ -1,14 +1,21 @@
-from BPMPC.scenario import Scenario
-from BPMPC.dynamics import Dynamics
-from BPMPC.QP import QP
-from BPMPC.Ingredients import Ingredients
-import BPMPC.utils as utils
-import BPMPC.tests as tests
-import Examples.cart_pend_theta as cart_pend
+import sys
+import os
+
+# add root to python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.scenario import Scenario
+from src.dynamics import Dynamics
+from src.qp import QP
+from src.Ingredients import Ingredients
+import src.utils as utils
+# import tests.tests as tests
+import dynamics_examples.cart_pend_theta as cart_pend
 import casadi as ca
-from BPMPC.plotter import Plotter
-from BPMPC.UpperLevel import UpperLevel
+from src.plotter import Plotter
+from src.upper_level import UpperLevel
 import numpy as np
+
 
 # cleanup jit files
 utils.cleanup()

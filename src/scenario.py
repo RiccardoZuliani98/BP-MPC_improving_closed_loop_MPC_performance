@@ -1,13 +1,13 @@
 import casadi as ca
-from BPMPC.dynamics import Dynamics
-from BPMPC.QP import QP
-from BPMPC.UpperLevel import UpperLevel
-from BPMPC.simVar import simVar
+from src.dynamics import Dynamics
+from src.qp import QP
+from src.upper_level import UpperLevel
+from src.simVar import simVar
 import time
 from numpy.random import randint
 from typeguard import typechecked
-from BPMPC.options import Options
-from BPMPC.symb import Symb
+from src.options import Options
+from src.symb import Symb
 
 """
 TODO:
