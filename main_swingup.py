@@ -4,7 +4,7 @@ from BPMPC.QP import QP
 from BPMPC.Ingredients import Ingredients
 import BPMPC.utils as utils
 import BPMPC.tests as tests
-import Examples.cart_pend as cart_pend
+import Examples.cart_pend_theta as cart_pend
 import casadi as ca
 from BPMPC.plotter import Plotter
 from BPMPC.UpperLevel import UpperLevel
@@ -24,6 +24,9 @@ compile_jac = False
 
 # create dictionary with parameters of cart pendulum
 dyn_dict = cart_pend.dynamics(dt=0.015)
+
+# model uncertainty parameter
+theta = dyn_dict['theta']
 
 # create dynamics object
 dyn = Dynamics(dyn_dict)
@@ -65,7 +68,7 @@ Ru = c_r**2 + 1e-6
 
 # create parameter
 p = ca.vcat([c_q,c_r])
-# p,pf = c_q,c_r
+pf = theta
 
 # MPC terminal cost
 Qn = utils.param2terminalCost(c_q) + 0.01*ca.SX.eye(n_x)
@@ -90,8 +93,8 @@ cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 ing = Ingredients(N=N,dynamics=dyn,cost=cost,constraints=cst)
 
 # create MPC
-MPC = QP(ingredients=ing,p=p)
-# MPC = QP(ingredients=ing,p=p,pf=pf)
+# MPC = QP(ingredients=ing,p=p)
+MPC = QP(ingredients=ing,p=p,pf=pf)
 
 
 ### UPPER LEVEL -----------------------------------------------------------
@@ -100,11 +103,11 @@ MPC = QP(ingredients=ing,p=p)
 T = 170
 
 # create upper level
-UL = UpperLevel(p=p,horizon=T,mpc=MPC)
+UL = UpperLevel(p=p,pf=pf,horizon=T,mpc=MPC)
 
 # extract linearized dynamics at the origin
-A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1))
-B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1))
+A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1),ca.DM(n_d,1))
+B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1),ca.DM(n_d,1))
 
 # compute terminal cost initialization
 p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
@@ -150,7 +153,7 @@ UL.set_alg(p_next)
 scenario = Scenario(dyn,MPC,UL)
 
 # initialize
-scenario.set_init({'p':p_init,'x': x0,'u': u0, 'w': w0, 'd': d0})
+scenario.set_init({'p':p_init,'pf':ca.DM(n_d,1),'x': x0,'u': u0, 'w': w0, 'd': d0})
 
 # simulate with initial parameter
 S,qp_data_sparse,_ = scenario.simulate()
@@ -168,7 +171,7 @@ p_final = SIM[-1].p
 Plotter.plotTrajectory(SIM[-1],options={'x':[0,1,2,3],'x_legend':['Position tuned','Velocity tuned','Angle tuned','Angular velocity tuned'],'u':[0],'u_legend':['Force tuned'],'color':'red'},show=False)
 
 # create nonlinear solver
-NLP = scenario.make_trajectory_opt()
+NLP = scenario.make_trajectory_opt(theta=ca.DM(n_d,1))
 
 # create warm start trajectories
 x_warm = SIM[-1].x_mat

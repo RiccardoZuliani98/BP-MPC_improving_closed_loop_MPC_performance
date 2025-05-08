@@ -13,7 +13,6 @@ from BPMPC.symb import Symb
 TODO:
 * descriptions
 * trajectory optimization should be a separate class!
-* for now symb does not allow to have lists as init, should I change that?
 """
 
 class Scenario:
@@ -93,10 +92,13 @@ class Scenario:
     def trajectory_opt(self):
         return self._trajectory_opt
     
-    def make_trajectory_opt(self):
+    def make_trajectory_opt(self,theta=None):
   
         # extract system dynamics
-        f = self.dyn.f_nom
+        if theta is not None:
+            f = lambda state,input: self.dyn.f_nom(state,input,theta)
+        else:
+            f = self.dyn.f_nom
 
         # extract dimensions
         n = self.dim
@@ -739,13 +741,13 @@ class Scenario:
                 if k == 0:
 
                     # initialize parameter
-                    psi = psi_init(p,J_p,pf)
+                    psi = psi_init(p,pf,J_p)
 
                 if ca.fmod(k+1,batch_size) == 0:
 
                     # update parameter
-                    p = p_next(p,psi,k,J_p_full,pf)
-                    psi = psi_next(p,psi,k,J_p_full,pf)
+                    p = p_next(p,pf,psi,k,J_p_full)
+                    psi = psi_next(p,pf,psi,k,J_p_full)
 
                     # reset full gradient
                     J_p_full = ca.DM(*p.shape)

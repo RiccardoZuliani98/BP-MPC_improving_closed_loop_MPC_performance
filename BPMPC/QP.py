@@ -302,7 +302,7 @@ class QP:
 
         # re-create function
         start = time.time()
-        QP_func = ca.Function('QP_dense',[self.param['p_qp']],out_list_symbolic,['p'],out_list_symbolic_names,options)
+        QP_func = ca.Function('QP_dense',[self.param['p_qp_full']],out_list_symbolic,['p'],out_list_symbolic_names,options)
         comp_time_dict = {'QP_dense':time.time()-start}
 
         # implement QP using conic interface to retrieve multipliers
