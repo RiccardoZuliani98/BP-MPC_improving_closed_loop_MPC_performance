@@ -242,7 +242,7 @@ class Scenario:
             # last case is if y_lin was passed (either as a vector or as a list)
             else:
                 # if it was not a list, make it a list
-                if not isinstance(init_values['y_lin'],list):
+                if not isinstance(init_values['y_lin'],list) and max_length > 1:
                     init_values['y_lin'] = [init_values['y_lin']] * max_length
 
         # under the "initial_state" linearization mode, we need y_lin to be a single input
@@ -369,7 +369,11 @@ class Scenario:
         if self._options['warmstart_first_qp']:
 
             # get qp parameter
-            p_0 = idx_qp(x,y,p,pf,0)
+
+            try:
+                p_0 = idx_qp(x,y,p,pf,0)
+            except:
+                print('me')
 
             # run QP once to get better initialization
             lam,mu,y_all = qp.solve(p_0)
@@ -534,7 +538,7 @@ class Scenario:
 
         return S, out_dict, qp_failed
 
-    def closedLoop(self,init={},options={}):
+    def closedLoop(self,init=None,options=None):
 
         """
         This function runs the closed-loop optimization algorithm. The inputs are
@@ -579,38 +583,38 @@ class Scenario:
         """
 
         # setup parameters
-        p,pf,W,D,Y,X = self.__getInitParameters(init)
+        p,pf,W,D,Y,X = self._get_init_parameters(init)
 
         # extract number of samples
         n_samples = len(W) if isinstance(W,list) else 1
 
-        # pass default options
-        options = self.__default_options['closedLoop'] | options
+        # update options if provided
+        if options is not None:
+            self._options.update(options)
 
         # store dim in a variable with a shorter name
         n = self.dim
 
         # if gradient descent is used, the true number of iterations
         # is equal to max_k times the number of samples
-        if options['gd_type'] == 'gd':
+        if self._options['gd_type'] == 'gd':
             batch_size = n_samples
-        elif options['gd_type'] == 'sgd':
-            batch_size = options['batch_size'] if 'batch_size' in options else 1
+        elif self._options['gd_type'] == 'sgd':
+            batch_size = self._options['batch_size'] if 'batch_size' in options else 1
 
         # check that batch size does not exceed number of samples
-        if batch_size > n_samples:
-            raise Exception('Batch size cannot exceed number of samples.')
+        assert batch_size <= n_samples, 'Batch size cannot exceed number of samples.'
         
         # extract maximum number of iterations
-        max_k = options['max_k'] * batch_size
+        max_k = self._options['max_k'] * batch_size
 
         # extract cost function
         cost_f = self.upper_level.cost
 
         # extract gradient of cost function
-        J_cost_f = self.upper_level.J_cost
+        J_cost_f = self.upper_level.j_cost
 
-        if options['mode'] == 'optimize':
+        if self._options['mode'] == 'optimize':
 
             # extract parameter update law
             alg = self.upper_level.alg
@@ -626,7 +630,7 @@ class Scenario:
         #     print('Warning: NLP was not solved')
 
         # # print best cost
-        # if options['verbosity'] > 0:
+        # if self._options['verbosity'] > 0:
         #     cst = self.opt['sol']['cost']
         #     print(f'Best achievable cost: {cst}')
 
@@ -639,7 +643,7 @@ class Scenario:
         # list containing all Jacobian times
         total_jac_time = []
 
-        # if options['figures']:
+        # if self._options['figures']:
         #     plt.ion()
         #     fig1, ax1 = plt.subplots()
         #     line11, = ax1.plot([], [], 'r')
@@ -658,11 +662,11 @@ class Scenario:
             save_memory = False
 
         # initialize best cost to infinity, and best iteration index to none
-        best_cost = inf
+        best_cost = ca.inf
         p_best = p
 
         # initialize full gradient of minibatch
-        J_p_full = DM(*p.shape)
+        J_p_full = ca.DM(*p.shape)
 
         # outer loop
         for k in range(max_k):
@@ -672,10 +676,10 @@ class Scenario:
 
             # sample uncertain elements
             if n_samples > 1:
-                if options['random_sampling']:
+                if self._options['random_sampling']:
                     idx = randint(0,n_samples)
                 else:
-                    idx = int(fmod(k,batch_size))
+                    idx = int(ca.fmod(k,batch_size))
                 d = D[idx]
                 w = W[idx]
                 x = X[idx]
@@ -687,7 +691,7 @@ class Scenario:
                 y = Y
 
             # run simulation
-            S, qp_data, qp_failed = self.__simulate(p,pf,w,d,y,x,options)
+            S, qp_data, qp_failed = self._simulate(p,pf,w,d,y,x)
             
             # store S into list
             SIM.append(S)
@@ -708,10 +712,10 @@ class Scenario:
             S.cst = cst_viol
 
             # if in optimization mode, update parameters
-            if options['mode'] == 'optimize':
+            if self._options['mode'] == 'optimize':
 
                 # if there is no constraint violation, and the cost has improved, save current parameter as best parameter
-                if sum1(cst_viol) == 0 and cost < best_cost:
+                if ca.sum1(cst_viol) == 0 and cost < best_cost:
                     best_cost = cost
                     p_best = p
 
@@ -730,14 +734,14 @@ class Scenario:
                     # initialize parameter
                     psi = psi_init(p,J_p,pf)
 
-                if fmod(k+1,batch_size) == 0:
+                if ca.fmod(k+1,batch_size) == 0:
 
                     # update parameter
                     p = p_next(p,psi,k,J_p_full,pf)
                     psi = psi_next(p,psi,k,J_p_full,pf)
 
                     # reset full gradient
-                    J_p_full = DM(*p.shape)
+                    J_p_full = ca.DM(*p.shape)
                 
             else:
                 J_p = 0
@@ -746,13 +750,13 @@ class Scenario:
                 S.saveMemory()
 
             # printout
-            match options['verbosity']:
+            match self._options['verbosity']:
                 case 0:
                     pass
                 case 1:
-                    print(f"Iteration: {k}, cost: {track_cost}, J: {norm_2(J_p)}, e : {sum1(fmax(cst_viol,0))}")#, slacks: {slack} ")
+                    print(f"Iteration: {k}, cost: {track_cost}, J: {ca.norm_2(J_p)}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
 
-            # if options['figures']:
+            # if self._options['figures']:
 
             #     line11.set_data(np.linspace(0,S.X[::x['x']].shape[0],S.X[::n['x']].shape[0]),np.array(S.X[::n['x']]))
             #     line21.set_data(np.linspace(0,S.X[1::n['x']].shape[0],S.X[1::n['x']].shape[0]),np.array(S.X[1::n['x']]))
@@ -774,7 +778,7 @@ class Scenario:
             # get elapsed time
             total_iter_time.append(time.time()-iter_time)
 
-        # if options['figures']:
+        # if self._options['figures']:
         #     plt.ioff()
 
         # stack all computation times in one dictionary

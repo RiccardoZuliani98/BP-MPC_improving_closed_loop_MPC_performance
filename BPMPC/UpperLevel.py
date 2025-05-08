@@ -368,7 +368,19 @@ class UpperLevel:
         # store in upperLevel
         self._alg = {'psi_next':psi_next_func_py,'psi_init':psi_init_func_py,'p_next':p_next_func_py}
 
-    @property   
+    @property
+    def alg(self):
+        return self._alg
+
+    @property
+    def cost(self):
+        return self._cost
+
+    @property
+    def j_cost(self):
+        return self._J_cost
+
+    @property
     def idx(self):
         return self._idx
 
