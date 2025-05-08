@@ -348,15 +348,15 @@ class UpperLevel:
 
         # if pf is not passed, wrap a python function around that defaults pf to 0
         if 'pf' not in self.param:
-            def p_next_func_py(p,psi_loc,k,j_p,pf_loc):
+            def p_next_func_py(p,pf_loc,psi_loc,k,j_p):
                 if pf_loc is None:
                     pf_loc = 0
                 return p_next_func(p,pf_loc,psi_loc,k,j_p)
-            def psi_next_func_py(p,psi_loc,k,j_p,pf_loc):
+            def psi_next_func_py(p,pf_loc,psi_loc,k,j_p):
                 if pf_loc is None:
                     pf_loc = 0
                 return psi_next_func(p,pf_loc,psi_loc,k,j_p)
-            def psi_init_func_py(p,j_p,pf_loc):
+            def psi_init_func_py(p,pf_loc,j_p):
                 if pf_loc is None:
                     pf_loc = 0
                 return psi_init_func(p,pf_loc,j_p)
