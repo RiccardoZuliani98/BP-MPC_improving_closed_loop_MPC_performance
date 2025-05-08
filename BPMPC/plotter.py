@@ -1,7 +1,7 @@
 from casadi import *
 import matplotlib.pyplot as plt
 
-class plotter:
+class Plotter:
 
     def __init__(self):
         pass
@@ -20,12 +20,16 @@ class plotter:
         return {'violet':violet,'blue':blue,'orange':orange,'yellow':yellow,'red':red,'green':green,'lblue':lblue}
 
     @staticmethod
-    def plotTrajectory(S, options={}, show=False):
+    def plotTrajectory(S, options=None, show=False):
+
+        if options is None:
+            options = {}
+
         # extract options
         options = {'x':[0,1,2,3],'x_legend':['Position','Velocity','Angle','Angular velocity'],'u':[0],'u_legend':['Force'],'plot_constraints':True, 'color':'blue'} | options
 
         # extract colors
-        colors = plotter.colors()
+        colors = Plotter.colors()
 
         # extract state trajectory
         x = S.x_mat

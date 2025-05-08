@@ -14,10 +14,14 @@ TODO
 class QP:
     
     # Allowed option keys
-    _OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp'],'warmstart':['x_lam_mu','x'],'jac_tol':int,'jac_gamma':float,'compile_qp_sparse':bool,'compile_jac':bool}
+    _OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp'],'dense_solver':['qpoases','daqp'],
+                               'warmstart':['x_lam_mu','x'],'jac_tol':int,'jac_gamma':float,
+                               'compile_qp_sparse':bool,'compile_qp_dense':bool,'compile_jac':bool}
 
     # default values of options dictionary
-    _OPTIONS_DEFAULT_VALUES = {'solver':'qpoases','warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,'compile_qp_sparse':False,'compile_jac':False,}
+    _OPTIONS_DEFAULT_VALUES = {'solver':'qpoases','dense_solver':'qpoases',
+                               'warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,
+                               'compile_qp_sparse':False,'compile_qp_dense':False,'compile_jac':False}
 
     def __init__(self,ingredients,p=None,pf=None,options=None):
 
@@ -223,7 +227,14 @@ class QP:
         # store computation times (if compile is true)
         self._compTimes = comp_time_dict
 
-    def makeDenseQP(self,p):
+    def make_dense_qp(self,p):
+
+        # compilation options
+        if self._options['compile_qp_dense']:
+            jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
+            options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
+        else:
+            options = {}
 
         # extract dense ingredients
         dense_qp = self.ingredients.dense
@@ -235,14 +246,7 @@ class QP:
         # create function
         start = time.time()
         QP_dense_func = ca.Function('QP_dense',[self._sym.var['p_qp_full']],QP_outs_dense,['p'],QP_outs_dense_names,options)
-        comp_time_dict['QP_dense_func'] = time.time()-start
-
-        # compilation options
-        if self._options['compile_dense']:
-            jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
-            options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
-        else:
-            options = {}
+        self._compTimes['QP_dense_func'] = time.time()-start
 
         # get p_qp_full parameter
         p_qp_full = self.param['p_qp_full'].copy()
@@ -344,7 +348,7 @@ class QP:
             return ca.DM(self.dim['in'],1),ca.DM(self.dim['eq'],1),ca.vertcat(x,u,ca.DM(self.dim['eps'],1))
         
         # save in model
-        self.QP._denseSolve = local_qp
+        self._dense_solve = local_qp
 
         # store computation times (if compile is true)
         self._compTimes = self._compTimes | comp_time_dict

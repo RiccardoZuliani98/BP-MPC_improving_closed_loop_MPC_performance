@@ -6,8 +6,9 @@ import BPMPC.utils as utils
 import BPMPC.tests as tests
 import Examples.cart_pend as cart_pend
 import casadi as ca
-from BPMPC.plotter import plotter
+from BPMPC.plotter import Plotter
 from BPMPC.UpperLevel import UpperLevel
+import numpy as np
 
 # cleanup jit files
 utils.cleanup()
@@ -155,44 +156,46 @@ scenario.set_init({'p':p_init,'x': x0,'u': u0, 'w': w0, 'd': d0})
 S,qp_data_sparse,_ = scenario.simulate()
 
 # create plot but do not show
-# plotter.plotTrajectory(S,options={'x':[0,1,2,3],'x_legend':['Position untrained','Velocity untrained','Angle untrained','Angular velocity untrained'],'u':[0],'u_legend':['Force untrained'],'color':'blue'},show=False)
+Plotter.plotTrajectory(S,options={'x':[0,1,2,3],'x_legend':['Position untrained','Velocity untrained','Angle untrained','Angular velocity untrained'],'u':[0],'u_legend':['Force untrained'],'color':'blue'},show=False)
 
 # test closed loop
-SIM,time_sparse,p_best = scenario.closedLoop(options={'max_k':5})
+SIM,_,p_best = scenario.closed_loop(options={'max_k':5})
 
 # get last value of p
 p_final = SIM[-1].p
 
-# # create plots
-# plotter.plotTrajectory(SIM[-1],options={'x':[0,1,2,3],'x_legend':['Position tuned','Velocity tuned','Angle tuned','Angular velocity tuned'],'u':[0],'u_legend':['Force tuned'],'color':'red'},show=False)
+# create plots
+Plotter.plotTrajectory(SIM[-1],options={'x':[0,1,2,3],'x_legend':['Position tuned','Velocity tuned','Angle tuned','Angular velocity tuned'],'u':[0],'u_legend':['Force tuned'],'color':'red'},show=False)
 
-# # create nonlinear solver
-# NLP = mod.makeTrajectoryOpt()
+# create nonlinear solver
+NLP = scenario.make_trajectory_opt()
 
-# # create warm start trajectories
-# x_warm = SIM[-1].x_mat
-# u_warm = SIM[-1].u_mat
+# create warm start trajectories
+x_warm = SIM[-1].x_mat
+u_warm = SIM[-1].u_mat
 
-# # solve
-# nlp_out,nlp_solved = NLP(x0,x_warm,u_warm)
+# solve
+nlp_out,nlp_solved = NLP(x0,x_warm,u_warm)
+print('NLP solved correctly') if nlp_solved else print('NLP failed')
 
-# # plot best solution
-# plotter.plotTrajectory(nlp_out,options={'x':[0,1,2,3],'x_legend':['Position best','Velocity best','Angle best','Angular velocity best'],'u':[0],'u_legend':['Force best'],'color':'orange'},show=True)
+# plot best solution
+Plotter.plotTrajectory(nlp_out,options={'x':[0,1,2,3],'x_legend':['Position best','Velocity best','Angle best','Angular velocity best'],'u':[0],'u_legend':['Force best'],'color':'orange'},show=True)
 
-# # after training, test speed of dense and sparse qp formulations
-# # start with sparse
-# SIM_sparse,time_sparse,p_final = mod.closedLoop(init={'p':p_final},options={'max_k':3,'mode':'Simulate'})
+# after training, test speed of dense and sparse qp formulations
+# start with sparse
+SIM_sparse,time_sparse,p_final = scenario.closed_loop(init={'p':p_final},options={'max_k':3,'mode':'simulate'})
 
-# # printout
-# max_time = np.max(time_sparse['qp'])
-# mean_time = np.mean(time_sparse['qp'])
-# print(f'Max qp time (sparse): {max_time}, mean qp time (sparse): {mean_time}')
+# printout
+max_time = np.max(time_sparse['qp'])
+mean_time = np.mean(time_sparse['qp'])
+print(f'Max qp time (sparse): {max_time}, mean qp time (sparse): {mean_time}')
 
-# # create sparse QP
-# mod.makeDenseQP(p_final,solver='daqp')
-# SIM_dense,time_dense,p_final = mod.closedLoop(init={'p':p_final},options={'max_k':3,'mode':'dense'})
+# create sparse QP
+MPC.make_dense_qp(p=p_final)
+scenario.update(qp=MPC)
+SIM_dense,time_dense,p_final = scenario.closed_loop(init={'p':p_final},options={'max_k':3,'mode':'dense'})
 
-# # printout
-# max_time = np.max(time_dense['qp'])
-# mean_time = np.mean(DM(time_dense['qp']))
-# print(f'Max qp time (sparse): {max_time}, mean qp time (sparse): {mean_time}')
+# printout
+max_time = np.max(time_dense['qp'])
+mean_time = np.mean(DM(time_dense['qp']))
+print(f'Max qp time (sparse): {max_time}, mean qp time (sparse): {mean_time}')

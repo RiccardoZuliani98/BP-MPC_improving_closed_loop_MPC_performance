@@ -7,6 +7,7 @@ import time
 from numpy.random import randint
 from typeguard import typechecked
 from BPMPC.options import Options
+from BPMPC.symb import Symb
 
 """
 TODO:
@@ -18,7 +19,7 @@ TODO:
 class Scenario:
 
     _OPTIONS_ALLOWED_VALUES = {'shift_linearization': bool, 'warmstart_first_qp': bool, 'warmstart_shift': bool,
-                               'epsilon': float, 'roundoff_qp': int, 'mode': ['optimize', 'simulate'],
+                               'epsilon': float, 'roundoff_qp': int, 'mode': ['optimize', 'simulate', 'dense'],
                                'gd_type': ['gd', 'sgd'], 'figures': bool, 'random_sampling': bool, 'debug_qp': bool,
                                'compute_qp_ingredients': bool, 'verbosity': [0, 1, 2], 'max_k': int}
 
@@ -28,18 +29,28 @@ class Scenario:
                                'compute_qp_ingredients': False, 'verbosity': 1, 'max_k': 200}
 
     @typechecked
-    def __init__(self,dyn:Dynamics,mpc:QP,ul:UpperLevel):
+    def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
+        self.update(dyn=dyn,qp=mpc,upper_level=upper_level)
+
+    def update(self,**kwargs):
 
         # initialize properties
-        self._dyn = dyn
-        self._qp = mpc
-        self._upper_level = ul
+        for key, value in kwargs.items():
+            assert key in ['dyn','qp','upper_level'], 'Wrong key value in update.'
+            if value is not None:
+                setattr(self, f"_{key}", value)
+
+        # check if class already possesses symbols
+        current_sym = self._sym if hasattr(self,'_sym') else Symb()
+
+        # check if class already possesses options
+        current_options = self._options if hasattr(self,'_options') else Options(self._OPTIONS_ALLOWED_VALUES, self._OPTIONS_DEFAULT_VALUES)
 
         # create symbols
-        self._sym = self._dyn._sym + self._qp._sym + self._upper_level._sym
-        
+        self._sym = self._dyn._sym + self._qp._sym + self._upper_level._sym + current_sym
+
         # create options
-        self._options = self._qp.options + Options(self._OPTIONS_ALLOWED_VALUES,self._OPTIONS_DEFAULT_VALUES)
+        self._options = self._qp.options + current_options
 
     @property
     def sym(self):
@@ -91,7 +102,7 @@ class Scenario:
         n = self.dim
         
         # create opti object
-        opti = Opti()
+        opti = ca.Opti()
 
         # create optimization variables
         x = opti.variable(n['x'],n['T']+1)
@@ -113,11 +124,11 @@ class Scenario:
         S = simVar(n)
 
         # add optimization variables (p and y are set to zero by default)
-        S._simVar__x = x
-        S._simVar__u = u
+        S._x = x
+        S._u = u
 
         # now get cost as a symbolic function of x and u
-        _,cost,cst = self.upper_level._upper_level__cost(S)
+        _,cost,cst = self.upper_level.cost(S)
         
         # set constraints
         opti.subject_to(cst <= 0)
@@ -153,9 +164,9 @@ class Scenario:
 
             # create output simVar
             out = simVar(n)
-            out._simVar__x = DM(opti.value(vec(x)))
-            out._simVar__u = DM(opti.value(vec(u)))
-            out._simVar__cost = DM(opti.value(cost))
+            out._simVar__x = ca.DM(opti.value(ca.vec(x)))
+            out._simVar__u = ca.DM(opti.value(ca.vec(u)))
+            out._simVar__cost = ca.DM(opti.value(cost))
 
             return out,solved
 
@@ -369,11 +380,7 @@ class Scenario:
         if self._options['warmstart_first_qp']:
 
             # get qp parameter
-
-            try:
-                p_0 = idx_qp(x,y,p,pf,0)
-            except:
-                print('me')
+            p_0 = idx_qp(x,y,p,pf,0)
 
             # run QP once to get better initialization
             lam,mu,y_all = qp.solve(p_0)
@@ -538,7 +545,7 @@ class Scenario:
 
         return S, out_dict, qp_failed
 
-    def closedLoop(self,init=None,options=None):
+    def closed_loop(self,init=None,options=None):
 
         """
         This function runs the closed-loop optimization algorithm. The inputs are

@@ -28,9 +28,9 @@ class Ingredients:
     
     _ALL_DIMENSIONS = ['x','u','one','cst_x','eps','cst_u']
 
-    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'],'make_dense':bool,'slack':bool}
+    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'], 'slack':bool}
     
-    _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'make_dense':True, 'slack':False}
+    _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'slack':False}
 
     def __init__(self,N,dynamics,cost,constraints,options=None):
 
@@ -91,8 +91,7 @@ class Ingredients:
         self._idx = {'out': self._makeIdx()}
 
         # create dense QP if requested
-        if self._options['make_dense']:
-            self._dense = self._makeDenseQP(processed_data)
+        self._dense = self._makeDenseQP(processed_data)
 
         # create dual QP
         self._dual = self._makeDualQP()
