@@ -20,12 +20,14 @@ class Scenario:
     _OPTIONS_ALLOWED_VALUES = {'shift_linearization': bool, 'warmstart_first_qp': bool, 'warmstart_shift': bool,
                                'epsilon': float, 'roundoff_qp': int, 'mode': ['optimize', 'simulate', 'dense'],
                                'gd_type': ['gd', 'sgd'], 'figures': bool, 'random_sampling': bool, 'debug_qp': bool,
-                               'compute_qp_ingredients': bool, 'verbosity': [0, 1, 2], 'max_k': int}
+                               'compute_qp_ingredients': bool, 'verbosity': [0, 1, 2], 'max_k': int,
+                               'use_true_model': bool}
 
     _OPTIONS_DEFAULT_VALUES = {'shift_linearization': True, 'warmstart_first_qp': True, 'warmstart_shift': True,
                                'epsilon': 1e-6, 'roundoff_qp': 10, 'mode': 'optimize', 'gd_type': 'gd',
                                'figures': False, 'random_sampling': False, 'debug_qp': False,
-                               'compute_qp_ingredients': False, 'verbosity': 1, 'max_k': 200}
+                               'compute_qp_ingredients': False, 'verbosity': 1, 'max_k': 200,
+                               'use_true_model': True}
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
@@ -322,18 +324,18 @@ class Scenario:
         """
 
         # get initial parameters
-        p,pf,w,d,y,x = self._get_init_parameters(init)
+        p,pf,w,d,theta,y,x = self._get_init_parameters(init)
 
         # update options if provided
         if options is not None:
             self._options.update(options)
 
         # simulate
-        s, out_dict, qp_failed = self._simulate(p,pf,w,d,y,x)
+        s, out_dict, qp_failed = self._simulate(p,pf,w,d,theta,y,x)
 
         return s, out_dict, qp_failed
 
-    def _simulate(self,p,pf,w,d,y,x):
+    def _simulate(self,p,pf,w,d,theta,y,x):
         """
         Simulates the system dynamics and solves a sequence of quadratic programs (QPs) 
         for a given set of parameters, initial conditions, and disturbances.
@@ -383,8 +385,8 @@ class Scenario:
         qp_failed = False
 
         # extract dynamics and linearization
-        A = self.dyn.A
-        B = self.dyn.B
+        A = self.dyn.A if self.options['use_true_model'] else self.dyn.A_nom
+        B = self.dyn.B if self.options['use_true_model'] else self.dyn.B_nom
         f = self.dyn.f
 
         # create simVar for current simulation
@@ -450,6 +452,13 @@ class Scenario:
             lam = None
             mu = None
             y_all = None
+
+        # get list of inputs to dynamics and to nominal dynamics
+        var_in_fixed = {'d':d} if d is not None else {}
+        if self._options['use_true_model']:
+            var_in_nom_fixed = var_in_fixed
+        else:
+            var_in_nom_fixed = {'theta':theta} if theta is not None else {}
 
         # start counting the time taken to solve the QPs
         total_qp_time = []
@@ -533,9 +542,16 @@ class Scenario:
             # store input
             S.setInput(t,u)
 
-            # get list of inputs to dynamics
-            var_in = [x,u,d,w[t]]
-            var_in = [var for var in var_in if var is not None]
+            # get current state and input
+            current_var = {'x':x,'u':u}
+            
+            # update variables
+            var_in = var_in_fixed | current_var
+            var_in_nom = var_in_nom_fixed | current_var
+
+            # check if noise is present
+            if w is not None:
+                var_in['w'] = w[t]
 
             if self._options['mode'] == 'optimize':
             
@@ -563,7 +579,7 @@ class Scenario:
                 j_u0_p = j_qp_p[qp.idx['out']['u0'],:]
 
                 # propagate jacobian of closed loop state x
-                j_x_p = A(*var_in)@j_x_p + B(*var_in)@j_u0_p
+                j_x_p = A.call(var_in_nom)['A']@j_x_p + B.call(var_in_nom)['B']@j_u0_p
 
                 # store in total cons jac time
                 total_jac_time.append(time.time() - cons_jac_time)
@@ -574,7 +590,7 @@ class Scenario:
                 S.setJy(t,j_y_p)
 
             # get next state
-            x = f(*var_in)
+            x = f.call(var_in)['x_next']
 
             # store next state
             S.setState(t+1,x)
@@ -626,6 +642,7 @@ class Scenario:
                 - random_sampling (bool, optional, default=False): Whether to randomly select samples from the dataset in each iteration.
                 - verbosity (int, optional, default=1): Level of printout verbosity.
                 - max_k (int, optional, default=200): Maximum number of closed-loop iterations.
+                - use_true_model (bool, optional, default=True): Whether to use the true model for simulation.
         Returns:
             SIM (list): List of simulation results for each iteration.
             comp_time (dict): Dictionary containing computation times:
@@ -636,7 +653,7 @@ class Scenario:
         """
 
         # setup parameters
-        p,pf,W,D,Y,X = self._get_init_parameters(init)
+        p,pf,W,D,THETA,Y,X = self._get_init_parameters(init)
 
         # extract number of samples
         n_samples = len(W) if isinstance(W,list) else 1
@@ -735,16 +752,18 @@ class Scenario:
                     idx = int(ca.fmod(k,batch_size))
                 d = D[idx]
                 w = W[idx]
+                theta = THETA[idx]
                 x = X[idx]
                 y = Y[idx]
             else:
                 d = D
                 w = W
+                theta = THETA
                 x = X
                 y = Y
 
             # run simulation
-            S, qp_data, qp_failed = self._simulate(p,pf,w,d,y,x)
+            S, qp_data, qp_failed = self._simulate(p,pf,w,d,theta,y,x)
             
             # store S into list
             SIM.append(S)

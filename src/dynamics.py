@@ -180,10 +180,10 @@ class Dynamics:
 
             # compute jacobians
             start = time.time()
-            A_nom = ca.Function('A_nom', p_nom, [df_dx_nom], p_nom_names, ['A_nom'], options)
+            A_nom = ca.Function('A_nom', p_nom, [df_dx_nom], p_nom_names, ['A'], options)
             comp_time_dict = comp_time_dict | {'A_nom':time.time()-start}
             start = time.time()
-            B_nom = ca.Function('B_nom', p_nom, [df_du_nom], p_nom_names, ['B_nom'], options)
+            B_nom = ca.Function('B_nom', p_nom, [df_du_nom], p_nom_names, ['B'], options)
             comp_time_dict = comp_time_dict | {'B_nom':time.time()-start}
 
             # save in dynamics
