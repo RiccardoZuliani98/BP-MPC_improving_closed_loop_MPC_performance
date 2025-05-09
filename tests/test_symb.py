@@ -1,6 +1,12 @@
+import sys
+import os
 import casadi as ca
-from symb import Symb
-import timeit
+
+# add source path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.symb import Symb
+
 
 sym1 = Symb()
 
@@ -22,5 +28,5 @@ print(sym1.get_var('y'))
 print(sym1.var)
 
 
-print(timeit.timeit('(sym1+sym2).getVar(\'y\')',number=2000, globals=globals())/2000)
-print(timeit.timeit('(sym1.add2(sym2)).getVar(\'y\')',number=2000, globals=globals())/2000)
+sym1+sym2.getVar('y')
+(sym1.add2(sym2)).getVar('y')

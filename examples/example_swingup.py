@@ -10,7 +10,7 @@ from src.qp import QP
 from src.Ingredients import Ingredients
 import src.utils as utils
 # import tests.tests as tests
-import dynamics_examples.cart_pend as cart_pend
+import dynamics.cart_pend as cart_pend
 import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
