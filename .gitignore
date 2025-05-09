@@ -4,3 +4,4 @@
 *.pyc
 BPMPC/__pycache__/
 .idea
+.*
