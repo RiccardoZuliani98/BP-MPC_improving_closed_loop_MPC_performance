@@ -89,7 +89,6 @@ class Dynamics:
         else:
             # otherwise, copy exact dynamics
             f_nom = f
-            x_next_nom = self._x_next
             comp_time_dict = comp_time_dict | {'f_nom':comp_time_dict['f']}
         
         # save in dynamics
