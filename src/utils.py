@@ -1,5 +1,6 @@
 import casadi as ca
 import numpy as np
+import os, glob
 
 def quadCostAndBounds(Q,R,x_cl,u_cl,x_max=None,x_min=None,x_ref=None,u_ref=None):
 
@@ -172,9 +173,6 @@ def matrixify(M_list):
 
     # stack horizontally
     return ca.hcat(M_list_pad)
-
-# imports
-import os, glob
 
 def cleanup():
     
