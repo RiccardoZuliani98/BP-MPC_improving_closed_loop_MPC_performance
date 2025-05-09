@@ -65,6 +65,11 @@ class Symb:
             assert var.shape == init.shape, 'Initialization must have the same dimension as the symbolic variable'
             assert isinstance(init,ca.DM), 'Initialization must of type casadi.DM'
 
+        try:
+            var_SX = ca.SX(var)
+        except:
+            raise Exception('Variable cannot be converted to SX')
+
         self._var[name] = var
         self._dim[name] = var.shape[0] if var.shape[1] == 1 else var.shape
         self._init[name] = init

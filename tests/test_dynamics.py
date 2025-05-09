@@ -9,7 +9,25 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import pytest
 from src.dynamics import Dynamics
 
-def sample_dynamics(use_d=False,use_w=False,use_theta=False,nonlinear=False):
+def sample_dynamics(use_d:bool=False,use_w:bool=False,use_theta:bool=False,nonlinear:bool=False) -> dict:
+    """
+    This function generates a dictionary that can be used to setup a Dynamics object.
+    The true dynamics are given by
+
+    x_next = (A_1 + A_2@d) @ x + x**2 + B@u + c + B_d@w,
+
+    whereas the nominal dynamics are given by
+
+    x_next_nom = (A_1 + A_3@theta) @ x + x**2 + B@u + c.
+
+    The terms A_1,A_2,A_3,B,B_d,c are randmly generated with entries between 0 and 1.
+
+    :param use_d: if true the dynamics contain model uncertainty d
+    :param use_w: if true the dynamics contain noise w
+    :param use_theta: if true the dynamics contain nominal model theta
+    :param nonlinear: if true the dynamics contain quadratic term x**2
+    :return: dictionary that can be used to setup a Dynamics object
+    """
 
     # generate random state and input dimension
     n_x = randint(1,4)
@@ -90,5 +108,14 @@ def sample_dynamics(use_d=False,use_w=False,use_theta=False,nonlinear=False):
 
 
 def test_affine():
+    """
+    Test if the dynamics correctly identify that the model is affine.
+    """
 
-    
+    # generate random affine dynamics
+    dynamics_dictionary = sample_dynamics()
+
+    # generate dynamics object
+    dynamics = Dynamics(dynamics_dictionary)
+
+    assert dynamics._is_affine, 'Model is not recognized to be affine.'
