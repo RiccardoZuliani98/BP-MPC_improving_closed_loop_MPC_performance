@@ -2,14 +2,72 @@ import casadi as ca
 import time
 from src.symb import Symb
 
-"""
-TODO:
-* some descriptions
-"""
-
 class Dynamics:
+    """
+    Dynamics Class
+    This class represents a system's dynamics and provides methods for symbolic representation, 
+    linearization, and compilation of the dynamics using CasADi.
 
-    def __init__(self,dyn,compile=False):
+    Attributes:
+        x_next (ca.SX): Symbolic expression for the next state of the system.
+        x_next_nom (ca.SX): Symbolic expression for the nominal next state of the system.
+        f (ca.Function): CasADi function representing the system dynamics.
+        A (ca.Function): CasADi function representing the Jacobian of the dynamics with respect to the state.
+        B (ca.Function): CasADi function representing the Jacobian of the dynamics with respect to the control input.
+        f_nom (ca.Function): CasADi function representing the nominal system dynamics.
+        A_nom (ca.Function): CasADi function representing the Jacobian of the nominal dynamics with respect to the state.
+        B_nom (ca.Function): CasADi function representing the Jacobian of the nominal dynamics with respect to the control input.
+        param (dict): Dictionary of symbolic parameters for the system dynamics.
+        param_nom (dict): Dictionary of symbolic parameters for the nominal system dynamics.
+        dim (dict): Dictionary containing the dimensions of the state and input variables.
+        model (dict): Dictionary containing the linearized dynamics matrices (A, B, c).
+        compTimes (dict): Dictionary containing the computation times for various compiled CasADi functions.
+        init (dict): Dictionary containing the initial values of symbolic variables.
+    
+    Methods:
+        __init__(dyn: dict, compile: bool = False):
+            Initializes the Dynamics class with the provided symbolic dynamics and compilation options.
+        _linearize(horizon: int, method: str = 'trajectory'):
+            Constructs the prediction model for the MPC problem using linearization. 
+            Supports affine dynamics, linearization around the initial state, or along a trajectory.
+        _set_init(data):
+            Sets the initial values for symbolic variables.
+    
+    Properties:
+        x_next: Returns the symbolic expression for the next state.
+        x_next_nom: Returns the symbolic expression for the nominal next state.
+        f: Returns the CasADi function for the system dynamics.
+        A: Returns the CasADi function for the Jacobian with respect to the state.
+        B: Returns the CasADi function for the Jacobian with respect to the control input.
+        f_nom: Returns the CasADi function for the nominal system dynamics.
+        A_nom: Returns the CasADi function for the Jacobian of the nominal dynamics with respect to the state.
+        B_nom: Returns the CasADi function for the Jacobian of the nominal dynamics with respect to the control input.
+        param: Returns the dictionary of symbolic parameters for the system dynamics.
+        param_nom: Returns the dictionary of symbolic parameters for the nominal system dynamics.
+        dim: Returns the dimensions of the state and input variables.
+        model: Returns the dictionary containing the linearized dynamics matrices (A, B, c).
+        compTimes: Returns the dictionary containing computation times for compiled CasADi functions.
+        init: Returns the dictionary containing the initial values of symbolic variables.
+    """
+
+    def __init__(self,dyn:dict,compile:bool=False):
+        """
+        Class constructor.
+
+        Args:
+            dyn (dict): Dictionary containing the system dynamics in symbolic form. 
+                Required keys:
+                    - 'x': state variable
+                    - 'u': control input
+                    - 'x_next': next state expression
+                Optional keys:
+                    - 'd': disturbance
+                    - 'w': process noise
+                    - 'theta': parameters
+                    - 'x_next_nom': nominal next state
+            compile (bool, optional): If True, compile the dynamics using CasADi's JIT compilation. 
+                Defaults to False.
+        """
 
         # compilation options
         if compile:
@@ -149,91 +207,36 @@ class Dynamics:
         # store empty model
         self._model = {}
 
-    @property
-    def x_next(self):
-        return self._x_next
-
-    @property
-    def x_next_nom(self):
-        return self._x_next_nom
-    
-    @property
-    def f(self):
-        return self._f
-    
-    @property
-    def A(self):
-        return self._A
-
-    @property
-    def B(self):
-        return self._B
-    
-    @property
-    def f_nom(self):
-        return self._f_nom
-
-    @property
-    def A_nom(self):
-        return self._A_nom
-    
-    @property
-    def B_nom(self):
-        return self._B_nom
-
-    @property
-    def param(self):
-        return self._param
-
-    @property
-    def param_nom(self):
-        return self._param_nom
-    
-    @property
-    def dim(self):
-        return self._sym.dim
-    
-    @property
-    def model(self):
-        return self._model
-    
-    @property
-    def compTimes(self):
-        return self._compTimes
-    
-    @property
-    def init(self):
-        return {key:val for key,val in self._sym.init.items() if val is not None}
-    
-    def _set_init(self,data):
-        self._sym.set_init(data)
-
-    def _linearize(self,horizon,method='trajectory'):
-
+    def _linearize(self,horizon:int,method='trajectory'):
         """
-        This function constructs the prediction model for the MPC problem. There are multiple options:
+        Construct the prediction model for the MPC problem using linearization.
 
-            1. If the model is affine, then A,B,c are the true nominal dynamics of the system, this happens
-               if self.type == 'affine'.
-               
-            2. The model can be linearized around the initial state (method = 'state').
-               In this case, the linearization trajectory is a single input u_lin.
+        There are multiple options:
 
-            3. (default) The model can be linearized along a trajectory (method = 'trajectory').
-               In this case y_lin contains the state-input trajectory along which the dynamics are linearized.
+            1. If the model is affine (`self._is_affine == True`), then `A`, `B`, and `c` represent 
+            the true nominal dynamics of the system.
 
-        The function returns three list A_list,B_list,c_list, such that the linearized dynamics at time-step t
-        are given by  x[t+1] = A_list[t]@x[t] + B_list[t]@u[t] + c_list[t]. It also returns y_lin, the symbolic
-        parameter used in the linearization.
+            2. Linearize around the initial state (`method='state'`). 
+            In this case, the linearization trajectory uses a single input `u_lin`.
 
-        Note that c_list[0] contains additionally the effect -A_list[0]@x0 of the initial state x0.
+            3. Linearize along a trajectory (`method='trajectory'`, default).
+            In this case, `y_lin` contains the state-input trajectory used for linearization.
 
-        The inputs are
+        The function returns three lists: `A_list`, `B_list`, and `c_list`, such that the linearized 
+        dynamics at time step `t` are given by:
 
-            * horizon: horizon of the MPC
+            x[t+1] = A_list[t] @ x[t] + B_list[t] @ u[t] + c_list[t]
 
-            * linearization: type of chosen linearization (default is 'trajectory')
+        It also returns `y_lin`, the symbolic parameter used in the linearization.
 
+        Note:
+            `c_list[0]` includes the effect of the initial state `x0`, specifically the term `-A_list[0] @ x0`.
+
+        Args:
+            horizon (int): Horizon of the MPC.
+            method (str, optional): Type of linearization. Options are:
+                - 'trajectory' (default)
+                - 'state'
         """
 
         # extract symbolic variables
@@ -336,3 +339,62 @@ class Dynamics:
 
         # return used linearization method
         return 'affine' if self._is_affine else method
+    
+    @property
+    def x_next(self):
+        return self._x_next
+
+    @property
+    def x_next_nom(self):
+        return self._x_next_nom
+    
+    @property
+    def f(self):
+        return self._f
+    
+    @property
+    def A(self):
+        return self._A
+
+    @property
+    def B(self):
+        return self._B
+    
+    @property
+    def f_nom(self):
+        return self._f_nom
+
+    @property
+    def A_nom(self):
+        return self._A_nom
+    
+    @property
+    def B_nom(self):
+        return self._B_nom
+
+    @property
+    def param(self):
+        return self._param
+
+    @property
+    def param_nom(self):
+        return self._param_nom
+    
+    @property
+    def dim(self):
+        return self._sym.dim
+    
+    @property
+    def model(self):
+        return self._model
+    
+    @property
+    def compTimes(self):
+        return self._compTimes
+    
+    @property
+    def init(self):
+        return {key:val for key,val in self._sym.init.items() if val is not None}
+    
+    def _set_init(self,data:dict):
+        self._sym.set_init(data)

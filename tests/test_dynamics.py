@@ -14,20 +14,23 @@ def sample_dynamics(use_d:bool=False,use_w:bool=False,use_theta:bool=False,nonli
     This function generates a dictionary that can be used to setup a Dynamics object.
     The true dynamics are given by
 
-    x_next = (A_1 + A_2@d) @ x + x**2 + B@u + c + B_d@w,
+        x_next = (A_1 + A_2@d) @ x + x**2 + B@u + c + B_d@w,
 
     whereas the nominal dynamics are given by
 
-    x_next_nom = (A_1 + A_3@theta) @ x + x**2 + B@u + c.
+        x_next_nom = (A_1 + A_3@theta) @ x + x**2 + B@u + c.
 
     The terms A_1,A_2,A_3,B,B_d,c are randmly generated with entries between 0 and 1.
 
-    :param use_d: if true the dynamics contain model uncertainty d
-    :param use_w: if true the dynamics contain noise w
-    :param use_theta: if true the dynamics contain nominal model theta
-    :param nonlinear: if true the dynamics contain quadratic term x**2
-    :return 1: dictionary that can be used to setup a Dynamics object
-    :return 2: dictionary containing the A=A_1+A_2@d, A_nom=A_1+A_3@theta, B, c
+    Args:
+        use_d (bool, optional): if true the dynamics contain model uncertainty d
+        use_w (bool, optional): if true the dynamics contain noise w
+        use_theta (bool, optional): if true the dynamics contain nominal model theta
+        nonlinear (bool, optional): if true the dynamics contain quadratic term x**2
+        
+    Returns:
+        dict: dictionary that can be used to setup a Dynamics object
+        dict: dictionary containing A=A_1+A_2@d, A_nom=A_1+A_3@theta, B, c
     """
 
     # generate random state and input dimension
@@ -127,7 +130,10 @@ def test_affine():
     assert not dynamics_nonlinear_1._is_affine, 'Model is not recognized to be nonlinear.'
     assert not dynamics_nonlinear_2._is_affine, 'Model is not recognized to be nonlinear.'
 
-def test_nominal():
+def test_nominal_and_derivatives():
+    """
+    Test correctness of nominal dynamics generation and their derivatives.
+    """
 
     # generate affine dynamics
     dynamics_1_dict,dynamics_1_matrices = sample_dynamics(use_d=True,use_w=True,use_theta=True)
@@ -159,8 +165,7 @@ def test_nominal():
     dynamics_1._set_init(init1)
     dynamics_2._set_init(init2)
 
-    # check that initializations are correct
-
+    # helper function to check if two dictionaries containing DM variables coincide
     def compare_dicts(dict1,dict2):
 
         # check that keys are equal
@@ -171,6 +176,7 @@ def test_nominal():
 
         return dict_equal
 
+    # check that initializations are correct
     assert compare_dicts(dynamics_1.init,init1), 'Initialization is not handled correctly.'
     assert compare_dicts(dynamics_2.init,init2), 'Initialization is not handled correctly.'
 
