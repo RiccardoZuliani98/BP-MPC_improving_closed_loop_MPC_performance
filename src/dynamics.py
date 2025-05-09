@@ -21,6 +21,9 @@ class Dynamics:
         # check that all keys were passed
         assert all(key in dyn for key in ['x', 'u', 'x_next']), 'x, u, and x_next must be defined.'
 
+        # check symbolic type
+        assert all( isinstance(elem,ca.SX) for elem in dyn), 'Dynamics dictionary should contain variables of type SX.'
+
         # store dynamics
         self._x_next = dyn['x_next']
 
