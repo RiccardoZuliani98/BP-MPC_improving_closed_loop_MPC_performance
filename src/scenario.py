@@ -275,7 +275,7 @@ class Scenario:
                     
         # construct a dictionary to check the dimension. You need to concatenate horizontally
         # any list within init_values and leave all vectors as they are
-        init_values_not_none = {k:v for k,v in init_values.items() if v is not None}
+        # init_values_not_none = {k:v for k,v in init_values.items() if v is not None}
 
         # init_values_concat = {k:ca.hcat(v) if isinstance(v,list) else v for k,v in init_values_not_none.items()}
         # _ = self.__checkInit(init_values_concat)
@@ -296,30 +296,77 @@ class Scenario:
             raise Exception('Model uncertainty d is required to simulate the system.')
 
         # extract variables
-        p = init_values['p'] if 'p' in init_values else None            # parameters
-        pf = init_values['pf'] if 'pf' in init_values else None         # fixed parameters
-        w = init_values['w'] if 'w' in init_values else None            # noise
-        d = init_values['d'] if 'd' in init_values else None            # model uncertainty
-        y = init_values['y_lin'] if 'y_lin' in init_values else None    # linearization trajectory
-        x = init_values['x']                                            # initial state
+        p = init_values['p'] if 'p' in init_values else None                # parameters
+        pf = init_values['pf'] if 'pf' in init_values else None             # fixed parameters
+        w = init_values['w'] if 'w' in init_values else None                # noise
+        d = init_values['d'] if 'd' in init_values else None                # model uncertainty
+        theta = init_values['theta'] if 'theta' in init_values else None    # nominal model
+        y = init_values['y_lin'] if 'y_lin' in init_values else None        # linearization trajectory
+        x = init_values['x']                                                # initial state
 
-        return p,pf,w,d,y,x
+        return p,pf,w,d,theta,y,x
 
     def simulate(self,init=None,options=None):
+        """
+        Simulates the system dynamics based on the provided initial parameters and options.
+        Args:
+            init (dict, optional): A dictionary containing initial parameters for the simulation.
+                If None, default initial parameters will be used.
+            options (dict, optional): A dictionary of options to update the simulation settings.
+                If None, the current options will be used.
+        Returns:
+            tuple: A tuple containing:
+                - s (object): The simulation result or state.
+                - out_dict (dict): A dictionary containing additional output data from the simulation.
+                - qp_failed (bool): A flag indicating whether the quadratic programming (QP) solver failed.
+        """
 
         # get initial parameters
         p,pf,w,d,y,x = self._get_init_parameters(init)
 
+        # update options if provided
+        if options is not None:
+            self._options.update(options)
+
         # simulate
-        s, out_dict, qp_failed = self._simulate(p,pf,w,d,y,x,options)
+        s, out_dict, qp_failed = self._simulate(p,pf,w,d,y,x)
 
         return s, out_dict, qp_failed
 
-    def _simulate(self,p,pf,w,d,y,x,options=None):
-
+    def _simulate(self,p,pf,w,d,y,x):
         """
-        Low-level simulate function, unlike simulate, this needs the inputs to be passed separately (as
-        returned by _get_init_parameters).
+        Simulates the system dynamics and solves a sequence of quadratic programs (QPs) 
+        for a given set of parameters, initial conditions, and disturbances.
+        This is a low-level simulation function that requires inputs to be passed 
+        separately, as returned by `_get_init_parameters`.
+        Args:
+            p (ca.DM or None): Parameter vector for the simulation.
+            pf (ca.DM or None): Final parameter vector for the simulation.
+            w (list or None): List of disturbances for each time step. If None, 
+                disturbances are assumed to be zero.
+            d (ca.DM): Known disturbances for the system dynamics.
+            y (ca.DM): Initial guess for the optimization variables.
+            x (ca.DM): Initial state of the system.
+        Returns:
+            tuple:
+                - S (simVar): Object containing simulation variables, including 
+                  states, inputs, and optimization variables.
+                - out_dict (dict): Dictionary containing timing information and 
+                  optional debug information:
+                    - 'qp_time': List of times taken to solve each QP.
+                    - 'jac_time': List of times taken to compute conservative Jacobians.
+                    - 'qp_debug' (optional): Debug information for QPs, if enabled.
+                    - 'qp_ingredients' (optional): QP ingredients, if enabled.
+                - qp_failed (bool): Flag indicating whether any QP solver failed 
+                  during the simulation.
+        Raises:
+            Exception: If the QP solver fails at any time step.
+        Notes:
+            - The function supports different modes of operation, including 'dense', 
+              'sparse', and 'optimize', which affect the solver and Jacobian computation.
+            - Warm-starting and shifting of QP solutions are supported for improved 
+              performance.
+            - Debugging and computation of QP ingredients can be enabled via options.
         """
 
         # extract QP for simplicity
@@ -327,10 +374,6 @@ class Scenario:
 
         # extract dimensions for simplicity
         n = self.dim
-
-        # update options if provided
-        if options is not None:
-            self._options.update(options)
 
         # check if w is None
         if w is None:
@@ -449,19 +492,19 @@ class Scenario:
                 qp_failed = True
                 break
 
-            # if QP needs to be checked, compute full conservative Jacobian
-            if self._options['debug_qp']:
+            # # if QP needs to be checked, compute full conservative Jacobian
+            # if self._options['debug_qp']:
 
-                # debug current QP
-                qp_debug_out = QP.debug(lam,mu,p_t,self._options['epsilon'],self._options['roundoff_qp'],y_all)
+            #     # debug current QP
+            #     qp_debug_out = QP.debug(lam,mu,p_t,self._options['epsilon'],self._options['roundoff_qp'],y_all)
                 
-                # pack results
-                qp_debug.append(qp_debug_out)
+            #     # pack results
+            #     qp_debug.append(qp_debug_out)
 
-            if self._options['compute_qp_ingredients']:
+            # if self._options['compute_qp_ingredients']:
 
-                # compute qp ingredients
-                qp_ingredients.append(qp._qp_sparse(p=p_t))
+            #     # compute qp ingredients
+            #     qp_ingredients.append(qp._qp_sparse(p=p_t))
 
             # store optimization variables
             S.setOptVar(t,lam,mu,y_all[qp.idx['out']['y']],p_t)
@@ -548,47 +591,48 @@ class Scenario:
         return S, out_dict, qp_failed
 
     def closed_loop(self,init=None,options=None):
-
         """
-        This function runs the closed-loop optimization algorithm. The inputs are
+        Runs the closed-loop optimization algorithm.
 
-            - init: dictionary containing the initial conditions for the simulation. The dictionary
-                    can contain the following keys:
-
-                    - x: initial state of the system (required)
-                    - p: parameters of the system (required if p is a parameter)
-                    - pf: fixed parameters of the system (required if pf is a parameter)
-                    - w: noise of the system (required if w is a parameter)
-                    - d: model uncertainty of the system (required if d is a parameter)
-                    - y_lin: linearization trajectory of the system
-                
-                    Note that w should be passed either as single vector of dimension (n_w,1), which
-                    will be repeated for all time steps, as a matrix of dimension (n_w,T), where
-                    each column represents the noise at a given time step, or as a list of matrices
-                    of dimension (n_w,T), where each element of the list is the noise at each time 
-                    step for a given scenario.
-
-            - options: dictionary containing the following keys:
-
-                    - mode: 'optimize' (jacobians are computed) or 'simulate' (jacobians are not computed) 
-                            or 'dense' (dense mode is used and jacobians are not computed)
-                    - shift_linearization: True (default) if the input-state trajectory used for 
-                                           linearization should be shifted, False otherwise
-                    - warmstart_first_qp: True (default) if the first QP should be solved twice (with
-                                          propagation of the sensitivity)
-                    - debug_qp: False (default), or True if debug information about the QP should be stored
-                    - epsilon: perturbation magnitude used to compute finite difference derivatives of QP,
-                               default is 1e-6
-                    - roundoff_qp: number of digits below which QP derivative error is considered zero,
-                                   default is 10
-                    - compute_qp_ingredients:False (default), or True if QP ingredients should be saved
-                    - warmstart_shift: True (default) if the primal (or primal-dual) warmstart should be shifted
-                    - gd_type: type of update (options are 'sgd' and 'gd', default is 'gd')
-                    - batch_size: number of samples in each batch (default is 1, only if 'gd_type' is 'sgd')
-                    - figures: printout of debug figures (default is False)
-                    - random_sampling: if True then samples are randomly selected from the dataset in each iteration
-                    - verbosity: level of printout (default is 1)
-                    - max_k: number of closed-loop iterations (default is 200)
+        Args:
+            init (dict, optional): Dictionary containing the initial conditions for the simulation. The dictionary can include:
+                - x (ndarray): Initial state of the system (required).
+                - p (ndarray): Parameters of the system (required if p is a parameter).
+                - pf (ndarray): Fixed parameters of the system (required if pf is a parameter).
+                - w (ndarray or list): Noise of the system. Can be:
+                    - A single vector of shape (n_w, 1), repeated for all time steps.
+                    - A matrix of shape (n_w, T), where each column represents noise at a given time step.
+                    - A list of matrices of shape (n_w, T), where each element corresponds to noise for a given scenario.
+                - d (ndarray): Model uncertainty of the system (required if d is a parameter).
+                - y_lin (ndarray): Linearization trajectory of the system.
+            options (dict, optional): Dictionary containing configuration options for the algorithm:
+                - mode (str): Execution mode. Options are:
+                    - 'optimize': Jacobians are computed.
+                    - 'simulate': Jacobians are not computed.
+                    - 'dense': Dense mode is used, and Jacobians are not computed.
+                - shift_linearization : bool, default=True
+                    Whether to shift the input-state trajectory used for linearization.
+                - warmstart_first_qp (bool, optional, default=True): Whether the first QP should be solved twice (with sensitivity propagation).
+                - debug_qp (bool, optional, default=False): Whether to store debug information about the QP.
+                - epsilon (float, optional, default=1e-6): Perturbation magnitude for finite difference derivatives of QP.
+                - roundoff_qp (int, optional, default=10): Number of digits below which QP derivative error is considered zero.
+                - compute_qp_ingredients (bool, optional, default=False): Whether to save QP ingredients.
+                - warmstart_shift (bool, optional, default=True): Whether the primal (or primal-dual) warmstart should be shifted.
+                - gd_type (str, optional, default='gd'): Type of gradient descent update. Options are:
+                    - 'gd': Gradient descent.
+                    - 'sgd': Stochastic gradient descent.
+                - batch_size (int, optional, default=1): Number of samples in each batch (only applicable if 'gd_type' is 'sgd').
+                - figures (bool, optional, default=False): Whether to print debug figures.
+                - random_sampling (bool, optional, default=False): Whether to randomly select samples from the dataset in each iteration.
+                - verbosity (int, optional, default=1): Level of printout verbosity.
+                - max_k (int, optional, default=200): Maximum number of closed-loop iterations.
+        Returns:
+            SIM (list): List of simulation results for each iteration.
+            comp_time (dict): Dictionary containing computation times:
+                - 'qp': List of QP computation times.
+                - 'jac': List of Jacobian computation times.
+                - 'iter': List of iteration times.
+            p_best (ndarray): Best parameter values found during the optimization process.
         """
 
         # setup parameters
