@@ -11,7 +11,6 @@ from src.symb import Symb
 
 """
 TODO:
-* descriptions
 * trajectory optimization should be a separate class!
 """
 
@@ -87,8 +86,6 @@ class Scenario:
     @property
     def upper_level(self):
         return self._upper_level
-
-    ### NONLINEAR SOLVER FOR TRAJECTORY OPT PROBLEM ---------------------------
 
     @property
     def trajectory_opt(self):
@@ -176,10 +173,34 @@ class Scenario:
 
         return solver
 
-
-    ### SIMULATION FUNCTIONS ---------------------------------------------------
-
     def _get_init_parameters(self,init=None):
+        """
+        Processes and validates the initialization parameters for the system simulation.
+        Args:
+            init (dict, optional): A dictionary containing initialization parameters. 
+                If provided, it will be used to set the initial values for the system.
+        Returns:
+            tuple: A tuple containing the following elements:
+                - p (array or None): Parameters for the system, if provided.
+                - pf (array or None): Fixed parameters for the system, if provided.
+                - w (array, list, or None): Noise values for the system, if provided.
+                - d (array, list, or None): Model uncertainty values, if provided.
+                - theta (array or None): Nominal model parameters, if provided.
+                - y (array, list, or None): Linearization trajectory, if provided or computed.
+                - x (array): Initial state of the system (required).
+        Raises:
+            AssertionError: If the lengths of initialization parameters are inconsistent.
+            Exception: If required parameters (e.g., `x`, `p`, `pf`, `w`, `d`) are missing.
+            Exception: If noise `w` dimensions do not match the prediction horizon.
+            Exception: If `y_lin` is required but not provided or cannot be computed.
+            Exception: If the "optimal" linearization trajectory mode is selected (not implemented).
+        Notes:
+            - If any parameter in the "dynamics" subclass is not a list and `max_length > 1`, 
+                it will be extended to a list of appropriate length.
+            - The function supports two linearization modes: "trajectory" and "initial_state".
+            - Under the "trajectory" mode, `y_lin` is computed based on `x` and `u` if not provided.
+            - Under the "initial_state" mode, `y_lin` defaults to `u` if not provided.
+        """
 
         if init is not None:
             self.set_init(init)

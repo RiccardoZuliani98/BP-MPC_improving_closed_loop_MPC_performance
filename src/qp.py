@@ -4,6 +4,8 @@ from src.Ingredients import Ingredients
 from src.options import Options
 import numpy as np
 from copy import copy
+from jaxadi import convert
+from jax.numpy.linalg import lstsq
 
 """
 TODO
@@ -423,11 +425,21 @@ class QP:
         dual_outs = [J_F_z,J_F_p,J_y_p,J_y_z_mat]
         dual_outs_names = ['J_F_z','J_F_p','J_y_p','J_y_z_mat']
 
-        # turn into function
+        # start counting time
         start = time.time()
-        J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names,options)
+
+        # turn into function
+        # J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names,options)
+        J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names)
+
+        # convert to Jax and compile
+        compile_true = True if self._options['compile_jac'] else False
+        J = convert(J,compile=compile_true)
+
+        # stop counting time
         comp_time_dict = {'J':time.time()-start}
 
+        # function to generate jacobians
         def J_y_p(lam,mu,p_qp,t=1):
 
             # round lambda (always first entry in dual_params) to avoid numerical issues
@@ -437,7 +449,8 @@ class QP:
             J_F_z,J_F_p,J_y_p,J_y_z_mat = J(lam,mu,p_qp)
 
             # get conservative jacobian of dual solution
-            A = -ca.solve(J_F_z,J_F_p@t,'csparse')
+            # A = -ca.solve(J_F_z,J_F_p@t,'csparse')
+            A = -lstsq(J_F_z,J_F_p@t)[0]
 
             # return conservative jacobian of primal
             return J_y_p@t+J_y_z_mat@A

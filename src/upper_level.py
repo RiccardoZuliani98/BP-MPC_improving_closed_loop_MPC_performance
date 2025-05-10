@@ -116,10 +116,10 @@ class UpperLevel:
 
             return ca.vcat(out)
         
-        def jac_var_setup(j_x_p,j_y_p,t):
+        def jac_var_setup(j_x_p,j_y_p,t,multiplier=1):
             
             # get entries of p
-            j_p = ca.DM.eye(self.dim['p'])[self._idx['p'](t),:]
+            j_p = ca.repmat(ca.DM.eye(self.dim['p']),1,multiplier)[self._idx['p'](t),:]
 
             # get entries o y
             j_y = j_y_p[self.idx['y_next'](t),:] if y_idx else ca.DM(0,self.dim['p'])
