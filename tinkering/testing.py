@@ -13,9 +13,7 @@ import examples.dynamics.cart_pend_theta as cart_pend
 import casadi as ca
 from src.upper_level import UpperLevel
 from src.simVar import simVar
-import jax.numpy as jnp
 import numpy as np
-from jaxadi import convert
 
 def get_scenario():
 
@@ -173,13 +171,9 @@ n_models = 10
 compilation_options = {}
 
 # extract dynamics and linearization
-# A = scenario.dyn.A_nom.map(n_models,[True,True,False],[False],compilation_options)
-# B = scenario.dyn.B_nom.map(n_models,[True,True,False],[False],compilation_options)
-A = convert(scenario.dyn.A_nom,compile=True)
-B = convert(scenario.dyn.B_nom,compile=True)
+A = scenario.dyn.A_nom.map(n_models,[True,True,False],[False],compilation_options)
+B = scenario.dyn.B_nom.map(n_models,[True,True,False],[False],compilation_options)
 f = scenario.dyn.f
-
-# vectorize A and B
 
 # create simVar for current simulation
 S = simVar(n)
@@ -189,14 +183,14 @@ S.setState(0,x)
 
 # extract parameter indexing
 idx_qp = scenario.upper_level.idx['qp']
-idx_jac = convert(scenario.upper_level.idx['jac'],compile=True)
+idx_jac = scenario.upper_level.idx['jac']
 
 # get qp solver
 solver = qp.solve
 
 # initialize Jacobians
-j_x_p = jnp.zeros((n['x'],n['p'],n_models))
-j_y_p = jnp.zeros((n['y'],n['p'],n_models))
+j_x_p = np.zeros((n['x'],n['p'],n_models))
+j_y_p = np.zeros((n['y'],n['p'],n_models))
 # S.setJx(0,j_x_p)
 
 y_all = None
@@ -226,10 +220,10 @@ for t in range(n['T']):
     u = y_all[qp.idx['out']['u0']]
 
     # store optimization variables
-    # S.setOptVar(t,lam,mu,y,p_t)
+    S.setOptVar(t,lam,mu,y,p_t)
 
     # store input
-    # S.setInput(t,u)
+    S.setInput(t,u)
 
     # get current state and input
     current_var = {'x':x,'u':u}
@@ -244,7 +238,8 @@ for t in range(n['T']):
 
     # get conservative jacobian of optimal solution of QP with respect to parameter
     # vector p.
-    j_qp_p = qp.J_y_p(np.array(lam),np.array(mu),np.array(p_t))@idx_jac(j_x_p.reshape((n['x'],n['p']*n_models)),j_y_p.reshape((n['y'],n['p']*n_models)),t,multiplier=n_models)
+    # j_qp_p = qp.J_y_p(lam,mu,p_t)@idx_jac(j_x_p,j_y_p,t,multiplier=n_models)
+    j_qp_p = qp.J_y_p(np.array(lam),np.array(mu),np.array(p_t))@idx_jac(ca.DM(j_x_p.reshape((n['x'],n['p']*n_models))),ca.DM(j_y_p.reshape((n['y'],n['p']*n_models))),t,multiplier=n_models)
 
     # select entries associated to y
     j_y_p = j_qp_p[qp.idx['out']['y'],:]
@@ -259,12 +254,9 @@ for t in range(n['T']):
             + np.einsum('ijk,ljk->ilk',
                         np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
                         np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
-    # j_x_p = np.einsum('mnr,ndr->mdr',
-    #                   np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
-    #                   j_x_p) \
-    #         + np.einsum('ijk,ljk->ilk',
-    #                     np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
-    #                     np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
+
+    # reshape jacobians by stacking horizontally
+    # TODO
 
     # store conservative jacobians of state and input
     # S.setJx(t+1,j_x_p)
@@ -275,6 +267,6 @@ for t in range(n['T']):
     x = f.call(var_in)['x_next']
 
     # store next state
-    # S.setState(t+1,x)
+    S.setState(t+1,x)
 
 print('Done')

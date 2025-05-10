@@ -5,7 +5,7 @@ from src.options import Options
 import numpy as np
 from copy import copy
 from jaxadi import convert
-from jax.numpy.linalg import lstsq
+from numpy.linalg import lstsq
 
 """
 TODO
@@ -131,7 +131,7 @@ class QP:
 
         # form QP ingredients
         QP_outs = [A,lba,uba,Q,q]
-        QP_outs_names = ['A','lba','uba','Q','q']
+        QP_outs_names = ['a','lba','uba','h','g']
 
         # set of symbolic outputs
         sym_outputs = set(ca.symvar(ca.vcat([ca.vcat(ca.symvar(elem)) for elem in QP_outs])))
@@ -191,38 +191,46 @@ class QP:
         
                 def local_qp(p_qp,x0=None,lam0=None,mu0=None):
 
-                    # get data from qp_dense function
-                    a,lba,uba,h,g = QP_func(p_qp)
+                    # check if warmstart is passed
+                    warm_start = {'x0':x0,'lam_a0':ca.vertcat(lam0,mu0)} if x0 is not None else {}
 
-                    # solve QP with warmstarting
-                    if x0 is not None:
-                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba,x0=x0,lam_a0=ca.vertcat(lam0,mu0))
-                    
-                    # if does not work, try without warmstarting
-                    else:
-                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba)
+                    # get data from qp_dense function
+                    qp_ingredients = QP_func(p=p_qp)
+
+                    # solve QP
+                    sol = S.call(qp_ingredients | warm_start)
+
+                    # get outputs
+                    # lam_a_out = np.array(sol['lam_a'])
+                    # x_out = np.array(sol['x'])
+                    lam_a_out = sol['lam_a']
+                    x_out = sol['x']
                     
                     # return lambda, mu, y
-                    return sol['lam_a'][:self.dim['in']],sol['lam_a'][self.dim['in']:],sol['x']
+                    return lam_a_out[:self.dim['in']],lam_a_out[self.dim['in']:],x_out
                 
             # warmstart only primal
             case 'x':
         
                 def local_qp(p_qp,x0=None):
 
-                    # get data from qp_dense function
-                    a,lba,uba,h,g = QP_func(p_qp)
+                    # check if warmstart is passed
+                    warm_start = {'x0':x0} if x0 is not None else {}
 
-                    # solve QP with warmstarting
-                    if x0 is not None:
-                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba,x0=x0)
-                    
-                    # if does not work, try without warmstarting
-                    else:
-                        sol = S(h=h,a=a,g=g,lba=lba,uba=uba)
+                    # get data from qp_dense function
+                    qp_ingredients = QP_func(p=p_qp)
+
+                    # solve QP
+                    sol = S(qp_ingredients | warm_start)
+
+                    # get outputs
+                    # lam_a_out = np.array(sol['lam_a'])
+                    # x_out = np.array(sol['x'])
+                    lam_a_out = sol['lam_a']
+                    x_out = sol['x']
                     
                     # return lambda, mu, y
-                    return sol['lam_a'][:self.dim['in']],sol['lam_a'][self.dim['in']:],sol['x']
+                    return lam_a_out[:self.dim['in']],lam_a_out[self.dim['in']:],x_out
         
         # save in model
         self._solve = local_qp
@@ -429,12 +437,12 @@ class QP:
         start = time.time()
 
         # turn into function
-        # J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names,options)
-        J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names)
+        J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names,options)
+        # J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names)
 
         # convert to Jax and compile
-        compile_true = True if self._options['compile_jac'] else False
-        J = convert(J,compile=compile_true)
+        # compile_true = True if self._options['compile_jac'] else False
+        # J = convert(J,compile=compile_true)
 
         # stop counting time
         comp_time_dict = {'J':time.time()-start}
@@ -450,7 +458,7 @@ class QP:
 
             # get conservative jacobian of dual solution
             # A = -ca.solve(J_F_z,J_F_p@t,'csparse')
-            A = -lstsq(J_F_z,J_F_p@t)[0]
+            A = -lstsq(np.array(J_F_z),np.array(J_F_p@t))[0]
 
             # return conservative jacobian of primal
             return J_y_p@t+J_y_z_mat@A
