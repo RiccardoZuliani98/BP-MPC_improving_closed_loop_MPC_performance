@@ -14,6 +14,8 @@ import casadi as ca
 from src.upper_level import UpperLevel
 from src.simVar import simVar
 import numpy as np
+from jaxadi import convert
+from jax import vmap
 
 def get_scenario():
 
@@ -158,6 +160,8 @@ scenario = get_scenario()
 
 p,pf,w,d,theta,y,x = scenario._get_init_parameters()
 
+theta = ca.repmat(theta,1,10)
+
 qp = scenario.qp
 
 n = scenario.dim
@@ -173,6 +177,10 @@ compilation_options = {}
 # extract dynamics and linearization
 A = scenario.dyn.A_nom.map(n_models,[True,True,False],[False],compilation_options)
 B = scenario.dyn.B_nom.map(n_models,[True,True,False],[False],compilation_options)
+# A_single = convert(scenario.dyn.A_nom,compile=True)
+# B_single = convert(scenario.dyn.B_nom,compile=True)
+# A = vmap(A_single,in_axes=(None,None,1),out_axes=1)
+# B = vmap(B_single,in_axes=(None,None,1),out_axes=1)
 f = scenario.dyn.f
 
 # create simVar for current simulation
@@ -199,7 +207,8 @@ mu = None
 
 # get list of inputs to dynamics and to nominal dynamics
 var_in_fixed = {'d':d} if d is not None else {}
-var_in_nom_fixed = {'theta':theta} if theta is not None else {}
+# var_in_nom_fixed = {'theta':theta} if theta is not None else {}
+var_in_nom_fixed = {'theta':np.array(theta)} if theta is not None else {}
 
 # simulation loop
 for t in range(n['T']):
@@ -227,10 +236,12 @@ for t in range(n['T']):
 
     # get current state and input
     current_var = {'x':x,'u':u}
+    # current_var_np = {'x':np.array(x),'u':np.array(u)}
     
     # update variables
     var_in = var_in_fixed | current_var
     var_in_nom = var_in_nom_fixed | current_var
+    # var_in_nom = (np.array(x),np.array(u),np.array(theta))
 
     # check if noise is present
     if w is not None:
@@ -239,7 +250,7 @@ for t in range(n['T']):
     # get conservative jacobian of optimal solution of QP with respect to parameter
     # vector p.
     # j_qp_p = qp.J_y_p(lam,mu,p_t)@idx_jac(j_x_p,j_y_p,t,multiplier=n_models)
-    j_qp_p = qp.J_y_p(np.array(lam),np.array(mu),np.array(p_t))@idx_jac(ca.DM(j_x_p.reshape((n['x'],n['p']*n_models))),ca.DM(j_y_p.reshape((n['y'],n['p']*n_models))),t,multiplier=n_models)
+    j_qp_p = qp.J_y_p(lam,mu,p_t)@idx_jac(j_x_p.reshape((n['x'],n['p']*n_models)),j_y_p.reshape((n['y'],n['p']*n_models)),t,multiplier=n_models)
 
     # select entries associated to y
     j_y_p = j_qp_p[qp.idx['out']['y'],:]
@@ -248,6 +259,8 @@ for t in range(n['T']):
     j_u0_p = j_qp_p[qp.idx['out']['u0'],:]
 
     # propagate jacobian of closed loop state x
+    # j_x_p = np.einsum('mnr,ndr->mdr',np.array(A(*var_in_nom)).squeeze(),j_x_p) \
+    #         + np.einsum('mnr,ndr->mdr',np.array(B(*var_in_nom)).squeeze(),np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
     j_x_p = np.einsum('mnr,ndr->mdr',
                       np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
                       j_x_p) \
