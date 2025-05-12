@@ -63,10 +63,10 @@ class Ingredients:
         self._sym = dynamics_copy._sym.copy(['x','y_lin'])
 
         # add horizon
-        self._sym.addDim('N',N)
+        self._sym.add_dim('N',N)
 
         # add input dimensions
-        self._sym.addDim('u',dynamics_copy._sym.dim['u'])
+        self._sym.add_dim('u',dynamics_copy._sym.dim['u'])
 
         # merge into dictionary
         data = model | cost | constraints
@@ -82,7 +82,7 @@ class Ingredients:
         self._options['slack'],n_eps = slack_true
 
         # save slack dimension in symbolic variable
-        self._sym.addDim('eps',n_eps)
+        self._sym.add_dim('eps',n_eps)
 
         # create sparse QP
         self._sparse = self._makeSparseQP(processed_data)

@@ -4,7 +4,7 @@ from src.Ingredients import Ingredients
 from src.options import Options
 import numpy as np
 from copy import copy
-from jaxadi import convert
+# from jaxadi import convert
 from numpy.linalg import lstsq
 
 """
@@ -19,12 +19,14 @@ class QP:
     # Allowed option keys
     _OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp'],'dense_solver':['qpoases','daqp'],
                                'warmstart':['x_lam_mu','x'],'jac_tol':int,'jac_gamma':float,
-                               'compile_qp_sparse':bool,'compile_qp_dense':bool,'compile_jac':bool}
+                               'compile_qp_sparse':bool,'compile_qp_dense':bool,'compile_jac':bool,
+                               'ls_solver':['numpy','casadi']}
 
     # default values of options dictionary
     _OPTIONS_DEFAULT_VALUES = {'solver':'qpoases','dense_solver':'qpoases',
                                'warmstart':'x_lam_mu','jac_tol':8,'jac_gamma':0.001,
-                               'compile_qp_sparse':False,'compile_qp_dense':False,'compile_jac':False}
+                               'compile_qp_sparse':False,'compile_qp_dense':False,'compile_jac':False,
+                               'ls_solver':'casadi'}
 
     def __init__(self,ingredients,p=None,pf=None,options=None):
 
@@ -49,7 +51,7 @@ class QP:
         # if p is passed, store it in parameters of QP
         if p is not None:
             assert isinstance(p,ca.SX), 'p must be of type SX'
-            self._sym.addVar('p_t',p)
+            self._sym.add_var('p_t',p)
 
         # TODO: check if order of variables in p_QP is correct
 
@@ -58,8 +60,8 @@ class QP:
         p_QP_names = list(self._sym.var.keys())
 
         # save full symbolic qp parameter (do not include pf even if present)
-        # self._sym.addDim('p_qp',ca.vcat(p_QP).shape[0])
-        self._sym.addVar('p_qp',ca.vcat(p_QP))
+        # self._sym.add_dim('p_qp',ca.vcat(p_QP).shape[0])
+        self._sym.add_var('p_qp',ca.vcat(p_QP))
 
         # create input index
         idx_in = dict()
@@ -80,30 +82,30 @@ class QP:
         # if pf is passed, store it in parameters of QP
         if pf is not None:
             assert isinstance(pf,ca.SX), 'p must be of type SX'
-            self._sym.addVar('pf_t',pf)
+            self._sym.add_var('pf_t',pf)
             p_QP.append(pf)
         else:
             # add dimension
-            self._sym.addDim('pf_t',0)
+            self._sym.add_dim('pf_t',0)
 
         # store full qp parameter
-        self._sym.addVar('p_qp_full',ca.vcat(p_QP))
+        self._sym.add_var('p_qp_full',ca.vcat(p_QP))
 
         # store dimensions of equality and inequality constraints
-        self._sym.addDim('in',ingredients.sparse['G'].shape[0])
-        self._sym.addDim('eq',ingredients.sparse['F'].shape[0])
+        self._sym.add_dim('in',ingredients.sparse['G'].shape[0])
+        self._sym.add_dim('eq',ingredients.sparse['F'].shape[0])
 
         # primal optimization variables
-        self._sym.addVar('y',ca.SX.sym('y',ingredients.sparse['q'].shape[0]-self._sym.dim['eps'],1))
+        self._sym.add_var('y',ca.SX.sym('y',ingredients.sparse['q'].shape[0]-self._sym.dim['eps'],1))
 
         # dual optimization variables (inequality constraints)
-        self._sym.addVar('lam',ca.SX.sym('lam',ingredients.sparse['g'].shape[0],1))
+        self._sym.add_var('lam',ca.SX.sym('lam',ingredients.sparse['g'].shape[0],1))
 
         # dual optimization variables (equality constraints)
-        self._sym.addVar('mu',ca.SX.sym('mu',ingredients.sparse['f'].shape[0],1))
+        self._sym.add_var('mu',ca.SX.sym('mu',ingredients.sparse['f'].shape[0],1))
 
         # dual optimization variable (all constraints)
-        self._sym.addVar('z',ca.vcat([self._sym.var['lam'],self._sym.var['mu']]))
+        self._sym.add_var('z',ca.vcat([self._sym.var['lam'],self._sym.var['mu']]))
 
         # create sparse QP
         self._makeSparseQP()
@@ -438,30 +440,42 @@ class QP:
 
         # turn into function
         J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names,options)
-        # J = ca.Function('J',dual_params,dual_outs,dual_params_names,dual_outs_names)
-
-        # convert to Jax and compile
-        # compile_true = True if self._options['compile_jac'] else False
-        # J = convert(J,compile=compile_true)
 
         # stop counting time
         comp_time_dict = {'J':time.time()-start}
 
         # function to generate jacobians
-        def J_y_p(lam,mu,p_qp,t=1):
+        if self._options['ls_solver'] == 'numpy':
 
-            # round lambda (always first entry in dual_params) to avoid numerical issues
-            lam = np.round(np.array(ca.fmax(lam,0)),self._options['jac_tol'])
-            
-            # get all conservative jacobian and matrices
-            J_F_z,J_F_p,J_y_p,J_y_z_mat = J(lam,mu,p_qp)
+            def J_y_p(lam,mu,p_qp,t=1):
 
-            # get conservative jacobian of dual solution
-            # A = -ca.solve(J_F_z,J_F_p@t,'csparse')
-            A = -lstsq(np.array(J_F_z),np.array(J_F_p@t))[0]
+                # round lambda (always first entry in dual_params) to avoid numerical issues
+                lam = np.round(np.array(ca.fmax(lam,0)),self._options['jac_tol'])
+                
+                # get all conservative jacobian and matrices
+                J_F_z,J_F_p,J_y_p,J_y_z_mat = J(lam,mu,p_qp)
 
-            # return conservative jacobian of primal
-            return J_y_p@t+J_y_z_mat@A
+                # get conservative jacobian of dual solution
+                A = -lstsq(np.array(J_F_z),np.array(J_F_p@t))[0]
+
+                # return conservative jacobian of primal
+                return J_y_p@t+J_y_z_mat@A
+        
+        elif self._options['ls_solver'] == 'casadi':
+
+                def J_y_p(lam,mu,p_qp,t=1):
+
+                    # round lambda (always first entry in dual_params) to avoid numerical issues
+                    lam = np.round(np.array(ca.fmax(lam,0)),self._options['jac_tol'])
+                    
+                    # get all conservative jacobian and matrices
+                    J_F_z,J_F_p,J_y_p,J_y_z_mat = J(lam,mu,p_qp)
+
+                    # get conservative jacobian of dual solution
+                    A = -ca.solve(J_F_z,J_F_p@t,'csparse')
+
+                    # return conservative jacobian of primal
+                    return J_y_p@t+J_y_z_mat@A
 
         # save in QP
         self._J = J

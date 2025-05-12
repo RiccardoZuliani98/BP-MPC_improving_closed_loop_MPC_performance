@@ -2,7 +2,7 @@ import casadi as ca
 from src.qp import QP
 from typing import Callable, Union, Optional
 import numpy as np
-from src.symb import Symb
+from src.symb import SymbolicVar
 from typeguard import typechecked
 
 """
@@ -26,26 +26,26 @@ class UpperLevel:
         ):
 
         # create symbolic variable
-        self._sym = Symb()
+        self._sym = SymbolicVar()
             
         # add to dimensions
-        self._sym.addDim('T',horizon)
+        self._sym.add_dim('T',horizon)
 
         # add p to set of symbolic variables
-        self._sym.addVar('p',p)
+        self._sym.add_var('p',p)
 
         # create symbolic jacobian of cost function wrt p
-        self._sym.addVar('J_p',ca.SX.sym('J_p',self.dim['p'],1))
+        self._sym.add_var('J_p',ca.SX.sym('J_p',self.dim['p'],1))
 
         # create symbolic variable representing the iteration number
-        self._sym.addVar('k',ca.SX.sym('k',1,1))
+        self._sym.add_var('k',ca.SX.sym('k',1,1))
 
         # save all symbolic variables
-        self._sym.addVar('x_cl',ca.SX.sym('x_cl',mpc.dim['x'],horizon+1))
-        self._sym.addVar('u_cl',ca.SX.sym('u_cl',mpc.dim['u'],horizon))
-        self._sym.addVar('y_cl',ca.SX.sym('y_cl',mpc.dim['y'],horizon))
+        self._sym.add_var('x_cl',ca.SX.sym('x_cl',mpc.dim['x'],horizon+1))
+        self._sym.add_var('u_cl',ca.SX.sym('u_cl',mpc.dim['u'],horizon))
+        self._sym.add_var('y_cl',ca.SX.sym('y_cl',mpc.dim['y'],horizon))
         if 'eps' in mpc.dim:
-            self._sym.addVar('e_cl',ca.SX.sym('e_cl',mpc.dim['eps'],horizon))
+            self._sym.add_var('e_cl',ca.SX.sym('e_cl',mpc.dim['eps'],horizon))
 
         # if idx_p was not passed, assume p if time-invariant
         if idx_p is None:
@@ -64,7 +64,7 @@ class UpperLevel:
         if pf is not None:
 
             # store symbolic variable
-            self._sym.addVar('pf',pf)
+            self._sym.add_var('pf',pf)
 
             # if idx_pf was not passed, assume pf if time-invariant
             if idx_pf is None:

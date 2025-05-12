@@ -1,6 +1,6 @@
 import casadi as ca
 import time
-from src.symb import Symb
+from src.symb import SymbolicVar
 
 class Dynamics:
     """
@@ -93,11 +93,11 @@ class Dynamics:
         assert self._x_next_nom.shape == dyn['x'].shape, 'x_next must have the same dimensions as x.'
 
         # create dictionary containing symbolic variables
-        self._sym = Symb()
+        self._sym = SymbolicVar()
 
         # store state and input
-        self._sym.addVar('x', dyn['x'])
-        self._sym.addVar('u', dyn['u'])
+        self._sym.add_var('x', dyn['x'])
+        self._sym.add_var('u', dyn['u'])
 
         # save variables in parameter vectors
         self._param = {'x':dyn['x'],'u':dyn['u']}
@@ -105,15 +105,15 @@ class Dynamics:
 
         # store noise and disturbance if present
         if 'd' in dyn:
-            self._sym.addVar('d', dyn['d'])
+            self._sym.add_var('d', dyn['d'])
             self._param = self._param | {'d':dyn['d']}
         if 'w' in dyn:
-            self._sym.addVar('w', dyn['w'])
+            self._sym.add_var('w', dyn['w'])
             self._param = self._param | {'w':dyn['w']}
 
         # store nominal model if present
         if 'theta' in dyn:
-            self._sym.addVar('theta', dyn['theta'])
+            self._sym.add_var('theta', dyn['theta'])
             self._param_nom = self._param_nom | {'theta':dyn['theta']}
 
         # extract symbolic parameters and their names
@@ -289,7 +289,7 @@ class Dynamics:
             c_list = [c_lin] * horizon
 
             # store y_lin
-            self._sym.addVar('y_lin', y_lin)
+            self._sym.add_var('y_lin', y_lin)
                 
         # if mode is 'trajectory', linearize along a trajectory (similar to real-time iteration)
         elif method == 'trajectory':
@@ -329,7 +329,7 @@ class Dynamics:
                 c_list.append(c_i)
 
             # store y_lin
-            self._sym.addVar('y_lin', y_lin)
+            self._sym.add_var('y_lin', y_lin)
 
         else:
             raise Exception('unknown linearization method')

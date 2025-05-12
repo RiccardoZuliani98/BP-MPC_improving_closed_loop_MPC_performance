@@ -184,7 +184,7 @@ B = scenario.dyn.B_nom.map(n_models,[True,True,False],[False],compilation_option
 f = scenario.dyn.f
 
 # create simVar for current simulation
-S = simVar(n)
+S = simVar(n,n_models)
 
 # set initial condition
 S.setState(0,x)
@@ -197,9 +197,9 @@ idx_jac = scenario.upper_level.idx['jac']
 solver = qp.solve
 
 # initialize Jacobians
-j_x_p = np.zeros((n['x'],n['p'],n_models))
-j_y_p = np.zeros((n['y'],n['p'],n_models))
-# S.setJx(0,j_x_p)
+j_x_p = ca.DM((n['x'],n['p']*n_models))
+j_y_p = ca.DM((n['y'],n['p']*n_models))
+S.setJx(0,j_x_p)
 
 y_all = None
 lam = None
@@ -207,8 +207,8 @@ mu = None
 
 # get list of inputs to dynamics and to nominal dynamics
 var_in_fixed = {'d':d} if d is not None else {}
-# var_in_nom_fixed = {'theta':theta} if theta is not None else {}
-var_in_nom_fixed = {'theta':np.array(theta)} if theta is not None else {}
+var_in_nom_fixed = {'theta':theta} if theta is not None else {}
+# var_in_nom_fixed = {'theta':np.array(theta)} if theta is not None else {}
 
 # simulation loop
 for t in range(n['T']):
@@ -268,13 +268,10 @@ for t in range(n['T']):
                         np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
                         np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
 
-    # reshape jacobians by stacking horizontally
-    # TODO
-
     # store conservative jacobians of state and input
-    # S.setJx(t+1,j_x_p)
-    # S.setJu(t,j_u0_p)
-    # S.setJy(t,j_y_p)
+    S.setJx(t+1,j_x_p.reshape((n['x'],n['p']*n_models)))
+    S.setJu(t,j_u0_p.reshape((n['u'],n['p']*n_models)))
+    S.setJy(t,j_y_p.reshape((n['y'],n['p']*n_models)))
 
     # get next state
     x = f.call(var_in)['x_next']
