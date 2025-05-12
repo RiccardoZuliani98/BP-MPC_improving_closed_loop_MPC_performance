@@ -20,7 +20,7 @@ def sample_dynamics(use_d:bool=False,use_w:bool=False,use_theta:bool=False,nonli
 
         x_next_nom = (A_1 + A_3@theta) @ x + x**2 + B@u + c.
 
-    The terms A_1,A_2,A_3,B,B_d,c are randmly generated with entries between 0 and 1.
+    The terms A_1,A_2,A_3,B,B_d,c are randomly generated with entries between 0 and 1.
 
     Args:
         use_d (bool, optional): if true the dynamics contain model uncertainty d

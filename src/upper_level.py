@@ -23,7 +23,7 @@ class UpperLevel:
             pf: Optional[ca.SX] = None,
             idx_p: Optional[Callable[[int], Union[range, np.ndarray]]] = None,
             idx_pf: Optional[Callable[[int], Union[range, np.ndarray]]] = None
-        ):
+        ) -> None:
 
         # create symbolic variable
         self._sym = SymbolicVar()

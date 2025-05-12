@@ -4,13 +4,13 @@ from src.dynamics import Dynamics
 from copy import copy
 import numpy as np
 from src.options import Options
+from typeguard import typechecked
+from typing import Optional
 
 """
 TODO:
 * add descriptions
 * add update function
-* create a separate function for checking dimensions?
-* allow symb to contain list of variables? In this case the dimension must be provided manually perhaps
 """
 
 class Ingredients:
@@ -32,14 +32,13 @@ class Ingredients:
     
     _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'slack':False}
 
-    def __init__(self,N,dynamics,cost,constraints,options=None):
+    @typechecked
+    def __init__(self,horizon:int,dynamics:Dynamics,cost:dict,constraints:dict,options:Optional[dict]=None) -> None:
 
         if options is None:
             options = {}
 
-        assert isinstance(dynamics,Dynamics), 'The system dynamics must be an instance of class Dynamics'
-        assert isinstance(options,dict), 'Options must be passed as a dictionary'
-        assert isinstance(N,int) and N>0, 'N must be a positive integer'
+        assert horizon > 0, 'horizon must be a positive integer'
 
         # copy dynamics
         dynamics_copy = copy(dynamics)
@@ -51,7 +50,7 @@ class Ingredients:
         self._options.update(options)
 
         # check if user passed a special option for linearization
-        used_linearization_method = dynamics_copy._linearize(horizon=N,method=self._options['linearization'])
+        used_linearization_method = dynamics_copy._linearize(horizon=horizon,method=self._options['linearization'])
 
         # retrieve prediction model
         model = dynamics_copy.model
@@ -63,7 +62,7 @@ class Ingredients:
         self._sym = dynamics_copy._sym.copy(['x','y_lin'])
 
         # add horizon
-        self._sym.add_dim('N',N)
+        self._sym.add_dim('N',horizon)
 
         # add input dimensions
         self._sym.add_dim('u',dynamics_copy._sym.dim['u'])

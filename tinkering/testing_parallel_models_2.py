@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.scenario import Scenario
 from src.dynamics import Dynamics
 from src.qp import QP
-from src.Ingredients import Ingredients
+from src.ingredients import Ingredients
 import src.utils as utils
 # import tests.tests as tests
 import examples.dynamics.cart_pend_theta as cart_pend

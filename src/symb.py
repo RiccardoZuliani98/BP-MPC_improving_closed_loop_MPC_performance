@@ -24,7 +24,21 @@ class SymbolicVar:
         return self._init
 
     @staticmethod
-    def _check_and_convert(value,expected_shape):
+    def _check_and_convert(value:Union[list,ca.DM],expected_shape:Union[int,list[int]]) -> Union[list,ca.DM]:
+        """
+        Recursively checks and converts the input value to a CasADi DM (Dense Matrix) object 
+        while ensuring it matches the expected shape.
+        Args:
+            value (list or numeric): The input value to be checked and converted. It can be a 
+                numeric value, a list of numeric values, or a nested list structure.
+            expected_shape (tuple or int): The expected shape of the resulting CasADi DM object. 
+                If the input is a column vector, this can be an integer representing the number 
+                of rows.
+        Returns:
+            ca.DM: The converted CasADi DM object with the expected shape.
+        Raises:
+            AssertionError: If the shape of the converted value does not match the expected shape.
+        """
 
         # check if value is a list
         if isinstance(value, list):
@@ -83,10 +97,10 @@ class SymbolicVar:
             assert name in self._var, 'Cannot initialize variable that does not exist'
 
             # run function that checks dimension and stores
-            self._check_and_convert(value,self._dim[name])
+            converted_value = self._check_and_convert(value,self._dim[name])
 
             # add to initialization
-            self._init[name] = value
+            self._init[name] = converted_value
 
     def get_var(self,name):
         return self.var[name],self.dim[name],self.init[name]

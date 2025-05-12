@@ -1,6 +1,6 @@
 import casadi as ca
 import time
-from src.Ingredients import Ingredients
+from src.ingredients import Ingredients
 from src.options import Options
 import numpy as np
 from copy import copy

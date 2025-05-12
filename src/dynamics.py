@@ -50,7 +50,7 @@ class Dynamics:
         init: Returns the dictionary containing the initial values of symbolic variables.
     """
 
-    def __init__(self,dyn:dict,compile:bool=False):
+    def __init__(self,dyn:dict,jit:bool=False):
         """
         Class constructor.
 
@@ -65,12 +65,12 @@ class Dynamics:
                     - 'w': process noise
                     - 'theta': parameters
                     - 'x_next_nom': nominal next state
-            compile (bool, optional): If True, compile the dynamics using CasADi's JIT compilation. 
+            jit (bool, optional): If True, compile the dynamics using CasADi's JIT compilation.
                 Defaults to False.
         """
 
         # compilation options
-        if compile:
+        if jit:
             jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
             options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
         else:
@@ -153,7 +153,7 @@ class Dynamics:
         self._f = f
         self._f_nom = f_nom
 
-        # compute jacobians symbolically
+        # compute Jacobians symbolically
         df_dx = ca.jacobian(self.x_next,self.param['x'])
         df_du = ca.jacobian(self.x_next,self.param['u'])
 
@@ -163,12 +163,12 @@ class Dynamics:
         else:
             self._is_affine = False
 
-        # compute jacobians
+        # compute Jacobians
         start = time.time()
-        A = ca.Function('A', p, [df_dx], p_names, ['A'], options)
+        a = ca.Function('A', p, [df_dx], p_names, ['A'], options)
         comp_time_dict = comp_time_dict | {'A':time.time()-start}
         start = time.time()
-        B = ca.Function('B', p, [df_du], p_names, ['B'], options)
+        b = ca.Function('B', p, [df_du], p_names, ['B'], options)
         comp_time_dict = comp_time_dict | {'B':time.time()-start}
 
         # compute nominal jacobians
@@ -180,26 +180,26 @@ class Dynamics:
 
             # compute jacobians
             start = time.time()
-            A_nom = ca.Function('A_nom', p_nom, [df_dx_nom], p_nom_names, ['A'], options)
+            a_nom = ca.Function('A_nom', p_nom, [df_dx_nom], p_nom_names, ['A'], options)
             comp_time_dict = comp_time_dict | {'A_nom':time.time()-start}
             start = time.time()
-            B_nom = ca.Function('B_nom', p_nom, [df_du_nom], p_nom_names, ['B'], options)
+            b_nom = ca.Function('B_nom', p_nom, [df_du_nom], p_nom_names, ['B'], options)
             comp_time_dict = comp_time_dict | {'B_nom':time.time()-start}
 
             # save in dynamics
-            self._A_nom = A_nom
-            self._B_nom = B_nom
+            self._A_nom = a_nom
+            self._B_nom = b_nom
         else:
             # otherwise, copy exact dynamics
-            A_nom = A
-            B_nom = B
+            a_nom = a
+            b_nom = b
             comp_time_dict = comp_time_dict | {'A_nom':comp_time_dict['A'],'B_nom':comp_time_dict['B']}
         
         # store in dynamics
-        self._A = A
-        self._A_nom = A_nom
-        self._B = B
-        self._B_nom = B_nom
+        self._A = a
+        self._A_nom = a_nom
+        self._B = b
+        self._B_nom = b_nom
 
         # store computation times
         self._compTimes = comp_time_dict
@@ -249,8 +249,8 @@ class Dynamics:
 
         # extract dynamics
         fd = self.f_nom
-        A = self.A_nom
-        B = self.B_nom
+        a = self.A_nom
+        b = self.B_nom
 
         # extract nominal parameters
         param_nom = self.param_nom
@@ -259,13 +259,13 @@ class Dynamics:
         if self._is_affine:
 
             # create nominal dynamics f(x,u) = Ax + bu + c
-            A_mat = list(A(param_nom).values())[0]
-            B_mat = list(B(param_nom).values())[0]
-            c_mat = -(list(fd(param_nom).values())[0] - A_mat@x - B_mat@u)
+            a_mat = list(a(param_nom).values())[0]
+            b_mat = list(b(param_nom).values())[0]
+            c_mat = -(list(fd(param_nom).values())[0] - a_mat@x - b_mat@u)
 
             # stack in list
-            A_list = [A_mat] * horizon
-            B_list = [B_mat] * horizon
+            a_list = [a_mat] * horizon
+            b_list = [b_mat] * horizon
             c_list = [c_mat] * horizon
 
         # if mode is 'initial_state', linearize around the initial state
@@ -279,13 +279,13 @@ class Dynamics:
             param_nom['u'] = u_lin
 
             # compute derivatives
-            A_lin = list(A(param_nom).values())[0]
-            B_lin = list(B(param_nom).values())[0]
-            c_lin = - ( list(fd(param_nom).values())[0] - A_lin@x - B_lin@u_lin )
+            a_lin = list(A(param_nom).values())[0]
+            b_lin = list(B(param_nom).values())[0]
+            c_lin = - ( list(fd(param_nom).values())[0] - a_lin@x - b_lin@u_lin )
 
             # stack in list
-            A_list = [A_lin] * horizon
-            B_list = [B_lin] * horizon
+            a_list = [A_lin] * horizon
+            b_list = [B_lin] * horizon
             c_list = [c_lin] * horizon
 
             # store y_lin
@@ -302,7 +302,7 @@ class Dynamics:
             u_lin = y_lin[horizon*n_x:]
 
             # preallocate matrices
-            A_list, B_list, c_list = [], [], []
+            a_list, b_list, c_list = [], [], []
 
             # extract linearization points by splitting the x_lin and u_lin vectors
             x_lin_list = ca.vertsplit(x_lin,n_x)
@@ -319,13 +319,13 @@ class Dynamics:
                 param_nom['u'] = u_i
 
                 # evaluate jacobians
-                A_i = list(A.call(param_nom).values())[0]
-                A_list.append(A_i)
-                B_i = list(B.call(param_nom).values())[0]
-                B_list.append(B_i)
+                a_i = list(a.call(param_nom).values())[0]
+                a_list.append(a_i)
+                b_i = list(b.call(param_nom).values())[0]
+                b_list.append(b_i)
 
                 # evaluate linear part
-                c_i = - ( list(fd.call(param_nom).values())[0] - A_i@x_i - B_i@u_i )
+                c_i = - ( list(fd.call(param_nom).values())[0] - a_i@x_i - b_i@u_i )
                 c_list.append(c_i)
 
             # store y_lin
@@ -335,7 +335,7 @@ class Dynamics:
             raise Exception('unknown linearization method')
 
         # store output dictionary
-        self._model = {'A':A_list, 'B':B_list, 'c':c_list}
+        self._model = {'A':a_list, 'B':b_list, 'c':c_list}
 
         # return used linearization method
         return 'affine' if self._is_affine else method
@@ -389,7 +389,7 @@ class Dynamics:
         return self._model
     
     @property
-    def compTimes(self):
+    def comp_times(self):
         return self._compTimes
     
     @property
