@@ -1,14 +1,20 @@
+from __future__ import annotations
 from copy import copy
-
-"""
-TODO:
-* add descriptions
-* add method to quickly merge multiple options
-"""
+from typing import Optional,Union
 
 class Options:
 
-    def __init__(self,allowed_options,default_options=None):
+    def __init__(self,allowed_options:dict,default_options:Optional[dict]=None) -> None:
+        """
+        Initializes the options handler with allowed and default options.
+        Args:
+            allowed_options (dict): A dictionary specifying the allowed options 
+                and their corresponding valid values or constraints.
+            default_options (Optional[dict]): A dictionary specifying the default 
+                options to initialize with. Defaults to an empty dictionary if not provided.
+        Raises:
+            AssertionError: If `allowed_options` is not a dictionary.
+        """
 
         if default_options is None:
             default_options = {}
@@ -18,7 +24,7 @@ class Options:
         self._allowed_options = allowed_options
         self.update(default_options)
 
-    def __add__(self,other):
+    def __add__(self,other:Options) -> Options:
 
         assert isinstance(other,Options), 'You can only sum two options objects'
 
@@ -30,9 +36,8 @@ class Options:
         out.update(other)
 
         return out
-
     
-    def __getitem__(self, key):
+    def __getitem__(self, key:str):
         # Allow dictionary-like access: obj['key']
         return self.__dict__[key]
     
@@ -48,11 +53,27 @@ class Options:
         # Support dict-like items() method
         return [(k, self.__dict__[k]) for k in self.keys()]
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key:str, value):
         # Allow dictionary-like assignment: obj['key'] = value
         self.__dict__[key] = value
 
-    def update(self,dict_in):
+    def update(self,dict_in:Union[dict,Options]) -> None:
+        """
+        Updates the options with the provided dictionary.
+        This method allows updating the current options by passing a dictionary
+        or another `Options` instance. It validates the keys and values against
+        the allowed options and their constraints.
+        Args:
+            dict_in (dict): A dictionary or an `Options` instance containing the
+                            options to update.
+        Raises:
+            AssertionError: If `dict_in` is not a dictionary or an `Options` instance.
+            AssertionError: If a key in `dict_in` is not in the allowed options.
+            AssertionError: If a value in `dict_in` does not match the constraints
+                            of the corresponding allowed option. Constraints can
+                            either be a finite list of allowed values or a type
+                            that the value must match.
+        """
 
         assert isinstance(dict_in,(dict,Options)), 'A dictionary or another Options class must be passed to update options'
 
