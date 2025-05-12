@@ -50,7 +50,7 @@ class Dynamics:
         init: Returns the dictionary containing the initial values of symbolic variables.
     """
 
-    def __init__(self,dyn:dict,jit:bool=False):
+    def __init__(self,dyn:dict,jit:bool=False) -> None:
         """
         Class constructor.
 
@@ -207,37 +207,33 @@ class Dynamics:
         # store empty model
         self._model = {}
 
-    def _linearize(self,horizon:int,method='trajectory'):
+    def _linearize(self,horizon:int,method='trajectory') -> dict | SymbolicVar | str:
         """
-        Construct the prediction model for the MPC problem using linearization.
-
-        There are multiple options:
-
-            1. If the model is affine (`self._is_affine == True`), then `A`, `B`, and `c` represent 
-            the true nominal dynamics of the system.
-
-            2. Linearize around the initial state (`method='state'`). 
-            In this case, the linearization trajectory uses a single input `u_lin`.
-
-            3. Linearize along a trajectory (`method='trajectory'`, default).
-            In this case, `y_lin` contains the state-input trajectory used for linearization.
-
-        The function returns three lists: `A_list`, `B_list`, and `c_list`, such that the linearized 
-        dynamics at time step `t` are given by:
-
-            x[t+1] = A_list[t] @ x[t] + B_list[t] @ u[t] + c_list[t]
-
-        It also returns `y_lin`, the symbolic parameter used in the linearization.
-
-        Note:
-            `c_list[0]` includes the effect of the initial state `x0`, specifically the term `-A_list[0] @ x0`.
-
+        Linearizes the system dynamics based on the specified method and horizon.
+        
         Args:
-            horizon (int): Horizon of the MPC.
-            method (str, optional): Type of linearization. Options are:
-                - 'trajectory' (default)
-                - 'state'
+            horizon (int):The prediction horizon for the linearization.
+            method (str, optional):The linearization method to use. Options are:
+                - 'trajectory': Linearizes along a trajectory (default).
+                - 'initial_state': Linearizes around the initial state.
+                - If the model is affine, computes exact dynamics.
+        Returns:
+            model (dict): A dictionary containing the linearized system matrices:
+                - 'A': List of state transition matrices for each time step.
+                - 'B': List of input matrices for each time step.
+                - 'c': List of offset vectors for each time step.
+        symbolic_vars (SymbolicVar): The symbolic variables used during the linearization
+            process as well as the symbolic variables of the dynamics class object.
+        linearization_method (str): The method used for linearization ('affine', 
+            'trajectory', or 'initial_state').
+        
+        Notes:
+            - If the model is affine, the dynamics are computed exactly as f(x, u) = Ax + Bu + c.
+            - For 'trajectory' mode, the linearization is performed along a trajectory, 
+                splitting the input and state vectors for each time step.
+            - For 'initial_state' mode, the linearization is performed around the initial state.
         """
+
 
         # extract symbolic variables
         x = self.param_nom['x']
@@ -255,13 +251,16 @@ class Dynamics:
         # extract nominal parameters
         param_nom = self.param_nom
 
+        # extract symbolic variables
+        symbolic_vars = self._sym.copy()
+
         # if model is affine, compute exact dynamics
         if self._is_affine:
 
             # create nominal dynamics f(x,u) = Ax + bu + c
-            a_mat = list(a(param_nom).values())[0]
-            b_mat = list(b(param_nom).values())[0]
-            c_mat = -(list(fd(param_nom).values())[0] - a_mat@x - b_mat@u)
+            a_mat = list(a.call(param_nom).values())[0]
+            b_mat = list(b.call(param_nom).values())[0]
+            c_mat = -(list(fd.call(param_nom).values())[0] - a_mat@x - b_mat@u)
 
             # stack in list
             a_list = [a_mat] * horizon
@@ -279,17 +278,17 @@ class Dynamics:
             param_nom['u'] = u_lin
 
             # compute derivatives
-            a_lin = list(A(param_nom).values())[0]
-            b_lin = list(B(param_nom).values())[0]
-            c_lin = - ( list(fd(param_nom).values())[0] - a_lin@x - b_lin@u_lin )
+            a_lin = list(a.call(param_nom).values())[0]
+            b_lin = list(b.call(param_nom).values())[0]
+            c_lin = - ( list(fd.call(param_nom).values())[0] - a_lin@x - b_lin@u_lin )
 
             # stack in list
-            a_list = [A_lin] * horizon
-            b_list = [B_lin] * horizon
+            a_list = [a_lin] * horizon
+            b_list = [b_lin] * horizon
             c_list = [c_lin] * horizon
 
             # store y_lin
-            self._sym.add_var('y_lin', y_lin)
+            symbolic_vars.add_var('y_lin', y_lin)
                 
         # if mode is 'trajectory', linearize along a trajectory (similar to real-time iteration)
         elif method == 'trajectory':
@@ -329,16 +328,19 @@ class Dynamics:
                 c_list.append(c_i)
 
             # store y_lin
-            self._sym.add_var('y_lin', y_lin)
+            symbolic_vars.add_var('y_lin', y_lin)
 
         else:
             raise Exception('unknown linearization method')
 
         # store output dictionary
-        self._model = {'A':a_list, 'B':b_list, 'c':c_list}
+        model = {'A':a_list, 'B':b_list, 'c':c_list}
+
+        # determine linearization method that was used
+        linearization_method = 'affine' if self._is_affine else method
 
         # return used linearization method
-        return 'affine' if self._is_affine else method
+        return model, symbolic_vars, linearization_method
     
     @property
     def x_next(self):

@@ -50,22 +50,19 @@ class Ingredients:
         self._options.update(options)
 
         # check if user passed a special option for linearization
-        used_linearization_method = dynamics_copy._linearize(horizon=horizon,method=self._options['linearization'])
-
-        # retrieve prediction model
-        model = dynamics_copy.model
+        model, symbolic_vars, used_linearization_method = dynamics_copy._linearize(horizon=horizon,method=self._options['linearization'])
 
         # store linearization method that was used
         self._options['linearization']  = used_linearization_method
 
         # retrieve symbolic variables in model
-        self._sym = dynamics_copy._sym.copy(['x','y_lin'])
+        self._sym = symbolic_vars.copy(['x','y_lin'])
 
         # add horizon
         self._sym.add_dim('N',horizon)
 
         # add input dimensions
-        self._sym.add_dim('u',dynamics_copy._sym.dim['u'])
+        self._sym.add_dim('u',symbolic_vars.dim['u'])
 
         # merge into dictionary
         data = model | cost | constraints

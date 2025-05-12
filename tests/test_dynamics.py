@@ -212,3 +212,99 @@ def test_nominal_and_derivatives():
     # # check that model is recognized as nonlinear
     # if not mod.dyn.type == 'nonlinear':
     #     raise Exception('Model was not recognized as nonlinear.')
+    
+def test_linearize_affine():
+    """
+    Test the _linearize method for affine dynamics.
+    """
+    # Generate affine dynamics
+    dynamics_dict, dynamics_matrices = sample_dynamics()
+    dynamics = Dynamics(dynamics_dict)
+
+    # Set horizon
+    horizon = 5
+
+    # Call _linearize
+    model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='trajectory')
+
+    # Check linearization method
+    assert linearization_method == 'affine', 'Linearization method should be affine.'
+
+    # Check dimensions of A, B, and c
+    assert len(model['A']) == horizon, 'Incorrect number of A matrices.'
+    assert len(model['B']) == horizon, 'Incorrect number of B matrices.'
+    assert len(model['c']) == horizon, 'Incorrect number of c vectors.'
+
+    # Check that A, B, and c are consistent with dynamics matrices
+    for a, b, c in zip(model['A'], model['B'], model['c']):
+        assert ca.DM(ca.mmin(a == ca.DM(dynamics_matrices['A']))), 'A matrix does not match.'
+        assert ca.DM(ca.mmin(b == ca.DM(dynamics_matrices['B']))), 'B matrix does not match.'
+        assert ca.DM(ca.mmin(c == ca.DM(dynamics_matrices['c']))), 'c vector does not match.'
+
+
+def test_linearize_initial_state():
+    """
+    Test the _linearize method for initial_state linearization.
+    """
+    # Generate affine dynamics
+    dynamics_dict, _ = sample_dynamics(nonlinear=True)
+    dynamics = Dynamics(dynamics_dict)
+
+    # Set horizon
+    horizon = 3
+
+    # Call _linearize
+    model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='initial_state')
+
+    # Check linearization method
+    assert linearization_method == 'initial_state', 'Linearization method should be initial_state.'
+
+    # Check dimensions of A, B, and c
+    assert len(model['A']) == horizon, 'Incorrect number of A matrices.'
+    assert len(model['B']) == horizon, 'Incorrect number of B matrices.'
+    assert len(model['c']) == horizon, 'Incorrect number of c vectors.'
+
+    # Check symbolic variable y_lin
+    assert 'y_lin' in symbolic_vars.var, 'y_lin not found in symbolic variables.'
+
+
+def test_linearize_trajectory():
+    """
+    Test the _linearize method for trajectory linearization.
+    """
+    # Generate affine dynamics
+    dynamics_dict, _ = sample_dynamics(nonlinear=True)
+    dynamics = Dynamics(dynamics_dict)
+
+    # Set horizon
+    horizon = 4
+
+    # Call _linearize
+    model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='trajectory')
+
+    # Check linearization method
+    assert linearization_method == 'trajectory', 'Linearization method should be trajectory.'
+
+    # Check dimensions of A, B, and c
+    assert len(model['A']) == horizon, 'Incorrect number of A matrices.'
+    assert len(model['B']) == horizon, 'Incorrect number of B matrices.'
+    assert len(model['c']) == horizon, 'Incorrect number of c vectors.'
+
+    # Check symbolic variable y_lin
+    assert 'y_lin' in symbolic_vars.var, 'y_lin not found in symbolic variables.'
+
+
+def test_linearize_invalid_method():
+    """
+    Test the _linearize method with an invalid method.
+    """
+    # Generate affine dynamics
+    dynamics_dict, _ = sample_dynamics(nonlinear=True)
+    dynamics = Dynamics(dynamics_dict)
+
+    # Set horizon
+    horizon = 3
+
+    # Call _linearize with an invalid method
+    with pytest.raises(Exception, match='unknown linearization method'):
+        dynamics._linearize(horizon, method='invalid_method')
