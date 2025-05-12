@@ -36,7 +36,7 @@ dyn_dict = cart_pend.dynamics(dt=0.015)
 theta = dyn_dict['theta']
 
 # create dynamics object
-dyn = Dynamics(dyn_dict)
+dyn = Dynamics(dyn_dict,jit=COMPILE_DYNAMICS)
 
 # get state and input dimensions
 n_x, n_u, n_w, n_d = dyn.dim['x'], dyn.dim['u'], dyn.dim['w'], dyn.dim['d']
@@ -100,10 +100,15 @@ Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
-ing = Ingredients(N=N,dynamics=dyn,cost=cost,constraints=cst)
+ing = Ingredients(horizon=N,dynamics=dyn,cost=cost,constraints=cst)
+
+# create options
+qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,
+              'compile_qp_dense':COMPILE_QP_DENSE,
+              'compile_jac':COMPILE_JAC}
 
 # create MPC
-MPC = QP(ingredients=ing,p=p,pf=pf)
+MPC = QP(ingredients=ing,p=p,pf=pf,options=qp_options)
 
 
 ### UPPER LEVEL -----------------------------------------------------------
