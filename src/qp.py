@@ -4,7 +4,6 @@ from src.ingredients import Ingredients
 from src.options import Options
 import numpy as np
 from copy import copy
-# from jaxadi import convert
 from numpy.linalg import lstsq
 
 """
