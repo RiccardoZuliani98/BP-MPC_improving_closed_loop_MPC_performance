@@ -1,7 +1,7 @@
 from casadi import *
 
 class simVar:
-    def __init__(self,dim):
+    def __init__(self,dim,n_models=1):
 
         """
         Class that contains results of closed-loop simulations. Contains the following variables:
@@ -52,17 +52,17 @@ class simVar:
         self._x = DM(dim['x']*(dim['T']+1),1)                # closed-loop state (n_x*(T+1),1)
         self._u = DM(dim['u']*dim['T'],1)                    # closed-loop input (n_u*T,1)
         self._e = DM(dim['eps']*dim['T'],1)                  # closed-loop slack (n_eps*T,1)
-        self._Jx = DM(dim['x']*(dim['T']+1),dim['p'])        # Jacobian of state (n_x*(T+1),n_p)
-        self._Ju = DM(dim['u']*dim['T'],dim['p'])            # Jacobian of input (n_u*T,n_p)
-        self._Jeps = DM(dim['eps']*dim['T'],dim['p'])        # Jacobian of slack (n_eps*T,n_p)
+        self._Jx = DM(dim['x']*(dim['T']+1),dim['p']*n_models)        # Jacobian of state (n_x*(T+1),n_p)
+        self._Ju = DM(dim['u']*dim['T'],dim['p']*n_models)            # Jacobian of input (n_u*T,n_p)
+        self._Jeps = DM(dim['eps']*dim['T'],dim['p']*n_models)        # Jacobian of slack (n_eps*T,n_p)
         self._y = DM(dim['y'],dim['T'])                      # primal optimization variables (n_y,T)
         self._mu = DM(dim['eq'],dim['T'])                    # multipliers of equality constraints (n_eq,T)
         self._lam = DM(dim['in'],dim['T'])                   # multipliers of inequality constraints (n_in,T)
         self._p_qp = DM(dim['p_qp_full'],dim['T'])           # parameters setting up QP at each time-step (n_p_qp+pf_qp,T)
-        self._Jy = DM((dim['y'])*dim['T'],dim['p'])          # Jacobian of optimization variables (n_y*T,n_p)
+        self._Jy = DM((dim['y'])*dim['T'],dim['p']*n_models)          # Jacobian of optimization variables (n_y*T,n_p)
         if 'p' in dim:
             self._p = DM(dim['p'],1)                           # closed-loop design parameter (n_p,1)
-            self._Jp = DM(dim['p'],1)                          # Jacobian of closed-loop cost wrt design parameter (n_p,1)
+            self._Jp = DM(dim['p']*n_models,1)                          # Jacobian of closed-loop cost wrt design parameter (n_p,1)
         if 'pf' in dim:
             self._pf = DM(dim['pf'],1)                         # closed-loop fixed parameter (e.g. reference to track)
         self._cost = None                                    # closed-loop cost

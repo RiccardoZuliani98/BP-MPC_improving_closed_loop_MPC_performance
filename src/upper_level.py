@@ -2,7 +2,7 @@ import casadi as ca
 from src.qp import QP
 from typing import Callable, Union, Optional
 import numpy as np
-from src.symb import Symb
+from src.symb import SymbolicVar
 from typeguard import typechecked
 
 """
@@ -23,29 +23,29 @@ class UpperLevel:
             pf: Optional[ca.SX] = None,
             idx_p: Optional[Callable[[int], Union[range, np.ndarray]]] = None,
             idx_pf: Optional[Callable[[int], Union[range, np.ndarray]]] = None
-        ):
+        ) -> None:
 
         # create symbolic variable
-        self._sym = Symb()
+        self._sym = SymbolicVar()
             
         # add to dimensions
-        self._sym.addDim('T',horizon)
+        self._sym.add_dim('T',horizon)
 
         # add p to set of symbolic variables
-        self._sym.addVar('p',p)
+        self._sym.add_var('p',p)
 
         # create symbolic jacobian of cost function wrt p
-        self._sym.addVar('J_p',ca.SX.sym('J_p',self.dim['p'],1))
+        self._sym.add_var('J_p',ca.SX.sym('J_p',self.dim['p'],1))
 
         # create symbolic variable representing the iteration number
-        self._sym.addVar('k',ca.SX.sym('k',1,1))
+        self._sym.add_var('k',ca.SX.sym('k',1,1))
 
         # save all symbolic variables
-        self._sym.addVar('x_cl',ca.SX.sym('x_cl',mpc.dim['x'],horizon+1))
-        self._sym.addVar('u_cl',ca.SX.sym('u_cl',mpc.dim['u'],horizon))
-        self._sym.addVar('y_cl',ca.SX.sym('y_cl',mpc.dim['y'],horizon))
+        self._sym.add_var('x_cl',ca.SX.sym('x_cl',mpc.dim['x'],horizon+1))
+        self._sym.add_var('u_cl',ca.SX.sym('u_cl',mpc.dim['u'],horizon))
+        self._sym.add_var('y_cl',ca.SX.sym('y_cl',mpc.dim['y'],horizon))
         if 'eps' in mpc.dim:
-            self._sym.addVar('e_cl',ca.SX.sym('e_cl',mpc.dim['eps'],horizon))
+            self._sym.add_var('e_cl',ca.SX.sym('e_cl',mpc.dim['eps'],horizon))
 
         # if idx_p was not passed, assume p if time-invariant
         if idx_p is None:
@@ -64,7 +64,7 @@ class UpperLevel:
         if pf is not None:
 
             # store symbolic variable
-            self._sym.addVar('pf',pf)
+            self._sym.add_var('pf',pf)
 
             # if idx_pf was not passed, assume pf if time-invariant
             if idx_pf is None:
@@ -116,10 +116,10 @@ class UpperLevel:
 
             return ca.vcat(out)
         
-        def jac_var_setup(j_x_p,j_y_p,t):
+        def jac_var_setup(j_x_p,j_y_p,t,multiplier=1):
             
             # get entries of p
-            j_p = ca.DM.eye(self.dim['p'])[self._idx['p'](t),:]
+            j_p = ca.repmat(ca.DM.eye(self.dim['p']),1,multiplier)[self._idx['p'](t),:]
 
             # get entries o y
             j_y = j_y_p[self.idx['y_next'](t),:] if y_idx else ca.DM(0,self.dim['p'])

@@ -7,7 +7,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.scenario import Scenario
 from src.dynamics import Dynamics
 from src.qp import QP
-from src.Ingredients import Ingredients
+from src.ingredients import Ingredients
 import src.utils as utils
 # import tests.tests as tests
 import dynamics.cart_pend as cart_pend
@@ -33,15 +33,18 @@ COMPILE_JAC = False
 dyn_dict = cart_pend.dynamics(dt=0.015)
 
 # create dynamics object
-dyn = Dynamics(dyn_dict,compile=COMPILE_DYNAMICS)
+dyn = Dynamics(dyn_dict,jit=COMPILE_DYNAMICS)
 
 # get state and input dimensions
 n_x, n_u, n_w, n_d = dyn.dim['x'], dyn.dim['u'], dyn.dim['w'], dyn.dim['d']
 
+# upper-level horizon
+T = 170
+
 # set initial conditions
 x0 = ca.vertcat(0,0,-ca.pi,0)
 u0 = 0.1
-w0 = ca.DM(n_w,1)
+w0 = ca.horzsplit(ca.DM(n_w,T))
 d0 = ca.DM(n_d,1)
 
 
@@ -93,7 +96,7 @@ Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
-ing = Ingredients(N=N,dynamics=dyn,cost=cost,constraints=cst)
+ing = Ingredients(horizon=N,dynamics=dyn,cost=cost,constraints=cst)
 
 # create options
 qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,
@@ -105,9 +108,6 @@ MPC = QP(ingredients=ing,p=p,options=qp_options)
 
 
 ### UPPER LEVEL -----------------------------------------------------------
-
-# upper-level horizon
-T = 170
 
 # create upper level
 UL = UpperLevel(p=p,horizon=T,mpc=MPC)

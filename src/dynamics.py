@@ -1,6 +1,6 @@
 import casadi as ca
 import time
-from src.symb import Symb
+from src.symb import SymbolicVar
 
 class Dynamics:
     """
@@ -50,7 +50,7 @@ class Dynamics:
         init: Returns the dictionary containing the initial values of symbolic variables.
     """
 
-    def __init__(self,dyn:dict,compile:bool=False):
+    def __init__(self,dyn:dict,jit:bool=False) -> None:
         """
         Class constructor.
 
@@ -65,12 +65,12 @@ class Dynamics:
                     - 'w': process noise
                     - 'theta': parameters
                     - 'x_next_nom': nominal next state
-            compile (bool, optional): If True, compile the dynamics using CasADi's JIT compilation. 
+            jit (bool, optional): If True, compile the dynamics using CasADi's JIT compilation.
                 Defaults to False.
         """
 
         # compilation options
-        if compile:
+        if jit:
             jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
             options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
         else:
@@ -93,11 +93,11 @@ class Dynamics:
         assert self._x_next_nom.shape == dyn['x'].shape, 'x_next must have the same dimensions as x.'
 
         # create dictionary containing symbolic variables
-        self._sym = Symb()
+        self._sym = SymbolicVar()
 
         # store state and input
-        self._sym.addVar('x', dyn['x'])
-        self._sym.addVar('u', dyn['u'])
+        self._sym.add_var('x', dyn['x'])
+        self._sym.add_var('u', dyn['u'])
 
         # save variables in parameter vectors
         self._param = {'x':dyn['x'],'u':dyn['u']}
@@ -105,15 +105,15 @@ class Dynamics:
 
         # store noise and disturbance if present
         if 'd' in dyn:
-            self._sym.addVar('d', dyn['d'])
+            self._sym.add_var('d', dyn['d'])
             self._param = self._param | {'d':dyn['d']}
         if 'w' in dyn:
-            self._sym.addVar('w', dyn['w'])
+            self._sym.add_var('w', dyn['w'])
             self._param = self._param | {'w':dyn['w']}
 
         # store nominal model if present
         if 'theta' in dyn:
-            self._sym.addVar('theta', dyn['theta'])
+            self._sym.add_var('theta', dyn['theta'])
             self._param_nom = self._param_nom | {'theta':dyn['theta']}
 
         # extract symbolic parameters and their names
@@ -153,7 +153,7 @@ class Dynamics:
         self._f = f
         self._f_nom = f_nom
 
-        # compute jacobians symbolically
+        # compute Jacobians symbolically
         df_dx = ca.jacobian(self.x_next,self.param['x'])
         df_du = ca.jacobian(self.x_next,self.param['u'])
 
@@ -163,12 +163,12 @@ class Dynamics:
         else:
             self._is_affine = False
 
-        # compute jacobians
+        # compute Jacobians
         start = time.time()
-        A = ca.Function('A', p, [df_dx], p_names, ['A'], options)
+        a = ca.Function('A', p, [df_dx], p_names, ['A'], options)
         comp_time_dict = comp_time_dict | {'A':time.time()-start}
         start = time.time()
-        B = ca.Function('B', p, [df_du], p_names, ['B'], options)
+        b = ca.Function('B', p, [df_du], p_names, ['B'], options)
         comp_time_dict = comp_time_dict | {'B':time.time()-start}
 
         # compute nominal jacobians
@@ -180,26 +180,26 @@ class Dynamics:
 
             # compute jacobians
             start = time.time()
-            A_nom = ca.Function('A_nom', p_nom, [df_dx_nom], p_nom_names, ['A'], options)
+            a_nom = ca.Function('A_nom', p_nom, [df_dx_nom], p_nom_names, ['A'], options)
             comp_time_dict = comp_time_dict | {'A_nom':time.time()-start}
             start = time.time()
-            B_nom = ca.Function('B_nom', p_nom, [df_du_nom], p_nom_names, ['B'], options)
+            b_nom = ca.Function('B_nom', p_nom, [df_du_nom], p_nom_names, ['B'], options)
             comp_time_dict = comp_time_dict | {'B_nom':time.time()-start}
 
             # save in dynamics
-            self._A_nom = A_nom
-            self._B_nom = B_nom
+            self._A_nom = a_nom
+            self._B_nom = b_nom
         else:
             # otherwise, copy exact dynamics
-            A_nom = A
-            B_nom = B
+            a_nom = a
+            b_nom = b
             comp_time_dict = comp_time_dict | {'A_nom':comp_time_dict['A'],'B_nom':comp_time_dict['B']}
         
         # store in dynamics
-        self._A = A
-        self._A_nom = A_nom
-        self._B = B
-        self._B_nom = B_nom
+        self._A = a
+        self._A_nom = a_nom
+        self._B = b
+        self._B_nom = b_nom
 
         # store computation times
         self._compTimes = comp_time_dict
@@ -207,37 +207,33 @@ class Dynamics:
         # store empty model
         self._model = {}
 
-    def _linearize(self,horizon:int,method='trajectory'):
+    def _linearize(self,horizon:int,method='trajectory') -> dict | SymbolicVar | str:
         """
-        Construct the prediction model for the MPC problem using linearization.
-
-        There are multiple options:
-
-            1. If the model is affine (`self._is_affine == True`), then `A`, `B`, and `c` represent 
-            the true nominal dynamics of the system.
-
-            2. Linearize around the initial state (`method='state'`). 
-            In this case, the linearization trajectory uses a single input `u_lin`.
-
-            3. Linearize along a trajectory (`method='trajectory'`, default).
-            In this case, `y_lin` contains the state-input trajectory used for linearization.
-
-        The function returns three lists: `A_list`, `B_list`, and `c_list`, such that the linearized 
-        dynamics at time step `t` are given by:
-
-            x[t+1] = A_list[t] @ x[t] + B_list[t] @ u[t] + c_list[t]
-
-        It also returns `y_lin`, the symbolic parameter used in the linearization.
-
-        Note:
-            `c_list[0]` includes the effect of the initial state `x0`, specifically the term `-A_list[0] @ x0`.
-
+        Linearizes the system dynamics based on the specified method and horizon.
+        
         Args:
-            horizon (int): Horizon of the MPC.
-            method (str, optional): Type of linearization. Options are:
-                - 'trajectory' (default)
-                - 'state'
+            horizon (int):The prediction horizon for the linearization.
+            method (str, optional):The linearization method to use. Options are:
+                - 'trajectory': Linearizes along a trajectory (default).
+                - 'initial_state': Linearizes around the initial state.
+                - If the model is affine, computes exact dynamics.
+        Returns:
+            model (dict): A dictionary containing the linearized system matrices:
+                - 'A': List of state transition matrices for each time step.
+                - 'B': List of input matrices for each time step.
+                - 'c': List of offset vectors for each time step.
+        symbolic_vars (SymbolicVar): The symbolic variables used during the linearization
+            process as well as the symbolic variables of the dynamics class object.
+        linearization_method (str): The method used for linearization ('affine', 
+            'trajectory', or 'initial_state').
+        
+        Notes:
+            - If the model is affine, the dynamics are computed exactly as f(x, u) = Ax + Bu + c.
+            - For 'trajectory' mode, the linearization is performed along a trajectory, 
+                splitting the input and state vectors for each time step.
+            - For 'initial_state' mode, the linearization is performed around the initial state.
         """
+
 
         # extract symbolic variables
         x = self.param_nom['x']
@@ -249,23 +245,26 @@ class Dynamics:
 
         # extract dynamics
         fd = self.f_nom
-        A = self.A_nom
-        B = self.B_nom
+        a = self.A_nom
+        b = self.B_nom
 
         # extract nominal parameters
         param_nom = self.param_nom
+
+        # extract symbolic variables
+        symbolic_vars = self._sym.copy()
 
         # if model is affine, compute exact dynamics
         if self._is_affine:
 
             # create nominal dynamics f(x,u) = Ax + bu + c
-            A_mat = list(A(param_nom).values())[0]
-            B_mat = list(B(param_nom).values())[0]
-            c_mat = -(list(fd(param_nom).values())[0] - A_mat@x - B_mat@u)
+            a_mat = list(a.call(param_nom).values())[0]
+            b_mat = list(b.call(param_nom).values())[0]
+            c_mat = -(list(fd.call(param_nom).values())[0] - a_mat@x - b_mat@u)
 
             # stack in list
-            A_list = [A_mat] * horizon
-            B_list = [B_mat] * horizon
+            a_list = [a_mat] * horizon
+            b_list = [b_mat] * horizon
             c_list = [c_mat] * horizon
 
         # if mode is 'initial_state', linearize around the initial state
@@ -279,17 +278,17 @@ class Dynamics:
             param_nom['u'] = u_lin
 
             # compute derivatives
-            A_lin = list(A(param_nom).values())[0]
-            B_lin = list(B(param_nom).values())[0]
-            c_lin = - ( list(fd(param_nom).values())[0] - A_lin@x - B_lin@u_lin )
+            a_lin = list(a.call(param_nom).values())[0]
+            b_lin = list(b.call(param_nom).values())[0]
+            c_lin = - ( list(fd.call(param_nom).values())[0] - a_lin@x - b_lin@u_lin )
 
             # stack in list
-            A_list = [A_lin] * horizon
-            B_list = [B_lin] * horizon
+            a_list = [a_lin] * horizon
+            b_list = [b_lin] * horizon
             c_list = [c_lin] * horizon
 
             # store y_lin
-            self._sym.addVar('y_lin', y_lin)
+            symbolic_vars.add_var('y_lin', y_lin)
                 
         # if mode is 'trajectory', linearize along a trajectory (similar to real-time iteration)
         elif method == 'trajectory':
@@ -302,7 +301,7 @@ class Dynamics:
             u_lin = y_lin[horizon*n_x:]
 
             # preallocate matrices
-            A_list, B_list, c_list = [], [], []
+            a_list, b_list, c_list = [], [], []
 
             # extract linearization points by splitting the x_lin and u_lin vectors
             x_lin_list = ca.vertsplit(x_lin,n_x)
@@ -319,26 +318,29 @@ class Dynamics:
                 param_nom['u'] = u_i
 
                 # evaluate jacobians
-                A_i = list(A.call(param_nom).values())[0]
-                A_list.append(A_i)
-                B_i = list(B.call(param_nom).values())[0]
-                B_list.append(B_i)
+                a_i = list(a.call(param_nom).values())[0]
+                a_list.append(a_i)
+                b_i = list(b.call(param_nom).values())[0]
+                b_list.append(b_i)
 
                 # evaluate linear part
-                c_i = - ( list(fd.call(param_nom).values())[0] - A_i@x_i - B_i@u_i )
+                c_i = - ( list(fd.call(param_nom).values())[0] - a_i@x_i - b_i@u_i )
                 c_list.append(c_i)
 
             # store y_lin
-            self._sym.addVar('y_lin', y_lin)
+            symbolic_vars.add_var('y_lin', y_lin)
 
         else:
             raise Exception('unknown linearization method')
 
         # store output dictionary
-        self._model = {'A':A_list, 'B':B_list, 'c':c_list}
+        model = {'A':a_list, 'B':b_list, 'c':c_list}
+
+        # determine linearization method that was used
+        linearization_method = 'affine' if self._is_affine else method
 
         # return used linearization method
-        return 'affine' if self._is_affine else method
+        return model, symbolic_vars, linearization_method
     
     @property
     def x_next(self):
@@ -389,7 +391,7 @@ class Dynamics:
         return self._model
     
     @property
-    def compTimes(self):
+    def comp_times(self):
         return self._compTimes
     
     @property

@@ -7,11 +7,11 @@ import time
 from numpy.random import randint
 from typeguard import typechecked
 from src.options import Options
-from src.symb import Symb
+from src.symb import SymbolicVar
+import numpy as np
 
 """
 TODO:
-* descriptions
 * trajectory optimization should be a separate class!
 """
 
@@ -21,13 +21,13 @@ class Scenario:
                                'epsilon': float, 'roundoff_qp': int, 'mode': ['optimize', 'simulate', 'dense'],
                                'gd_type': ['gd', 'sgd'], 'figures': bool, 'random_sampling': bool, 'debug_qp': bool,
                                'compute_qp_ingredients': bool, 'verbosity': [0, 1, 2], 'max_k': int,
-                               'use_true_model': bool}
+                               'use_true_model': bool, 'simulate_parallel_models': bool}
 
     _OPTIONS_DEFAULT_VALUES = {'shift_linearization': True, 'warmstart_first_qp': True, 'warmstart_shift': True,
                                'epsilon': 1e-6, 'roundoff_qp': 10, 'mode': 'optimize', 'gd_type': 'gd',
                                'figures': False, 'random_sampling': False, 'debug_qp': False,
                                'compute_qp_ingredients': False, 'verbosity': 1, 'max_k': 200,
-                               'use_true_model': True}
+                               'use_true_model': True, 'simulate_parallel_models': False}
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
@@ -42,7 +42,7 @@ class Scenario:
                 setattr(self, f"_{key}", value)
 
         # check if class already possesses symbols
-        current_sym = self._sym if hasattr(self,'_sym') else Symb()
+        current_sym = self._sym if hasattr(self,'_sym') else SymbolicVar()
 
         # check if class already possesses options
         current_options = self._options if hasattr(self,'_options') else Options(self._OPTIONS_ALLOWED_VALUES, self._OPTIONS_DEFAULT_VALUES)
@@ -87,8 +87,6 @@ class Scenario:
     @property
     def upper_level(self):
         return self._upper_level
-
-    ### NONLINEAR SOLVER FOR TRAJECTORY OPT PROBLEM ---------------------------
 
     @property
     def trajectory_opt(self):
@@ -176,18 +174,68 @@ class Scenario:
 
         return solver
 
-
-    ### SIMULATION FUNCTIONS ---------------------------------------------------
-
     def _get_init_parameters(self,init=None):
+        """
+        Processes and validates the initialization parameters for the system simulation.
+        Args:
+            init (dict, optional): A dictionary containing initialization parameters. 
+                If provided, it will be used to set the initial values for the system.
+        Returns:
+            tuple: A tuple containing the following elements:
+                - p (array or None): Parameters for the system, if provided.
+                - pf (array or None): Fixed parameters for the system, if provided.
+                - w (array, list, or None): Noise values for the system, if provided.
+                - d (array, list, or None): Model uncertainty values, if provided.
+                - theta (array or None): Nominal model parameters, if provided.
+                - y (array, list, or None): Linearization trajectory, if provided or computed.
+                - x (array): Initial state of the system (required).
+        Raises:
+            AssertionError: If the lengths of initialization parameters are inconsistent.
+            Exception: If required parameters (e.g., `x`, `p`, `pf`, `w`, `d`) are missing.
+            Exception: If noise `w` dimensions do not match the prediction horizon.
+            Exception: If `y_lin` is required but not provided or cannot be computed.
+            Exception: If the "optimal" linearization trajectory mode is selected (not implemented).
+        Notes:
+            - If any parameter in the "dynamics" subclass is not a list and `max_length > 1`, 
+                it will be extended to a list of appropriate length.
+            - The function supports two linearization modes: "trajectory" and "initial_state".
+            - Under the "trajectory" mode, `y_lin` is computed based on `x` and `u` if not provided.
+            - Under the "initial_state" mode, `y_lin` defaults to `u` if not provided.
+        """
 
+        # pass the initialization and use the SymbolicVar.set_init function
         if init is not None:
             self.set_init(init)
 
-        # get initialization
-        init_values = self.init
+        # now self.init contains initialization values that are either a single ca.DM vector
+        # or a list of ca.DM vectors, each vector has the dimension of the associated variable,
+        # i.e., the value contained in self.dim.
+        init_values = self.init.copy()
 
-        # first check if at least one of the parameters is a list
+        # theta is an exception: it can be a list or a list of lists. If this is the case,
+        # it must be converted to either a single DM matrix or list of matrices.
+        if 'theta' in init_values and isinstance(init_values['theta'], list):
+            # verify if theta is a list of lists
+            if isinstance(init_values['theta'][0],list):
+                # if so, concatenate horizontally each element within the list
+                init_values['theta'] = [ca.hcat(elem) for elem in init_values['theta']]
+            else:
+                # otherwise, concatenate theta directly
+                init_values['theta'] = ca.hcat(init_values['theta'])
+
+        # w must always be a list or a list of lists
+        if 'w' in init_values:
+            # check if it is a list
+            assert isinstance(init_values['w'], list), 'w must be a list of length T'
+            # check if it is a list of lists
+            if isinstance(init_values['w'][0],list):
+                # if so, concatenate horizontally each element within the list
+                init_values['w'] = [ca.hcat(elem) for elem in init_values['w']]
+            else:
+                # otherwise, concatenate w directly
+                init_values['w'] = ca.hcat(init_values['w'])
+
+        # first check if at least one of the init values is a list
         lengths = [len(v) if isinstance(v,list) else 1 for v in init_values.values()]
         
         # if there are multiple nonzero lengths, check that they match
@@ -195,24 +243,6 @@ class Scenario:
         
         # get final length
         max_length = max(lengths)
-
-        # if w is passed as a single vector (and it is not a list or None), repeat it
-        if (init_values['w'] is not None) and (not isinstance(init_values['w'],list)) and (init_values['w'].shape[1] == 1):
-            init_values['w'] = ca.repmat(init_values['w'],1,self.dim['T'])
-
-        # check dimension of w
-        if init_values['w'] is not None:
-
-            # if w is a list, check that all elements have the same number of columns
-            if isinstance(init_values['w'],list):
-                if len(set([v.shape[1] for v in init_values['w']])) > 1:
-                    raise Exception('All noise w must have the same number of columns.')
-                if init_values['w'][0].shape[1] != self.dim['T']:
-                    raise Exception('Noise w must have the same number of columns as the prediction horizon.')
-            
-            # otherwise, check that w has the same number of columns as the prediction horizon
-            elif init_values['w'].shape[1] != self.dim['T']:
-                raise Exception('Noise w must have the same number of columns as the prediction horizon.')
 
         # if there is at least one nonzero length, extend all "dynamics" parameters to that length
         if max_length > 1:
@@ -229,19 +259,18 @@ class Scenario:
                     if (v is not None) and (not isinstance(v,list)):
                         init_values[k] = [v]*max_length
 
-        # now "init_values" contains x,u,w,d as lists of the same length if max_length > 1,
-        # otherwise they are all vectors. Moreover, p,pf,y_lin are always vectors.
-        # Note that any one of these variables may also be None if it was not passed.
+        # now "init_values" contains x,u,w,d,theta as lists of the same length if max_length > 1,
+        # otherwise they are all vectors (or matrices). Note that w,d,theta are optional. Moreover,
+        # p,pf,y_lin are up to now vectors if they are present.
 
         # under the "trajectory" linearization mode, we need y_lin to be a trajectory
         if self.options['linearization'] == 'trajectory':
             
             # if adaptive mode is used, copy x and u to create y_lin
-            if (init_values['y_lin'] is None) or (init_values['y_lin']=='adaptive'):
+            if ('y_lin' not in init_values) or (init_values['y_lin']=='adaptive'):
             
                 # if u was not passed return an error
-                if init_values['u'] is None:
-                    raise Exception('Either pass an input or a linearization trajectory.')
+                assert 'u' in init_values, 'Either pass an input or a linearization trajectory.'
                 
                 # check if y_lin should be a list or a single value
                 if max_length > 1:
@@ -264,37 +293,30 @@ class Scenario:
         if self.options['linearization'] == 'initial_state':
             
             # check if y_lin is not passed
-            if init_values['y_lin'] is None:
+            if 'y_lin' not in init_values:
                 
                 # if so, check if an input is passed
-                if init_values['u'] is None:
+                if 'u' not in init_values:
 
                     # if none is passed, raise an exception
                     raise Exception('Either pass an input or a linearization trajectory.')
                 
                 # set equal to input (note that input is already either a list or a vector)
                 init_values['y_lin'] = init_values['u']
-                    
-        # construct a dictionary to check the dimension. You need to concatenate horizontally
-        # any list within init_values and leave all vectors as they are
-        # init_values_not_none = {k:v for k,v in init_values.items() if v is not None}
-
-        # init_values_concat = {k:ca.hcat(v) if isinstance(v,list) else v for k,v in init_values_not_none.items()}
-        # _ = self.__checkInit(init_values_concat)
 
         # initial condition
-        assert init_values['x'] is not None, 'Initial state x is required to simulate the system.'
+        assert 'x' in init_values, 'Initial state x is required to simulate the system.'
         
-        if 'p' in self.param and init_values['p'] is None:
+        if 'p' in self.param and 'p' not in init_values:
             raise Exception('Parameters p are required to simulate the system.')
         
-        if 'pf' in self.param and init_values['pf'] is None:
+        if 'pf' in self.param and 'pf' not in init_values:
             raise Exception('Fixed parameters pf are required to simulate the system.')
         
-        if 'w' in self.param and init_values['w'] is None:
+        if 'w' in self.param and 'w' not in init_values:
             raise Exception('Noise w is required to simulate the system.')
         
-        if 'd' in self.param and init_values['d'] is None:
+        if 'd' in self.param and 'd' not in init_values:
             raise Exception('Model uncertainty d is required to simulate the system.')
 
         # extract variables
@@ -330,12 +352,21 @@ class Scenario:
         if options is not None:
             self._options.update(options)
 
+        # check if user wants to simulate several models in parallel
+        if theta is not None and self._options['simulate_parallel_models']:
+
+            # get number of models (columns of theta)
+            n_models = int(theta[0].shape[1]) if isinstance(theta,list) else theta.shape[1]
+
+        else:
+            n_models = 1
+
         # simulate
-        s, out_dict, qp_failed = self._simulate(p,pf,w,d,theta,y,x)
+        s, out_dict, qp_failed = self._simulate(p,pf,w,d,theta,y,x,n_models)
 
         return s, out_dict, qp_failed
 
-    def _simulate(self,p,pf,w,d,theta,y,x):
+    def _simulate(self,p:ca.DM,pf:ca.DM,w:ca.DM,d:ca.DM,theta:ca.DM,y:ca.DM,x:ca.DM,n_models:int=1):
         """
         Simulates the system dynamics and solves a sequence of quadratic programs (QPs) 
         for a given set of parameters, initial conditions, and disturbances.
@@ -371,6 +402,9 @@ class Scenario:
             - Debugging and computation of QP ingredients can be enabled via options.
         """
 
+        # check if multiple models have been passed
+        single_model = False if n_models > 1 else True
+
         # extract QP for simplicity
         qp = self.qp
 
@@ -390,7 +424,7 @@ class Scenario:
         f = self.dyn.f
 
         # create simVar for current simulation
-        S = simVar(n)
+        S = simVar(n,n_models)
 
         # store p and pf if present
         if p is not None:
@@ -418,8 +452,8 @@ class Scenario:
         # in optimize mode, initialize Jacobians
         if self._options['mode'] == 'optimize':
             # initialize Jacobians
-            j_x_p = ca.DM(n['x'],n['p'])
-            j_y_p = ca.DM(n['y'],n['p'])
+            j_x_p = ca.DM(n['x'],n['p']*n_models)
+            j_y_p = ca.DM(n['y'],n['p']*n_models)
             S.setJx(0,j_x_p)
             # S.setJy(0,J_y_p)
 
@@ -560,7 +594,10 @@ class Scenario:
 
                 # get conservative jacobian of optimal solution of QP with respect to parameter
                 # vector p.
-                j_qp_p = qp.J_y_p(lam,mu,p_t,idx_jac(j_x_p,j_y_p,t))
+                if single_model:
+                    j_qp_p = qp.J_y_p(lam,mu,p_t,idx_jac(j_x_p,j_y_p,t))
+                else:
+                    j_qp_p = qp.J_y_p(lam,mu,p_t)@idx_jac(j_x_p.reshape((n['x'],n['p']*n_models)),j_y_p.reshape((n['y'],n['p']*n_models)),t,multiplier=n_models)
 
                 # select entries associated to y
                 if self._options['shift_linearization']:
@@ -578,16 +615,30 @@ class Scenario:
                 # select rows corresponding to first input u0
                 j_u0_p = j_qp_p[qp.idx['out']['u0'],:]
 
-                # propagate jacobian of closed loop state x
-                j_x_p = A.call(var_in_nom)['A']@j_x_p + B.call(var_in_nom)['B']@j_u0_p
+                if single_model:
+
+                    # propagate jacobian of closed loop state x
+                    j_x_p = A.call(var_in_nom)['A']@j_x_p + B.call(var_in_nom)['B']@j_u0_p
+                    
+                    # store conservative jacobians of state and input
+                    S.setJx(t+1,j_x_p)
+                    S.setJu(t,j_u0_p)
+                    S.setJy(t,j_y_p)
+                else:
+                    j_x_p = np.einsum('mnr,ndr->mdr',
+                                    np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
+                                    j_x_p) \
+                            + np.einsum('ijk,ljk->ilk',
+                                        np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
+                                        np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
+                    
+                    # store conservative jacobians of state and input
+                    S.setJx(t+1,j_x_p.reshape((n['x'],n['p']*n_models)))
+                    S.setJu(t,j_u0_p.reshape((n['u'],n['p']*n_models)))
+                    S.setJy(t,j_y_p.reshape((n['y'],n['p']*n_models)))
 
                 # store in total cons jac time
                 total_jac_time.append(time.time() - cons_jac_time)
-
-                # store conservative jacobians of state and input
-                S.setJx(t+1,j_x_p)
-                S.setJu(t,j_u0_p)
-                S.setJy(t,j_y_p)
 
             # get next state
             x = f.call(var_in)['x_next']
