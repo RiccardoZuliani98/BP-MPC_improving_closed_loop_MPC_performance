@@ -20,7 +20,7 @@ class Plotter:
         return {'violet':violet,'blue':blue,'orange':orange,'yellow':yellow,'red':red,'green':green,'lblue':lblue}
 
     @staticmethod
-    def plotTrajectory(S, options=None, show=False):
+    def plotTrajectory(s, options=None, show=False):
 
         if options is None:
             options = {}
@@ -32,8 +32,8 @@ class Plotter:
         colors = Plotter.colors()
 
         # extract state trajectory
-        x = S.x_mat
-        u = S.u_mat
+        x = s.x
+        u = s.u
 
         # get dimension
         T = x.shape[1] - 1
