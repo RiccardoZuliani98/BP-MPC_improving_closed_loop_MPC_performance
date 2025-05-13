@@ -2,12 +2,12 @@ import casadi as ca
 from src.dynamics import Dynamics
 from src.qp import QP
 from src.upper_level import UpperLevel
-from src.simVar import simVar
+from src.sim_var import simVar
 import time
 from numpy.random import randint
 from typeguard import typechecked
 from src.options import Options
-from src.symb import SymbolicVar
+from src.symbolic_var import SymbolicVar
 import numpy as np
 
 """

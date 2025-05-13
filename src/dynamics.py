@@ -1,6 +1,6 @@
 import casadi as ca
 import time
-from src.symb import SymbolicVar
+from src.symbolic_var import SymbolicVar
 
 class Dynamics:
     """

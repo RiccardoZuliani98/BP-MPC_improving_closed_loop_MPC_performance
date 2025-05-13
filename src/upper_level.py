@@ -2,7 +2,7 @@ import casadi as ca
 from src.qp import QP
 from typing import Callable, Union, Optional
 import numpy as np
-from src.symb import SymbolicVar
+from src.symbolic_var import SymbolicVar
 from typeguard import typechecked
 
 """
