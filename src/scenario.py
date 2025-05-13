@@ -458,10 +458,6 @@ class Scenario:
         # extract dimensions for simplicity
         n = self.dim
 
-        # check if w is None
-        if w is None:
-            w = [None] * n['T']
-
         # flag to check if QP failed
         qp_failed = False
 
@@ -485,8 +481,9 @@ class Scenario:
         if pf is not None:
             sim.pf = pf
 
-        # set initial condition
+        # set initial conditions
         sim.x.append(x)
+        x_t, y_t = x, y
 
         # extract parameter indexing
         idx_qp = self.upper_level.idx['qp']
@@ -505,39 +502,39 @@ class Scenario:
         # in optimize mode, initialize Jacobians
         if self._options['mode'] == 'optimize':
             # initialize Jacobians
-            j_x_p = ca.DM(n['x'],n['p']*n_models) if single_model else np.zeros((n['x'],n['p'],n_models))
-            j_y_p = ca.DM(n['y'],n['p']*n_models)
-            sim.j_x.append(j_x_p)
+            j_x_p_t = ca.DM(n['x'],n['p']*n_models) if single_model else np.zeros((n['x'],n['p'],n_models))
+            j_y_p_t = ca.DM(n['y'],n['p']*n_models)
+            sim.j_x.append(j_x_p_t)
 
         # check if QP warmstart was passed
         if self._options['warmstart_first_qp']:
 
             # get qp parameter
-            p_0 = idx_qp(x,y,p,pf,0)
+            p_0 = idx_qp(x_t,y_t,p,pf,0)
 
             # run QP once to get better initialization
-            lam,mu,y_all = qp.solve(p_0)
+            lam_t,mu_t,y_all_t = qp.solve(p_0)
 
             # update y0
-            y0_x = y_all[qp.idx['out']['x'][:-n['x']]]
-            y0_u = y_all[qp.idx['out']['u']]
-            y = ca.vertcat(self.init['x'],y0_x,y0_u)
+            y0_x = y_all_t[qp.idx['out']['x'][:-n['x']]]
+            y0_u = y_all_t[qp.idx['out']['u']]
+            y_t = ca.vertcat(x,y0_x,y0_u)
 
             if self._options['mode'] == 'optimize':
 
                 # extract jacobian of qp variables
-                j_qp_p = qp.J_y_p(lam,mu,p_0,idx_jac(j_x_p.reshape((n['x'],n['p']*n_models)),j_y_p,0,n_models))
+                j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_0,idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t,0,n_models))
 
                 # extract portion associated to y
-                j_y_p = j_qp_p[qp.idx['out']['y'],:]
+                j_y_p_t = j_qp_p_t[qp.idx['out']['y'],:]
 
                 # rearrange appropriately (note that the first entry of
                 # y is x0)
-                j_y_p = ca.vertcat(j_x_p.reshape((n['x'],n['p']*n_models)),j_y_p[qp.idx['out']['x'][:-n['x']],:],j_y_p[qp.idx['out']['u'],:])
+                j_y_p_t = ca.vertcat(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t[qp.idx['out']['x'][:-n['x']],:],j_y_p_t[qp.idx['out']['u'],:])
         else:
-            lam = None
-            mu = None
-            y_all = None
+            lam_t = None
+            mu_t = None
+            y_all_t = None
 
         # get list of inputs to dynamics and to nominal dynamics
         var_in_fixed = {'d':d} if d is not None else {}
@@ -564,22 +561,22 @@ class Scenario:
         for t in range(n['T']):
             
             # replace first entry of state with current state
-            y_lin = y
+            y_lin_t = y_t
 
             # parameter to pass to the QP
-            p_t = idx_qp(x,y_lin,p,pf,t)
+            p_t = idx_qp(x_t,y_lin_t,p,pf,t)
 
             # check if warm start should be shifted
             if self._options['warmstart_shift']:
                 if t > 0:
-                    y_all = y_all[qp.idx['out']['y_shift']]
+                    y_all_t = y_all_t[qp.idx['out']['y_shift']]
 
             # solve QP
             try:
                 # start counting time
                 qp_time = time.time()
                 # solve QP and get solution
-                lam,mu,y_all = solver(p_t,y_all,lam,mu)
+                lam_t,mu_t,y_all_t = solver(p_t,y_all_t,lam_t,mu_t)
                 # store time
                 total_qp_time.append(time.time() - qp_time)
             except:
@@ -602,42 +599,44 @@ class Scenario:
             #     qp_ingredients.append(qp._qp_sparse(p=p_t))
 
             # store optimization variables
-            sim.add_opt_var(lam,mu,y_all[qp.idx['out']['y']],p_t)
+            sim.add_opt_var(lam_t,mu_t,y_all_t[qp.idx['out']['y']],p_t)
 
             # get next linearization trajectory
             if self._options['shift_linearization']:
                 # shift input trajectory
-                x_qp = y_all[qp.idx['out']['x']]
-                u_qp = y_all[qp.idx['out']['u']]
-                y = ca.vertcat(x_qp,u_qp[n['u']:],u_qp[-n['u']:])
+                x_qp_t = y_all_t[qp.idx['out']['x']]
+                u_qp_t = y_all_t[qp.idx['out']['u']]
+                y_t = ca.vertcat(x_qp_t,u_qp_t[n['u']:],u_qp_t[-n['u']:])
             else:
                 # do not shift
-                y = y_all[qp.idx['out']['y']]
+                y_t = y_all_t[qp.idx['out']['y']]
             
             if 'eps' in qp.idx['out']:
 
                 # get slack variables
-                e = y_all[qp.idx['out']['eps']]
+                e_t = y_all_t[qp.idx['out']['eps']]
 
                 # store slack
-                sim.e.append(e)
+                sim.e.append(e_t)
 
             # get first input entry
-            u = y_all[qp.idx['out']['u0']]
+            u_t = y_all_t[qp.idx['out']['u0']]
 
             # store input
-            sim.u.append(u)
+            sim.u.append(u_t)
 
             # get current state and input
-            current_var = {'x':x,'u':u}
+            current_var = {'x':x_t,'u':u_t}
             
             # update variables
             var_in = var_in_fixed | current_var
             var_in_nom = var_in_nom_fixed | current_var
 
             # check if noise is present
-            if w is not None:
-                var_in['w'] = w[t]
+            # if w is not None:
+            var_in['w'] = w[:,t]
+            if w[:,t].shape[0] == 3:
+                print('me')
 
             if self._options['mode'] == 'optimize':
             
@@ -647,52 +646,52 @@ class Scenario:
                 # get conservative jacobian of optimal solution of QP with respect to parameter
                 # vector p.
                 if single_model:
-                    j_qp_p = qp.J_y_p(lam,mu,p_t,idx_jac(j_x_p,j_y_p,t))
+                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_t,idx_jac(j_x_p_t,j_y_p_t,t))
                 else:
-                    j_qp_p = qp.J_y_p(lam,mu,p_t)@idx_jac(j_x_p.reshape((n['x'],n['p']*n_models)),j_y_p.reshape((n['y'],n['p']*n_models)),t,multiplier=n_models)
+                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_t)@idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t.reshape((n['y'],n['p']*n_models)),t,multiplier=n_models)
 
                 # select entries associated to y
                 if self._options['shift_linearization']:
-                    j_x_qp_p = j_qp_p[qp.idx['out']['x'],:]
-                    j_u_qp_p = j_qp_p[qp.idx['out']['u'],:]
-                    j_y_p = ca.vertcat(j_x_qp_p,j_u_qp_p[n['u']:,:],j_u_qp_p[-n['u']:,:])
+                    j_x_qp_p_t = j_qp_p_t[qp.idx['out']['x'],:]
+                    j_u_qp_p_t = j_qp_p_t[qp.idx['out']['u'],:]
+                    j_y_p_t = ca.vertcat(j_x_qp_p_t,j_u_qp_p_t[n['u']:,:],j_u_qp_p_t[-n['u']:,:])
                 else:
-                    j_y_p = j_qp_p[qp.idx['out']['y'],:]
+                    j_y_p_t = j_qp_p_t[qp.idx['out']['y'],:]
 
                 if 'eps' in qp.idx['out']:
                     # select entries associated to slack variables and store them
-                    j_eps_p = j_qp_p[qp.idx['out']['eps'],:]
-                    sim.j_eps.append(j_eps_p)
+                    j_eps_p_t = j_qp_p_t[qp.idx['out']['eps'],:]
+                    sim.j_eps.append(j_eps_p_t)
 
                 # select rows corresponding to first input u0
-                j_u0_p = j_qp_p[qp.idx['out']['u0'],:]
+                j_u0_p_t = j_qp_p_t[qp.idx['out']['u0'],:]
 
                 if single_model:
 
                     # propagate jacobian of closed loop state x
-                    j_x_p = A.call(var_in_nom)['A']@j_x_p + B.call(var_in_nom)['B']@j_u0_p
+                    j_x_p_t = A.call(var_in_nom)['A']@j_x_p_t + B.call(var_in_nom)['B']@j_u0_p_t
                     
                     # store conservative jacobians of state and input
-                    sim.add_sim_jac(j_x_p,j_u0_p,j_y_p)
+                    sim.add_sim_jac(j_x_p_t,j_u0_p_t,j_y_p_t)
                 else:
-                    j_x_p = np.einsum('mnr,ndr->mdr',
-                                    np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
-                                    np.array(j_x_p).reshape((n['x'],n['p'],n_models))) \
-                            + np.einsum('ijk,ljk->ilk',
-                                        np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
-                                        np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
+                    j_x_p_t = np.einsum('mnr,ndr->mdr',
+                                        np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
+                                        np.array(j_x_p_t).reshape((n['x'],n['p'],n_models))) \
+                              + np.einsum('ijk,ljk->ilk',
+                                          np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
+                                          np.array(j_u0_p_t).reshape((n['u'],n['p'],n_models)))
                     
                     # store conservative jacobians of state and input
-                    sim.add_sim_jac(j_x_p,j_u0_p,j_y_p)
+                    sim.add_sim_jac(j_x_p_t,j_u0_p_t,j_y_p_t)
 
                 # store in total cons jac time
                 total_jac_time.append(time.time() - cons_jac_time)
 
             # get next state
-            x = f.call(var_in)['x_next']
+            x_t = f.call(var_in)['x_next']
 
             # store next state
-            sim.x.append(x)
+            sim.x.append(x_t)
 
         # construct output dictionary
         out_dict = {'qp_time':total_qp_time,'jac_time':total_jac_time}
@@ -755,20 +754,23 @@ class Scenario:
         """
 
         # setup parameters
-        p,pf,W,D,THETA,Y,X = self._get_init_parameters(init)
+        p,pf,w,d,theta,y,x = self._get_init_parameters(init)
 
         # extract number of samples
-        n_samples = len(W) if isinstance(W,list) else 1
+        n_samples = len(w) if isinstance(w,list) else 1
+
+        # if only one sample is passed, turn certain parameters to length-one lists (for compatibility)
+        d, w, theta, x, y = [d], [w], [theta], [x], [y]
 
         # update options if provided
         if options is not None:
             self._options.update(options)
 
         # check if multiple models should be simulated
-        if THETA is not None and self._options['simulate_parallel_models']:
+        if theta is not None and self._options['simulate_parallel_models']:
 
             # get number of models (columns of theta)
-            n_models = int(THETA[0].shape[1]) if isinstance(THETA,list) else THETA.shape[1]
+            n_models = int(theta[0].shape[1]) if isinstance(theta,list) else theta.shape[1]
 
             # check that mapped (nominal) dynamics have been created
             if not hasattr(self,'_mapped'):
@@ -783,9 +785,6 @@ class Scenario:
         # if more than one model, do not use true model
         if n_models > 1:
             self._options.update({'use_true_model': False})
-
-        # store dim in a variable with a shorter name
-        n = self.dim
 
         # if gradient descent is used, the true number of iterations
         # is equal to max_k times the number of samples
@@ -804,27 +803,10 @@ class Scenario:
         cost_f = self.upper_level.cost
 
         # extract gradient of cost function
-        J_cost_f = self.upper_level.j_cost if n_models == 1 else self._mapped['j_cost']
-
-        if self._options['mode'] == 'optimize':
-
-            # extract parameter update law
-            alg = self.upper_level.alg
-            p_next = alg['p_next']
-            psi_next = alg['psi_next']
-            psi_init = alg['psi_init']
+        j_cost_f = self.upper_level.j_cost if n_models == 1 else self._mapped['j_cost']
 
         # start empty list
-        SIM = []
-
-        # # check if NLP was solved
-        # if self.opt['sol']['cost'] is None:
-        #     print('Warning: NLP was not solved')
-
-        # # print best cost
-        # if self._options['verbosity'] > 0:
-        #     cst = self.opt['sol']['cost']
-        #     print(f'Best achievable cost: {cst}')
+        sim = []
 
         # start counting time
         total_iter_time = []
@@ -834,17 +816,6 @@ class Scenario:
 
         # list containing all Jacobian times
         total_jac_time = []
-
-        # if self._options['figures']:
-        #     plt.ion()
-        #     fig1, ax1 = plt.subplots()
-        #     line11, = ax1.plot([], [], 'r')
-        #     line21, = ax1.plot([], [], 'b')
-        #     fig2, ax2 = plt.subplots()
-        #     line12, = ax2.plot([], [], 'r')
-        #     line22, = ax2.plot([], [], 'b')
-        #     fig3, ax3 = plt.subplots()
-        #     line3, = ax3.plot([], [], 'r')
 
         # if number of iterations is too large, do not store derivatives
         # to save memory
@@ -858,7 +829,35 @@ class Scenario:
         p_best = p
 
         # initialize full gradient of minibatch
-        J_p_full = ca.DM(*p.shape)
+        j_p_full = ca.DM(*p.shape)
+        
+        if self._options['mode'] == 'optimize':
+
+            # extract parameter update law
+            alg = self.upper_level.alg
+            p_next = alg['p_next']
+            psi_next = alg['psi_next']
+            psi_init = alg['psi_init']
+
+        # # check if NLP was solved
+        # if self.opt['sol']['cost'] is None:
+        #     print('Warning: NLP was not solved')
+
+        # # print best cost
+        # if self._options['verbosity'] > 0:
+        #     cst = self.opt['sol']['cost']
+        #     print(f'Best achievable cost: {cst}')
+
+        # if self._options['figures']:
+        #     plt.ion()
+        #     fig1, ax1 = plt.subplots()
+        #     line11, = ax1.plot([], [], 'r')
+        #     line21, = ax1.plot([], [], 'b')
+        #     fig2, ax2 = plt.subplots()
+        #     line12, = ax2.plot([], [], 'r')
+        #     line22, = ax2.plot([], [], 'b')
+        #     fig3, ax3 = plt.subplots()
+        #     line3, = ax3.plot([], [], 'r')
 
         # outer loop
         for k in range(max_k):
@@ -866,29 +865,20 @@ class Scenario:
             # start counting iteration time
             iter_time = time.time()
 
-            # sample uncertain elements
-            if n_samples > 1:
-                if self._options['random_sampling']:
-                    idx = randint(0,n_samples)
-                else:
-                    idx = int(ca.fmod(k,batch_size))
-                d = D[idx]
-                w = W[idx]
-                theta = THETA[idx]
-                x = X[idx]
-                y = Y[idx]
-            else:
-                d = D
-                w = W
-                theta = THETA
-                x = X
-                y = Y
+            # get index
+            idx = randint(0,n_samples-1) if self._options['random_sampling'] else int(ca.fmod(k,batch_size))
+
+            # obain elements
+            d_k, w_k, theta_k, x_k, y_k = d[idx], w[idx], theta[idx], x[idx], y[idx]
 
             # run simulation
-            S, qp_data, qp_failed = self._simulate(p,pf,w,d,theta,y,x,n_models=n_models)
+            sim_t, qp_data, qp_failed = self._simulate(p,pf,w_k,d_k,theta_k,y_k,x_k,n_models=n_models)
+
+            # compute cost and constraint violation
+            cost,track_cost,cst_viol = cost_f(sim_t)
             
             # store S into list
-            SIM.append(S)
+            sim.append(sim_t)
 
             # if qp failed, terminate
             if qp_failed:
@@ -898,62 +888,58 @@ class Scenario:
             total_qp_time.append(qp_data['qp_time'])
             total_jac_time.append(qp_data['jac_time'])
 
-            # compute cost and constraint violation
-            cost,track_cost,cst_viol = cost_f(S)
+            # store cost and constraint violation
+            sim_t.cost = cost
+            sim_t.cst = cst_viol
 
-            # store them
-            S.cost = cost
-            S.cst = cst_viol
-
-            if self._options['sys_id']:
-                pass
+            # # run system identification if required
+            # if self._options['sys_id']:
+            #     #TODO
+            #     pass
 
             # if in optimization mode, update parameters
             if self._options['mode'] == 'optimize':
 
                 # if there is no constraint violation, and the cost has improved, save current parameter as best parameter
                 if ca.sum1(cst_viol) == 0 and cost < best_cost:
-                    best_cost = cost
-                    p_best = p
+                    best_cost, p_best = cost, p
 
                 # compute gradient of upper-level cost function
-                J_p = J_cost_f(S)
+                j_p = j_cost_f(sim_t)
 
                 # store in simvar
-                S.Jp = J_p
+                sim_t.j_p = j_p
 
                 # update gradient of minibatch
-                J_p_full = J_p_full + J_p
+                j_p_full = j_p_full + j_p
 
                 # on first iteration, initialize psi
                 if k == 0:
 
                     # initialize parameter
-                    psi = psi_init(p,pf,J_p)
+                    psi = psi_init(p,pf,j_p)
 
                 if ca.fmod(k+1,batch_size) == 0:
 
                     # update parameter
-                    p = p_next(p,pf,psi,k,J_p_full)
-                    psi = psi_next(p,pf,psi,k,J_p_full)
+                    p = p_next(p,pf,psi,k,j_p_full)
+                    psi = psi_next(p,pf,psi,k,j_p_full)
 
                     # reset full gradient
-                    J_p_full = ca.DM(*p.shape)
+                    j_p_full = ca.DM(*p.shape)
                 
             else:
-                J_p = 0
+                j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
 
             if save_memory:
-                S.saveMemory()
+                sim_t.saveMemory()
 
             # printout
             match self._options['verbosity']:
                 case 0:
                     pass
                 case 1:
-                    jp_np = np.asarray(J_p)
-                    j_norm = np.linalg.norm(jp_np,axis=0) if jp_np.ndim > 0 else np.abs(jp_np)
-                    print(f"Iteration: {k}, cost: {track_cost}, J: {j_norm}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
+                    print(f"Iteration: {k}, cost: {track_cost}, J: {np.linalg.norm(j_p,axis=0)}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
 
             # if self._options['figures']:
 
@@ -986,4 +972,4 @@ class Scenario:
         comp_time['jac'] = total_jac_time
         comp_time['iter'] = total_iter_time
 
-        return SIM, comp_time, p_best
+        return sim, comp_time, p_best
