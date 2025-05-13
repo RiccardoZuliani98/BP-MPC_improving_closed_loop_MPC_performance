@@ -125,14 +125,14 @@ class Scenario:
             opti.subject_to( x[:,t] == f(x[:,t-1],u[:,t-1]) )
 
         # to get cost, create fake simVar and pass it through the cost function
-        S = simVar(n)
+        s = simVar(n)
 
         # add optimization variables (p and y are set to zero by default)
-        S._x = x
-        S._u = u
+        s.x = x
+        s.u = u
 
         # now get cost as a symbolic function of x and u
-        _,cost,cst = self.upper_level.cost(S)
+        _,cost,cst = self.upper_level.cost(s)
         
         # set constraints
         opti.subject_to(cst <= 0)
@@ -168,9 +168,9 @@ class Scenario:
 
             # create output simVar
             out = simVar(n)
-            out._simVar__x = ca.DM(opti.value(ca.vec(x)))
-            out._simVar__u = ca.DM(opti.value(ca.vec(u)))
-            out._simVar__cost = ca.DM(opti.value(cost))
+            out.x = ca.DM(np.atleast_2d(opti.value(x)))
+            out.u = ca.DM(np.atleast_2d(opti.value(u)))
+            out.cost = ca.DM(opti.value(cost))
 
             return out,solved
 
@@ -948,7 +948,9 @@ class Scenario:
                 case 0:
                     pass
                 case 1:
-                    print(f"Iteration: {k}, cost: {track_cost}, J: {np.linalg.norm(J_p,axis=0)}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
+                    jp_np = np.asarray(J_p)
+                    j_norm = np.linalg.norm(jp_np,axis=0) if jp_np.ndim > 0 else np.abs(jp_np)
+                    print(f"Iteration: {k}, cost: {track_cost}, J: {j_norm}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
 
             # if self._options['figures']:
 
