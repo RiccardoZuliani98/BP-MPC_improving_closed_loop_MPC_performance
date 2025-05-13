@@ -322,7 +322,8 @@ class UpperLevel:
             p_next,
             psi_init:Optional[ca.SX]=ca.SX(0),
             psi_next:Optional[ca.SX]=ca.SX(0),
-            psi:Optional[ca.SX]=ca.SX.sym('psi',1,1)
+            psi:Optional[ca.SX]=ca.SX.sym('psi',1,1),
+            mode:Optional[str]='single'
         ):
         
         # check that p_next returns a vector with the same dimension as p
@@ -350,6 +351,27 @@ class UpperLevel:
         
         # check that psi is a function of p, pf, and Jp
         assert len(set(symvar_str(psi_init)) - set(symvar_str(ca.vcat([self.param['p'],pf,self.param['J_p']])))) == 0, 'Initial value of psi must depend on p, pf, and Jp.'
+
+        # TODO: implement scenario descent
+        # get list of individual jacobians
+        # j_p_list = ca.horzsplit(j_p,p.shape[0])
+
+        # # create opti instance
+        # opti = ca.Opti('conic')
+
+        # # create main optimization variables
+        # d = opti.variable(*p.shape)
+        # epsilon = opti.variable()
+
+        # # bound error on each jacobian
+        # for j_p in j_p_list:
+        #     opti.subject_to( ca.norm_1(j_p-d) <= epsilon )
+
+        # # create objective
+        # opti.minimize(epsilon**2)
+
+        # # set parameters
+        # opti.parameter
         
         # create casadi function
         psi_next_func = ca.Function('psi_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[psi_next],['p','pf','psi','k','Jp'],['psi_next'])

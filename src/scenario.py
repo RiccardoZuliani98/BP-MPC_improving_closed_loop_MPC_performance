@@ -905,6 +905,9 @@ class Scenario:
             S.cost = cost
             S.cst = cst_viol
 
+            if self._options['sys_id']:
+                pass
+
             # if in optimization mode, update parameters
             if self._options['mode'] == 'optimize':
 
