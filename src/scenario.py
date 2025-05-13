@@ -21,13 +21,15 @@ class Scenario:
                                'epsilon': float, 'roundoff_qp': int, 'mode': ['optimize', 'simulate', 'dense'],
                                'gd_type': ['gd', 'sgd'], 'figures': bool, 'random_sampling': bool, 'debug_qp': bool,
                                'compute_qp_ingredients': bool, 'verbosity': [0, 1, 2], 'max_k': int,
-                               'use_true_model': bool, 'simulate_parallel_models': bool}
+                               'use_true_model': bool, 'simulate_parallel_models': bool,
+                               'compile_mapped_dynamics':bool}
 
     _OPTIONS_DEFAULT_VALUES = {'shift_linearization': True, 'warmstart_first_qp': True, 'warmstart_shift': True,
                                'epsilon': 1e-6, 'roundoff_qp': 10, 'mode': 'optimize', 'gd_type': 'gd',
                                'figures': False, 'random_sampling': False, 'debug_qp': False,
                                'compute_qp_ingredients': False, 'verbosity': 1, 'max_k': 200,
-                               'use_true_model': True, 'simulate_parallel_models': False}
+                               'use_true_model': True, 'simulate_parallel_models': False,
+                               'compile_mapped_dynamics':False}
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
@@ -330,6 +332,39 @@ class Scenario:
 
         return p,pf,w,d,theta,y,x
 
+    def create_mapped_dynamics(self,n_models,jit=False):
+
+        if jit:
+            self._options.update({'compile_mapped_dynamics' : True})
+
+        # check if dynamics should be compiled
+        if self._options['compile_mapped_dynamics']:
+            jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
+            compilation_options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
+        else:
+            compilation_options = {}
+
+        # create mapped dynamics
+        self._mapped = {'n_models': n_models}
+        self._mapped['A'] = self.dyn.A_nom.map(n_models, [True, True, False], [False], compilation_options)
+        self._mapped['B'] = self.dyn.B_nom.map(n_models, [True, True, False], [False], compilation_options)
+
+        # create mapped cost jacobian
+        j_cost_func_temp_mapped = self.upper_level._j_cost_func_temp.map(n_models, [True, False, False, False], [False], compilation_options)
+
+        def j_cost_func(s):
+
+            # get true input cost
+            cost_in_loc = self.upper_level._get_cost_idx(s.x,s.u,s.y,s.p)
+            # cost_in = getCostIdx(S.x,S.u,S.y,S.p[:,-1])
+
+            # get true Jacobian
+            j_x,j_u,j_y = self.upper_level._get_cost_jacobian(s.Jx,s.Ju,s.Jy)
+
+            return j_cost_func_temp_mapped(cost_in_loc,j_x,j_u,j_y)
+
+        self._mapped['j_cost'] = j_cost_func
+
     def simulate(self,init=None,options=None):
         """
         Simulates the system dynamics based on the provided initial parameters and options.
@@ -356,17 +391,29 @@ class Scenario:
         if theta is not None and self._options['simulate_parallel_models']:
 
             # get number of models (columns of theta)
-            n_models = int(theta[0].shape[1]) if isinstance(theta,list) else theta.shape[1]
+            # n_models = int(theta[0].shape[1]) if isinstance(theta,list) else theta.shape[1]
+            n_models = theta.shape[1]
+
+            # check that mapped (nominal) dynamics have been created
+            if not hasattr(self,'_mapped'):
+                self.create_mapped_dynamics(n_models,self._options['compile_mapped_dynamics'])
+            else:
+                # if they have been created, check that n_models matches
+                assert self._mapped['n_models'] == n_models, 'The mapped dynamics do not have the correct n_models'
 
         else:
             n_models = 1
+
+        # if more than one model, do not use true model
+        if n_models > 1:
+            self._options.update({'use_true_model':False})
 
         # simulate
         s, out_dict, qp_failed = self._simulate(p,pf,w,d,theta,y,x,n_models)
 
         return s, out_dict, qp_failed
 
-    def _simulate(self,p:ca.DM,pf:ca.DM,w:ca.DM,d:ca.DM,theta:ca.DM,y:ca.DM,x:ca.DM,n_models:int=1):
+    def _simulate(self,p:ca.DM,pf:ca.DM,w:ca.DM,d:ca.DM,theta:ca.DM,y:ca.DM,x:ca.DM,n_models:int=1) -> simVar | dict | bool:
         """
         Simulates the system dynamics and solves a sequence of quadratic programs (QPs) 
         for a given set of parameters, initial conditions, and disturbances.
@@ -418,10 +465,16 @@ class Scenario:
         # flag to check if QP failed
         qp_failed = False
 
-        # extract dynamics and linearization
-        A = self.dyn.A if self.options['use_true_model'] else self.dyn.A_nom
-        B = self.dyn.B if self.options['use_true_model'] else self.dyn.B_nom
+        # extract dynamics
         f = self.dyn.f
+
+        # extract Jacobians of dynamics
+        if single_model:
+            A = self.dyn.A if self.options['use_true_model'] else self.dyn.A_nom
+            B = self.dyn.B if self.options['use_true_model'] else self.dyn.B_nom
+        else:
+            A = self._mapped['A']
+            B = self._mapped['B']
 
         # create simVar for current simulation
         S = simVar(n,n_models)
@@ -474,7 +527,7 @@ class Scenario:
             if self._options['mode'] == 'optimize':
 
                 # extract jacobian of qp variables
-                j_qp_p = qp.J_y_p(lam,mu,p_0,idx_jac(j_x_p,j_y_p,0))
+                j_qp_p = qp.J_y_p(lam,mu,p_0,idx_jac(j_x_p,j_y_p,0,n_models))
 
                 # extract portion associated to y
                 j_y_p = j_qp_p[qp.idx['out']['y'],:]
@@ -627,7 +680,7 @@ class Scenario:
                 else:
                     j_x_p = np.einsum('mnr,ndr->mdr',
                                     np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
-                                    j_x_p) \
+                                    np.array(j_x_p).reshape((n['x'],n['p'],n_models))) \
                             + np.einsum('ijk,ljk->ilk',
                                         np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
                                         np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
@@ -712,6 +765,26 @@ class Scenario:
         # update options if provided
         if options is not None:
             self._options.update(options)
+
+        # check if multiple models should be simulated
+        if THETA is not None and self._options['simulate_parallel_models']:
+
+            # get number of models (columns of theta)
+            n_models = int(THETA[0].shape[1]) if isinstance(THETA,list) else THETA.shape[1]
+
+            # check that mapped (nominal) dynamics have been created
+            if not hasattr(self,'_mapped'):
+                self.create_mapped_dynamics(n_models,self._options['compile_mapped_dynamics'])
+            else:
+                # if they have been created, check that n_models matches
+                assert self._mapped['n_models'] == n_models, 'The mapped dynamics do not have the correct n_models'
+
+        else:
+            n_models = 1
+
+        # if more than one model, do not use true model
+        if n_models > 1:
+            self._options.update({'use_true_model': False})
 
         # store dim in a variable with a shorter name
         n = self.dim
@@ -814,7 +887,7 @@ class Scenario:
                 y = Y
 
             # run simulation
-            S, qp_data, qp_failed = self._simulate(p,pf,w,d,theta,y,x)
+            S, qp_data, qp_failed = self._simulate(p,pf,w,d,theta,y,x,n_models=n_models)
             
             # store S into list
             SIM.append(S)
@@ -860,7 +933,7 @@ class Scenario:
                 if ca.fmod(k+1,batch_size) == 0:
 
                     # update parameter
-                    p = p_next(p,pf,psi,k,J_p_full)
+                    # p = p_next(p,pf,psi,k,J_p_full)
                     psi = psi_next(p,pf,psi,k,J_p_full)
 
                     # reset full gradient
@@ -877,7 +950,7 @@ class Scenario:
                 case 0:
                     pass
                 case 1:
-                    print(f"Iteration: {k}, cost: {track_cost}, J: {ca.norm_2(J_p)}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
+                    print(f"Iteration: {k}, cost: {track_cost}, J: {np.linalg.norm(J_p,axis=0)}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
 
             # if self._options['figures']:
 

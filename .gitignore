@@ -5,3 +5,4 @@
 BPMPC/__pycache__/
 .idea
 .*
+*.prof
