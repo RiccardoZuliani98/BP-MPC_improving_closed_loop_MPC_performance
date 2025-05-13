@@ -172,5 +172,5 @@ S,qp_data_sparse,_ = scenario.simulate(options={'simulate_parallel_models':True}
 # test closed loop
 SIM,_,p_best = scenario.closed_loop(options={'max_k':5})
 
-# # get last value of p
+# get last value of p
 # p_final = SIM[-1].p

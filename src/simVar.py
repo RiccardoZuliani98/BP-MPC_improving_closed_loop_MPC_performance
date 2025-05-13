@@ -1,9 +1,10 @@
-from casadi import hcat, DM
-from numpy import hstack
+from casadi import hcat,vcat,DM
+from numpy import hstack,vstack
 
 class simVar:
 
-    _VAR_LIST = ['x','u','e','j_x','j_u','j_eps','y','mu','lam','p_qp','j_y']
+    _VAR_LIST = ['x','u','e','y','mu','lam','p_qp']
+    _JAC_LIST = ['j_x','j_u','j_eps','j_y']
 
     def __init__(self,dim,n_models=1):
 
@@ -85,7 +86,17 @@ class simVar:
             
             if isinstance(var,list) and len(var) > 0:
                 
-                concat_var = hcat(var) if isinstance(var[0],DM) else hstack(var)
+                concat_var = hcat(var) if isinstance(var[0],DM) else DM(hstack(var).reshape((var[0].shape[0],-1,1)).squeeze())
+                
+                setattr(self,elem,concat_var)
+
+        for elem in self._JAC_LIST:
+
+            var = getattr(self,elem)
+            
+            if isinstance(var,list) and len(var) > 0:
+                
+                concat_var = vcat(var) if isinstance(var[0],DM) else DM(vstack(var).reshape((-1,var[0].shape[1]*var[0].shape[2])))
                 
                 setattr(self,elem,concat_var)
 

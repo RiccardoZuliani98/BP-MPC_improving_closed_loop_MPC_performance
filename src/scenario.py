@@ -359,7 +359,7 @@ class Scenario:
             # cost_in = getCostIdx(S.x,S.u,S.y,S.p[:,-1])
 
             # get true Jacobian
-            j_x,j_u,j_y = self.upper_level._get_cost_jacobian(s.Jx,s.Ju,s.Jy)
+            j_x,j_u,j_y = self.upper_level._get_cost_jacobian(s.j_x,s.j_u,s.j_y)
 
             return j_cost_func_temp_mapped(cost_in_loc,j_x,j_u,j_y)
 
@@ -703,7 +703,10 @@ class Scenario:
         if self._options['compute_qp_ingredients']:
             out_dict = out_dict | {'qp_ingredients':qp_ingredients}
 
-        return sim.stack(), out_dict, qp_failed
+        # stack all entries in sim
+        sim.stack()
+
+        return sim, out_dict, qp_failed
 
     def closed_loop(self,init=None,options=None):
         """
@@ -801,7 +804,7 @@ class Scenario:
         cost_f = self.upper_level.cost
 
         # extract gradient of cost function
-        J_cost_f = self.upper_level.j_cost
+        J_cost_f = self.upper_level.j_cost if n_models == 1 else self._mapped['j_cost']
 
         if self._options['mode'] == 'optimize':
 
@@ -928,7 +931,7 @@ class Scenario:
                 if ca.fmod(k+1,batch_size) == 0:
 
                     # update parameter
-                    # p = p_next(p,pf,psi,k,J_p_full)
+                    p = p_next(p,pf,psi,k,J_p_full)
                     psi = psi_next(p,pf,psi,k,J_p_full)
 
                     # reset full gradient
