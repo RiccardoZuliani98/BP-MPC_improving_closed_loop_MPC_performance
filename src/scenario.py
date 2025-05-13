@@ -633,10 +633,8 @@ class Scenario:
             var_in_nom = var_in_nom_fixed | current_var
 
             # check if noise is present
-            # if w is not None:
-            var_in['w'] = w[:,t]
-            if w[:,t].shape[0] == 3:
-                print('me')
+            if w is not None:
+                var_in['w'] = w[:,t]
 
             if self._options['mode'] == 'optimize':
             

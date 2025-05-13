@@ -26,11 +26,14 @@ COMPILE_QP_SPARSE = False
 COMPILE_QP_DENSE = False
 COMPILE_JAC = False
 
+# decide whether to include noise or not
+NOISE = False
+
 
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict = cart_pend.dynamics(dt=0.015,use_theta=True)
+dyn_dict = cart_pend.dynamics(dt=0.015,use_w=NOISE,use_theta=True)
 
 # model uncertainty parameter
 theta = dyn_dict['theta']
@@ -39,7 +42,10 @@ theta = dyn_dict['theta']
 dyn = Dynamics(dyn_dict,jit=COMPILE_DYNAMICS)
 
 # get state and input dimensions
-n_x, n_u, n_w, n_d = dyn.dim['x'], dyn.dim['u'], dyn.dim['w'], dyn.dim['d']
+n_x, n_u, n_d = dyn.dim['x'], dyn.dim['u'], dyn.dim['d']
+
+if NOISE:
+    n_w = dyn.dim['w']
 
 # upper-level horizon
 upper_horizon = 170
@@ -47,9 +53,11 @@ upper_horizon = 170
 # set initial conditions
 x0 = ca.vertcat(0,0,-ca.pi,0)
 u0 = 0.1
-w0 = ca.horzsplit(ca.DM(n_w,upper_horizon))
 d0 = ca.DM(n_d,1)
 theta0 = ca.horzsplit(ca.repmat(ca.linspace(0,0.1,10).T,3,1))
+
+if NOISE:
+    w0 = ca.horzsplit(ca.DM(n_w,upper_horizon))
 
 ### CREATE MPC -----------------------------------------------------------------------------
 
@@ -164,7 +172,10 @@ upper_level.set_alg(p_next,mode='single')
 scenario = Scenario(dyn,mpc,upper_level)
 
 # initialize
-scenario.set_init({'p':p_init,'pf':ca.DM(n_d,1),'x': x0,'u': u0, 'w': w0, 'd': d0, 'theta':theta0})
+init_dict = {'p':p_init,'pf':ca.DM(n_d,1),'x': x0,'u': u0, 'd': d0, 'theta':theta0}
+if NOISE:
+    init_dict['w'] = w0
+scenario.set_init(init_dict)
 
 # simulate with initial parameter
 S,qp_data_sparse,_ = scenario.simulate(options={'simulate_parallel_models':True})

@@ -137,7 +137,7 @@ class Dynamics:
         comp_time_dict = comp_time_dict | {'f':time.time()-start}
 
         # if d or w were passed, nominal and true models are different
-        model_is_noisy = True if len(p) > len(p_nom) else False
+        model_is_noisy = False if set(ca.symvar(ca.vcat(p))) == set(ca.symvar(ca.vcat(p_nom))) else True
 
         # create nominal dynamics
         if model_is_noisy:
