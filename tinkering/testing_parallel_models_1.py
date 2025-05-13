@@ -40,10 +40,13 @@ def get_scenario():
     # get state and input dimensions
     n_x, n_u, n_w, n_d = dyn.dim['x'], dyn.dim['u'], dyn.dim['w'], dyn.dim['d']
 
+    # upper-level horizon
+    T = 170
+
     # set initial conditions
     x0 = ca.vertcat(0,0,-ca.pi,0)
     u0 = 0.1
-    w0 = ca.DM(n_w,1)
+    w0 = ca.horzsplit(ca.DM(n_w,T))
     d0 = ca.DM(n_d,1)
 
 
@@ -96,16 +99,13 @@ def get_scenario():
     cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
     # create QP ingredients
-    ing = Ingredients(N=N,dynamics=dyn,cost=cost,constraints=cst)
+    ing = Ingredients(horizon=N,dynamics=dyn,cost=cost,constraints=cst)
 
     # create MPC
     MPC = QP(ingredients=ing,p=p,pf=pf)
 
 
     ### UPPER LEVEL -----------------------------------------------------------
-
-    # upper-level horizon
-    T = 170
 
     # create upper level
     UL = UpperLevel(p=p,pf=pf,horizon=T,mpc=MPC)
@@ -197,8 +197,8 @@ idx_jac = scenario.upper_level.idx['jac']
 solver = qp.solve
 
 # initialize Jacobians
-j_x_p = ca.DM((n['x'],n['p']*n_models))
-j_y_p = ca.DM((n['y'],n['p']*n_models))
+j_x_p = ca.DM(n['x'],n['p']*n_models)
+j_y_p = ca.DM(n['y'],n['p']*n_models)
 S.setJx(0,j_x_p)
 
 y_all = None
@@ -263,7 +263,7 @@ for t in range(n['T']):
     #         + np.einsum('mnr,ndr->mdr',np.array(B(*var_in_nom)).squeeze(),np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
     j_x_p = np.einsum('mnr,ndr->mdr',
                       np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
-                      j_x_p) \
+                      np.array(j_x_p).reshape((n['x'],n['p'],n_models))) \
             + np.einsum('ijk,ljk->ilk',
                         np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
                         np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))

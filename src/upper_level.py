@@ -289,9 +289,20 @@ class UpperLevel:
             # return cost_func_temp(getCostIdx(S.x,S.u,S.y,S.p[:,-1]))
             return cost_func_temp(get_cost_idx(s.x,s.u,s.y,s.p))
 
+        # store in upper level
+        self._cost = cost_func
+
         # create full jacobian functions in two steps
         j_cost = j_cost_p + j_cost_x@j_x_p + j_cost_u@j_u_p + j_cost_y@j_y_p
         j_cost_func_temp = ca.Function('J_cost',[cost_in,j_x_p,j_u_p,j_y_p],[j_cost.T])
+
+        # save indices
+        self._get_cost_idx = get_cost_idx
+        self._get_cost_jacobian = get_cost_jacobian
+
+        # save cost temporary jacobian function
+        self._j_cost_func_temp = j_cost_func_temp
+
         def j_cost_func(s):
 
             # get true input cost
@@ -304,7 +315,6 @@ class UpperLevel:
             return j_cost_func_temp(cost_in_loc,j_x,j_u,j_y)
         
         # store in upper level
-        self._cost = cost_func
         self._J_cost = j_cost_func
 
     @typechecked
