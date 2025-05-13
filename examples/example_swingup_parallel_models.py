@@ -10,7 +10,7 @@ from src.qp import QP
 from src.ingredients import Ingredients
 import src.utils as utils
 # import tests.tests as tests
-import examples.dynamics.cart_pend_theta as cart_pend
+import examples.dynamics.cart_pend as cart_pend
 import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
@@ -30,7 +30,7 @@ COMPILE_JAC = False
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict = cart_pend.dynamics(dt=0.015)
+dyn_dict = cart_pend.dynamics(dt=0.015,use_theta=True)
 
 # model uncertainty parameter
 theta = dyn_dict['theta']
