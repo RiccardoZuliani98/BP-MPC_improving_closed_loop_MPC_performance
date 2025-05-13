@@ -477,16 +477,16 @@ class Scenario:
             B = self._mapped['B']
 
         # create simVar for current simulation
-        S = simVar(n,n_models)
+        sim = simVar(n,n_models)
 
         # store p and pf if present
         if p is not None:
-            S.p = p
+            sim.p = p
         if pf is not None:
-            S.pf = pf
+            sim.pf = pf
 
         # set initial condition
-        S.setState(0,x)
+        sim.x.append(x)
 
         # extract parameter indexing
         idx_qp = self.upper_level.idx['qp']
@@ -505,10 +505,9 @@ class Scenario:
         # in optimize mode, initialize Jacobians
         if self._options['mode'] == 'optimize':
             # initialize Jacobians
-            j_x_p = ca.DM(n['x'],n['p']*n_models)
+            j_x_p = ca.DM(n['x'],n['p']*n_models) if single_model else np.zeros((n['x'],n['p'],n_models))
             j_y_p = ca.DM(n['y'],n['p']*n_models)
-            S.setJx(0,j_x_p)
-            # S.setJy(0,J_y_p)
+            sim.j_x.append(j_x_p)
 
         # check if QP warmstart was passed
         if self._options['warmstart_first_qp']:
@@ -527,14 +526,14 @@ class Scenario:
             if self._options['mode'] == 'optimize':
 
                 # extract jacobian of qp variables
-                j_qp_p = qp.J_y_p(lam,mu,p_0,idx_jac(j_x_p,j_y_p,0,n_models))
+                j_qp_p = qp.J_y_p(lam,mu,p_0,idx_jac(j_x_p.reshape((n['x'],n['p']*n_models)),j_y_p,0,n_models))
 
                 # extract portion associated to y
                 j_y_p = j_qp_p[qp.idx['out']['y'],:]
 
                 # rearrange appropriately (note that the first entry of
                 # y is x0)
-                j_y_p = ca.vertcat(j_x_p,j_y_p[qp.idx['out']['x'][:-n['x']],:],j_y_p[qp.idx['out']['u'],:])
+                j_y_p = ca.vertcat(j_x_p.reshape((n['x'],n['p']*n_models)),j_y_p[qp.idx['out']['x'][:-n['x']],:],j_y_p[qp.idx['out']['u'],:])
         else:
             lam = None
             mu = None
@@ -603,7 +602,7 @@ class Scenario:
             #     qp_ingredients.append(qp._qp_sparse(p=p_t))
 
             # store optimization variables
-            S.setOptVar(t,lam,mu,y_all[qp.idx['out']['y']],p_t)
+            sim.add_opt_var(lam,mu,y_all[qp.idx['out']['y']],p_t)
 
             # get next linearization trajectory
             if self._options['shift_linearization']:
@@ -621,13 +620,13 @@ class Scenario:
                 e = y_all[qp.idx['out']['eps']]
 
                 # store slack
-                S.setSlack(t,e)
+                sim.e.append(e)
 
             # get first input entry
             u = y_all[qp.idx['out']['u0']]
 
             # store input
-            S.setInput(t,u)
+            sim.u.append(u)
 
             # get current state and input
             current_var = {'x':x,'u':u}
@@ -663,7 +662,7 @@ class Scenario:
                 if 'eps' in qp.idx['out']:
                     # select entries associated to slack variables and store them
                     j_eps_p = j_qp_p[qp.idx['out']['eps'],:]
-                    S.setJeps(t,j_eps_p)
+                    sim.j_eps.append(j_eps_p)
 
                 # select rows corresponding to first input u0
                 j_u0_p = j_qp_p[qp.idx['out']['u0'],:]
@@ -674,9 +673,7 @@ class Scenario:
                     j_x_p = A.call(var_in_nom)['A']@j_x_p + B.call(var_in_nom)['B']@j_u0_p
                     
                     # store conservative jacobians of state and input
-                    S.setJx(t+1,j_x_p)
-                    S.setJu(t,j_u0_p)
-                    S.setJy(t,j_y_p)
+                    sim.add_sim_jac(j_x_p,j_u0_p,j_y_p)
                 else:
                     j_x_p = np.einsum('mnr,ndr->mdr',
                                     np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
@@ -686,9 +683,7 @@ class Scenario:
                                         np.array(j_u0_p).reshape((n['u'],n['p'],n_models)))
                     
                     # store conservative jacobians of state and input
-                    S.setJx(t+1,j_x_p.reshape((n['x'],n['p']*n_models)))
-                    S.setJu(t,j_u0_p.reshape((n['u'],n['p']*n_models)))
-                    S.setJy(t,j_y_p.reshape((n['y'],n['p']*n_models)))
+                    sim.add_sim_jac(j_x_p,j_u0_p,j_y_p)
 
                 # store in total cons jac time
                 total_jac_time.append(time.time() - cons_jac_time)
@@ -697,7 +692,7 @@ class Scenario:
             x = f.call(var_in)['x_next']
 
             # store next state
-            S.setState(t+1,x)
+            sim.x.append(x)
 
         # construct output dictionary
         out_dict = {'qp_time':total_qp_time,'jac_time':total_jac_time}
@@ -708,7 +703,7 @@ class Scenario:
         if self._options['compute_qp_ingredients']:
             out_dict = out_dict | {'qp_ingredients':qp_ingredients}
 
-        return S, out_dict, qp_failed
+        return sim.stack(), out_dict, qp_failed
 
     def closed_loop(self,init=None,options=None):
         """
