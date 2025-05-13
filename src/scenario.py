@@ -826,16 +826,11 @@ class Scenario:
         best_cost = ca.inf
         p_best = p
 
-        # initialize full gradient of minibatch
-        j_p_full = ca.DM(*p.shape)
-        
         if self._options['mode'] == 'optimize':
 
             # extract parameter update law
-            alg = self.upper_level.alg
-            p_next = alg['p_next']
-            psi_next = alg['psi_next']
-            psi_init = alg['psi_init']
+            parameter_init = self.upper_level.parameter_init
+            parameter_update = self.upper_level.parameter_update
 
         # # check if NLP was solved
         # if self.opt['sol']['cost'] is None:
@@ -870,13 +865,13 @@ class Scenario:
             d_k, w_k, theta_k, x_k, y_k = d[idx], w[idx], theta[idx], x[idx], y[idx]
 
             # run simulation
-            sim_t, qp_data, qp_failed = self._simulate(p,pf,w_k,d_k,theta_k,y_k,x_k,n_models=n_models)
+            sim_k, qp_data, qp_failed = self._simulate(p,pf,w_k,d_k,theta_k,y_k,x_k,n_models=n_models)
 
             # compute cost and constraint violation
-            cost,track_cost,cst_viol = cost_f(sim_t)
+            cost,track_cost,cst_viol = cost_f(sim_k)
             
             # store S into list
-            sim.append(sim_t)
+            sim.append(sim_k)
 
             # if qp failed, terminate
             if qp_failed:
@@ -887,13 +882,8 @@ class Scenario:
             total_jac_time.append(qp_data['jac_time'])
 
             # store cost and constraint violation
-            sim_t.cost = cost
-            sim_t.cst = cst_viol
-
-            # # run system identification if required
-            # if self._options['sys_id']:
-            #     #TODO
-            #     pass
+            sim_k.cost = cost
+            sim_k.cst = cst_viol
 
             # if in optimization mode, update parameters
             if self._options['mode'] == 'optimize':
@@ -903,34 +893,26 @@ class Scenario:
                     best_cost, p_best = cost, p
 
                 # compute gradient of upper-level cost function
-                j_p = j_cost_f(sim_t)
+                j_p = j_cost_f(sim_k)
 
                 # store in simvar
-                sim_t.j_p = j_p
-
-                # update gradient of minibatch
-                j_p_full = j_p_full + j_p
+                sim_k.j_p = j_p
 
                 # on first iteration, initialize psi
                 if k == 0:
+                    psi = parameter_init(sim_k)
 
-                    # initialize parameter
-                    psi = psi_init(p,pf,j_p)
+                # store psi in simvar
+                sim_k.psi = psi
 
-                if ca.fmod(k+1,batch_size) == 0:
-
-                    # update parameter
-                    p = p_next(p,pf,psi,k,j_p_full)
-                    psi = psi_next(p,pf,psi,k,j_p_full)
-
-                    # reset full gradient
-                    j_p_full = ca.DM(*p.shape)
+                # update parameter
+                p,psi,pf = parameter_update(sim_k,k)
                 
             else:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
 
             if save_memory:
-                sim_t.saveMemory()
+                sim_k.save_memory()
 
             # printout
             match self._options['verbosity']:

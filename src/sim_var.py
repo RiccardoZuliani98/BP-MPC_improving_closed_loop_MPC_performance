@@ -51,24 +51,23 @@ class simVar:
         self.dim['n_models'] = n_models        # number of models
 
         # then initialize all variables
-        self.x = []        # closed-loop state (n_x*(T+1),1)
-        self.u = []        # closed-loop input (n_u*T,1)
-        self.e = []        # closed-loop slack (n_eps*T,1)
+        self.x = []         # closed-loop state (n_x*(T+1),1)
+        self.u = []         # closed-loop input (n_u*T,1)
+        self.e = []         # closed-loop slack (n_eps*T,1)
         self.j_x = []       # Jacobian of state (n_x*(T+1),n_p)
         self.j_u = []       # Jacobian of input (n_u*T,n_p)
         self.j_eps = []     # Jacobian of slack (n_eps*T,n_p)
-        self.y = []        # primal optimization variables (n_y,T)
-        self.mu = []       # multipliers of equality constraints (n_eq,T)
-        self.lam = []      # multipliers of inequality constraints (n_in,T)
-        self.p_qp = []     # parameters setting up QP at each time-step (n_p_qp+pf_qp,T)
+        self.y = []         # primal optimization variables (n_y,T)
+        self.mu = []        # multipliers of equality constraints (n_eq,T)
+        self.lam = []       # multipliers of inequality constraints (n_in,T)
+        self.p_qp = []      # parameters setting up QP at each time-step (n_p_qp+pf_qp,T)
         self.j_y = []       # Jacobian of optimization variables (n_y*T,n_p)
-        if 'p' in dim:
-            self.p = []    # closed-loop design parameter (n_p,1)
-            self.j_p = []   # Jacobian of closed-loop cost wrt design parameter (n_p,1)
-        if 'pf' in dim:
-            self.pf = []   # closed-loop fixed parameter (e.g. reference to track)
-        self.cost = None   # closed-loop cost
-        self.cst = None    # closed-loop constraint violation
+        self.p = None       # closed-loop design parameter (n_p,1)
+        self.j_p = None     # Jacobian of closed-loop cost wrt design parameter (n_p,1)
+        self.pf = None      # closed-loop fixed parameter (e.g. reference to track)
+        self.psi = None     # auxiliary parameter for closed-loop optimization
+        self.cost = None    # closed-loop cost
+        self.cst = None     # closed-loop constraint violation
 
     def stack(self):
         
