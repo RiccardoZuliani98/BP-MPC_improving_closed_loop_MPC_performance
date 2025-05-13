@@ -1,6 +1,11 @@
-from casadi import *
+from casadi import hcat,vcat,DM
+from numpy import hstack,vstack
 
 class simVar:
+
+    _VAR_LIST = ['x','u','e','y','mu','lam','p_qp']
+    _JAC_LIST = ['j_x','j_u','j_eps','j_y']
+
     def __init__(self,dim,n_models=1):
 
         """
@@ -42,47 +47,87 @@ class simVar:
         """
 
         # first set all dimensions
-        self.nx = dim['x']              # state dimension
-        self.nu = dim['u']              # input dimension
-        self.np = dim['p']              # parameter dimension
-        self.neps = dim['eps']          # slack dimension
-        self.ny = dim['y']              # primal optimization variables dimension (no slacks)
+        self.dim = {}
+        self.dim['x'] = dim['x']              # state dimension
+        self.dim['u'] = dim['u']              # input dimension
+        if 'p' in dim:
+            self.dim['p'] = dim['p']          # parameter dimension
+        if 'pf' in dim:
+            self.dim['pf'] = dim['pf']        # fixed parameter dimension
+        self.dim['eps'] = dim['eps']          # slack dimension
+        self.dim['y'] = dim['y']              # primal optimization variables dimension (no slacks)
+        self.dim['n_models'] = n_models        # number of models
 
         # then initialize all variables
-        self._x = DM(dim['x']*(dim['T']+1),1)                # closed-loop state (n_x*(T+1),1)
-        self._u = DM(dim['u']*dim['T'],1)                    # closed-loop input (n_u*T,1)
-        self._e = DM(dim['eps']*dim['T'],1)                  # closed-loop slack (n_eps*T,1)
-        self._Jx = DM(dim['x']*(dim['T']+1),dim['p']*n_models)        # Jacobian of state (n_x*(T+1),n_p)
-        self._Ju = DM(dim['u']*dim['T'],dim['p']*n_models)            # Jacobian of input (n_u*T,n_p)
-        self._Jeps = DM(dim['eps']*dim['T'],dim['p']*n_models)        # Jacobian of slack (n_eps*T,n_p)
-        self._y = DM(dim['y'],dim['T'])                      # primal optimization variables (n_y,T)
-        self._mu = DM(dim['eq'],dim['T'])                    # multipliers of equality constraints (n_eq,T)
-        self._lam = DM(dim['in'],dim['T'])                   # multipliers of inequality constraints (n_in,T)
-        self._p_qp = DM(dim['p_qp_full'],dim['T'])           # parameters setting up QP at each time-step (n_p_qp+pf_qp,T)
-        self._Jy = DM((dim['y'])*dim['T'],dim['p']*n_models)          # Jacobian of optimization variables (n_y*T,n_p)
+        self.x = []        # closed-loop state (n_x*(T+1),1)
+        self.u = []        # closed-loop input (n_u*T,1)
+        self.e = []        # closed-loop slack (n_eps*T,1)
+        self.j_x = []       # Jacobian of state (n_x*(T+1),n_p)
+        self.j_u = []       # Jacobian of input (n_u*T,n_p)
+        self.j_eps = []     # Jacobian of slack (n_eps*T,n_p)
+        self.y = []        # primal optimization variables (n_y,T)
+        self.mu = []       # multipliers of equality constraints (n_eq,T)
+        self.lam = []      # multipliers of inequality constraints (n_in,T)
+        self.p_qp = []     # parameters setting up QP at each time-step (n_p_qp+pf_qp,T)
+        self.j_y = []       # Jacobian of optimization variables (n_y*T,n_p)
         if 'p' in dim:
-            self._p = DM(dim['p'],1)                           # closed-loop design parameter (n_p,1)
-            self._Jp = DM(dim['p']*n_models,1)                          # Jacobian of closed-loop cost wrt design parameter (n_p,1)
+            self.p = []    # closed-loop design parameter (n_p,1)
+            self.j_p = []   # Jacobian of closed-loop cost wrt design parameter (n_p,1)
         if 'pf' in dim:
-            self._pf = DM(dim['pf'],1)                         # closed-loop fixed parameter (e.g. reference to track)
-        self._cost = None                                    # closed-loop cost
-        self._cst = None                                     # closed-loop constraint violation
+            self.pf = []   # closed-loop fixed parameter (e.g. reference to track)
+        self.cost = None   # closed-loop cost
+        self.cst = None    # closed-loop constraint violation
 
-    @property
-    def x_mat(self):
-        return reshape(self.x,self.nx,-1)
+    def stack(self):
+        
+        for elem in self._VAR_LIST:
+
+            var = getattr(self,elem)
+            
+            if isinstance(var,list) and len(var) > 0:
+                
+                concat_var = hcat(var) if isinstance(var[0],DM) else DM(hstack(var).reshape((var[0].shape[0],-1,1)).squeeze())
+                
+                setattr(self,elem,concat_var)
+
+        for elem in self._JAC_LIST:
+
+            var = getattr(self,elem)
+            
+            if isinstance(var,list) and len(var) > 0:
+                
+                concat_var = vcat(var) if isinstance(var[0],DM) else DM(vstack(var).reshape((-1,var[0].shape[1]*var[0].shape[2])))
+                
+                setattr(self,elem,concat_var)
+
+    def add_sim_jac(self,j_x,j_u,j_y):
+
+        self.j_x.append(j_x)
+        self.j_u.append(j_u)
+        self.j_y.append(j_y)
+
+    def add_opt_var(self,lam,mu,y,p):
+
+        self.lam.append(lam)
+        self.mu.append(mu)
+        self.y.append(y)
+        self.p_qp.append(p)
+
+    # @property
+    # def x_mat(self):
+    #     return reshape(self.x,self.nx,-1)
     
-    @property
-    def u_mat(self):
-        return reshape(self.u,self.nu,-1)
+    # @property
+    # def u_mat(self):
+    #     return reshape(self.u,self.nu,-1)
     
-    @property
-    def e_mat(self):
-        return reshape(self.e,self.neps,-1)
+    # @property
+    # def e_mat(self):
+    #     return reshape(self.e,self.neps,-1)
     
-    @property
-    def y_mat(self):
-        return reshape(self.y,self.ny,-1)
+    # @property
+    # def y_mat(self):
+    #     return reshape(self.y,self.ny,-1)
 
     # set and get method for optimization variables
     def setOptVar(self,t,lam,mu,y,p):
@@ -104,122 +149,3 @@ class simVar:
         self._lam = None
         self._p_qp = None
         self._Jy = None
-
-    @property
-    def p(self):
-        return self._p
-    
-    @p.setter
-    def p(self,p):
-        self._p = p
-
-    @property
-    def pf(self):
-        return self._pf
-    
-    @pf.setter
-    def pf(self,pf):
-        self._pf = pf
-
-    @property
-    def Jp(self):
-        return self._Jp
-    
-    @Jp.setter
-    def Jp(self,Jp):
-        self._Jp = Jp
-
-    @property
-    def cost(self):
-        return self._cost
-    
-    @cost.setter
-    def cost(self,cost):
-        self._cost = cost
-
-    @property
-    def cst(self):
-        return self._cst
-    
-    @cst.setter
-    def cst(self,cst):
-        self._cst = cst
-
-    @property
-    def x(self):
-        return self._x
-    # set and get method for closed-loop state
-    def setState(self,t,x):
-        self._x[self.nx*t:self.nx*(t+1)] = x
-    def getState(self,t):
-        return self.x[self.nx*t:self.nx*(t+1)]
-    
-    @property
-    def u(self):
-        return self._u
-    # set and get method for closed-loop input
-    def setInput(self,t,u):
-        self._u[self.nu*t:self.nu*(t+1)] = u
-    def getInput(self,t):
-        return self.u[self.nu*t:self.nu*(t+1)]
-    
-    @property
-    def e(self):
-        return self._e
-    # set and get method for closed-loop slack
-    def setSlack(self,t,e):
-        self._e[self.neps*t:self.neps*(t+1)] = e
-    def getSlack(self,t):
-        return self.e[self.neps*t:self.neps*(t+1)]
-    
-    @property
-    def Jx(self):
-        return self._Jx
-    # set and get method for Jacobian of state
-    def setJx(self,t,J):
-        self._Jx[self.nx*t:self.nx*(t+1),:] = J
-    def getJx(self,t):
-        return self.Jx[self.nx*t:self.nx*(t+1),:]
-    
-    @property
-    def Ju(self):
-        return self._Ju
-    # set and get method for Jacobian of input
-    def setJu(self,t,J):
-        self._Ju[self.nu*t:self.nu*(t+1),:] = J
-    def getJu(self,t):
-        return self.Ju[self.nu*t:self.nu*(t+1),:]
-    
-    @property
-    def Jeps(self):
-        return self._Jeps
-    # set and get method for Jacobian of slack
-    def setJeps(self,t,J):
-        self._Jeps[self.neps*t:self.neps*(t+1),:] = J
-    def getJeps(self,t):
-        return self.Jeps[self.neps*t:self.neps*(t+1),:]
-    
-    @property
-    def Jy(self):
-        return self._Jy
-    # set and get method for Jacobian of optimization variables
-    def setJy(self,t,J):
-        self._Jy[self.ny*t:self.ny*(t+1),:] = J
-    def getJy(self,t):
-        return self.Jy[self.ny*t:self.ny*(t+1),:]
-    
-    @property
-    def y(self):
-        return self._y
-    
-    @property
-    def lam(self):
-        return self._lam
-    
-    @property
-    def mu(self):
-        return self._mu
-    
-    @property
-    def p_qp(self):
-        return self._p_qp

@@ -181,8 +181,8 @@ Plotter.plotTrajectory(SIM[-1],options={'x':[0,1,2,3],'x_legend':['Position tune
 NLP = scenario.make_trajectory_opt()
 
 # create warm start trajectories
-x_warm = SIM[-1].x_mat
-u_warm = SIM[-1].u_mat
+x_warm = SIM[-1].x
+u_warm = SIM[-1].u
 
 # solve
 nlp_out,nlp_solved = NLP(x0,x_warm,u_warm)

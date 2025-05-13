@@ -310,7 +310,7 @@ class UpperLevel:
             # cost_in = getCostIdx(S.x,S.u,S.y,S.p[:,-1])
 
             # get true Jacobian
-            j_x,j_u,j_y = get_cost_jacobian(s.Jx,s.Ju,s.Jy)
+            j_x,j_u,j_y = get_cost_jacobian(s.j_x,s.j_u,s.j_y)
 
             return j_cost_func_temp(cost_in_loc,j_x,j_u,j_y)
         
