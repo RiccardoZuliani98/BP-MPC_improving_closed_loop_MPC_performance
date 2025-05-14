@@ -476,10 +476,8 @@ class Scenario:
         sim = simVar(n,n_models)
 
         # store p and pf if present
-        if p is not None:
-            sim.p = p
-        if pf is not None:
-            sim.pf = pf
+        sim.p = p if p is not None else None
+        sim.pf = pf if pf is not None else None
 
         # set initial conditions
         sim.x.append(x)
@@ -906,7 +904,7 @@ class Scenario:
                 sim_k.psi = psi
 
                 # update parameter
-                p,psi,pf = parameter_update(sim_k,k)
+                p,psi = parameter_update(sim_k,k)
                 
             else:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
@@ -919,7 +917,7 @@ class Scenario:
                 case 0:
                     pass
                 case 1:
-                    print(f"Iteration: {k}, cost: {track_cost}, J: {np.linalg.norm(j_p,axis=0)}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
+                    print(f"Iteration: {k}, cost: {track_cost}, J: {ca.DM(np.linalg.norm(j_p,axis=0))}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
 
             # if self._options['figures']:
 

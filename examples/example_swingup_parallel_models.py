@@ -15,7 +15,7 @@ import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-
+from src.utils import gradient_descent, minibatch_descent
 
 # cleanup jit files
 utils.cleanup()
@@ -157,11 +157,8 @@ k = upper_level.param['k']
 rho = 0.0001
 eta = 0.51
 
-# create update symbolically
-p_next = p-(rho*ca.log(k+2)/(k+2)**eta)*j_p
-
 # create update function
-upper_level.set_alg(p_next,mode='single')
+upper_level.set_alg(gradient_descent(rho,eta,log=True))
 
 # test derivatives
 # # out = tests.derivatives(mod)

@@ -92,6 +92,7 @@ class simVar:
                 setattr(self,elem,concat_var)
 
     def add_sim_jac(self,j_x,j_u,j_y):
+        self.j_x.append(j_x)
         self.j_u.append(j_u)
         self.j_y.append(j_y)
 

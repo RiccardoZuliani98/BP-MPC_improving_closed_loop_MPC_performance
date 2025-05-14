@@ -15,7 +15,7 @@ import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-
+from src.utils import gradient_descent, minibatch_descent
 
 # cleanup jit files
 utils.cleanup()
@@ -118,6 +118,7 @@ MPC = QP(ingredients=ing,p=p,options=qp_options)
 ### UPPER LEVEL -----------------------------------------------------------
 
 # create upper level
+# upper_level = UpperLevel(p=p,horizon=upper_horizon,mpc=MPC)
 upper_level = UpperLevel(p=p,horizon=upper_horizon,mpc=MPC)
 
 # extract linearized dynamics at the origin
@@ -149,15 +150,8 @@ p = upper_level.param['p']
 J_p = upper_level.param['J_p']
 k = upper_level.param['k']
 
-# hyperparameters
-rho = 0.0001
-eta = 0.51
-
-# create GD update rule
-p_next = p -(rho*ca.log(k+2)/(k+2)**eta)*J_p
-
 # create update function
-upper_level.set_alg(p_next)
+upper_level.set_alg(*gradient_descent(rho=0.0001,eta=0.51,log=True))
 
 # test derivatives
 # # out = tests.derivatives(mod)
@@ -178,6 +172,13 @@ S,qp_data_sparse,_ = scenario.simulate()
 Plotter.plotTrajectory(S,options={'x':[0,1,2,3],'x_legend':['Position untrained','Velocity untrained','Angle untrained','Angular velocity untrained'],'u':[0],'u_legend':['Force untrained'],'color':'blue'},show=False)
 
 # test closed loop
+SIM,_,p_best = scenario.closed_loop(options={'max_k':5})
+
+# change algorithm
+upper_level.set_alg(*minibatch_descent(rho=0.0001,eta=0.6,log=True,batch_size=2))
+scenario.update(upper_level=upper_level)
+
+# test closed again
 SIM,_,p_best = scenario.closed_loop(options={'max_k':5})
 
 # get last value of p
