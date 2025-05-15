@@ -173,13 +173,6 @@ Plotter.plotTrajectory(S,options={'x':[0,1,2,3],'x_legend':['Position untrained'
 # test closed loop
 SIM,_,p_best = scenario.closed_loop(options={'max_k':5})
 
-# change algorithm
-upper_level.set_alg(*minibatch_descent(rho=0.0001,eta=0.6,log=True,batch_size=2))
-scenario.update(upper_level=upper_level)
-
-# test closed again
-SIM,_,p_best = scenario.closed_loop(options={'max_k':5})
-
 # get last value of p
 p_final = SIM[-1].p
 

@@ -232,8 +232,8 @@ class Ingredients:
 
         # inverse of quadratic cost matrix
         Q = ca.sparsify(ca.cse(Q))
-        # Qinv = ca.pinv(Q)
-        Qinv = ca.inv_minor(Q)
+        Qinv = ca.pinv(Q)
+        # Qinv = ca.inv_minor(Q)
         # Qinv = ca.inv(Q)
 
         # create linear part of the cost
