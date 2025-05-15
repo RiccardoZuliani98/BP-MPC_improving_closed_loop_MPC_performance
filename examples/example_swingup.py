@@ -118,7 +118,6 @@ MPC = QP(ingredients=ing,p=p,options=qp_options)
 ### UPPER LEVEL -----------------------------------------------------------
 
 # create upper level
-# upper_level = UpperLevel(p=p,horizon=upper_horizon,mpc=MPC)
 upper_level = UpperLevel(p=p,horizon=upper_horizon,mpc=MPC)
 
 # extract linearized dynamics at the origin

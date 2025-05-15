@@ -9,6 +9,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.ingredients import Ingredients
 from src.dynamics import Dynamics
+from src.qp import QP
+from src.upper_level import UpperLevel
+from src.utils import quadCostAndBounds, gradient_descent
 
 def sample_dynamics(
         use_d:bool=False,
@@ -199,3 +202,42 @@ def sample_ingredients(
     ingredients = Ingredients(horizon,dynamics,cost,constraints)
 
     return ingredients, p, pf
+
+def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
+
+    # initialize upper level
+    if pf is not None:
+        # create upper level with parameter
+        upper_level = UpperLevel(p=p,pf=pf,horizon=horizon,mpc=mpc)
+    else:
+        # create upper level without parameter
+        upper_level = UpperLevel(p=p,horizon=horizon,mpc=mpc)
+
+    # extract closed-loop variables for upper level
+    x_cl = ca.vec(upper_level.param['x_cl'])
+    u_cl = ca.vec(upper_level.param['u_cl'])
+
+    # get dimensions
+    n_x, n_u = upper_level.param['x_cl'].shape[0], upper_level.param['u_cl'].shape[0]
+
+    # create random cost
+    Q_temp, R_temp = ca.DM(rand(n_x,n_x)), ca.DM(rand(n_u,n_u))
+    Q = Q_temp@Q_temp.T + 0.01*ca.DM.eye(n_x)
+    R = R_temp@R_temp.T + 0.01*ca.DM.eye(n_u)
+
+    # create random bounds
+    x_max = ca.DM(rand(n_x))
+    x_min = -x_max
+    u_max = ca.DM(rand(n_u))
+    u_min = -u_max
+
+    # create tracking cost and constraint violation
+    track_cost, cst_viol_l1, _ =  quadCostAndBounds(Q,R,x_cl,u_cl,x_max,x_min)
+
+    # set cost
+    upper_level.set_cost(track_cost+cst_viol_l1,track_cost,cst_viol_l1)
+
+    # create update function
+    upper_level.set_alg(*gradient_descent(rho=0.0001,eta=0.51,log=True))
+
+    return upper_level
