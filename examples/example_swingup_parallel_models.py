@@ -15,7 +15,7 @@ import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-from src.utils import gradient_descent, minibatch_descent
+from src.utils import average_gradient_descent
 
 # cleanup jit files
 utils.cleanup()
@@ -54,7 +54,8 @@ upper_horizon = 170
 x0 = ca.vertcat(0,0,-ca.pi,0)
 u0 = 0.1
 d0 = ca.DM(n_d,1)
-theta0 = ca.horzsplit(ca.repmat(ca.linspace(0,0.1,10).T,3,1))
+# theta0 = ca.horzsplit(ca.repmat(ca.linspace(0,0.1,10).T,3,1))
+theta0 = ca.horzsplit(ca.DM(3,10))
 
 if NOISE:
     w0 = ca.horzsplit(ca.DM(n_w,upper_horizon))
@@ -153,12 +154,8 @@ p = upper_level.param['p']
 j_p = upper_level.param['J_p']
 k = upper_level.param['k']
 
-# hyperparameters
-rho = 0.0001
-eta = 0.51
-
 # create update function
-upper_level.set_alg(gradient_descent(rho,eta,log=True))
+upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
 
 # test derivatives
 # # out = tests.derivatives(mod)

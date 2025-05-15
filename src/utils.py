@@ -2,6 +2,28 @@ import casadi as ca
 import numpy as np
 import os, glob
 
+def average_gradient_descent(rho,eta,log=True):
+
+    def parameter_update(sim,k):
+
+        # average all jacobians
+        j_p = ca.sum2(sim.j_p) / sim.j_p.shape[1]
+
+        # gradient step
+        p_next = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*j_p if log else sim.p - (rho/(k+1)**eta)*j_p
+
+        return p_next, None
+
+    return parameter_update, lambda sim: None
+
+# def robust_gradient_descent(rho,eta,n_models,log=True):
+
+#     # get list of jacobians
+#     j_p_list = ca.horzsplit(sim.j_p)
+
+    
+
+
 def gradient_descent(rho,eta=1,log=True):
     
     def update_log(sim,k):
