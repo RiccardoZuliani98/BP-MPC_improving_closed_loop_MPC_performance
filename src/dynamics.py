@@ -258,14 +258,18 @@ class Dynamics:
         if self._is_affine:
 
             # create nominal dynamics f(x,u) = Ax + bu + c
-            a_mat = list(a.call(param_nom).values())[0]
-            b_mat = list(b.call(param_nom).values())[0]
-            c_mat = -(list(fd.call(param_nom).values())[0] - a_mat@x - b_mat@u)
+            a_mat = ca.sparsify(ca.cse(list(a.call(param_nom).values())[0]))
+            b_mat = ca.sparsify(ca.cse(list(b.call(param_nom).values())[0]))
+            c_mat = ca.sparsify(ca.cse( -(list(fd.call(param_nom).values())[0] - a_mat@x - b_mat@u) ))
+
+            # substitute x and u (sometimes casadi does not recognize that c_mat is constant)
+            c_mat_num_1 = ca.substitute(c_mat,x,ca.SX.zeros(*x.shape))
+            c_mat_num_2 = ca.substitute(c_mat_num_1,u,ca.SX.zeros(*u.shape))
 
             # stack in list
             a_list = [a_mat] * horizon
             b_list = [b_mat] * horizon
-            c_list = [c_mat] * horizon
+            c_list = [c_mat_num_2] * horizon
 
         # if mode is 'initial_state', linearize around the initial state
         elif method == 'initial_state':

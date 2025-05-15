@@ -3,6 +3,8 @@ import os
 import casadi as ca
 from numpy.random import randint, rand
 from sample_elements import sample_dynamics, sample_ingredients, sample_upper_level
+import pickle
+import datetime
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -13,10 +15,20 @@ from src.qp import QP
 
 # import pytest
 
-def test_parallel_derivatives(mpc_horizon=1,upper_horizon=1,n_models=5):
+def _test_parallel_derivatives(init_dict,theta0,p,dynamics_dict,upper_horizon,mpc_horizon):
+
+    pass
+
+def test_parallel_derivatives(mpc_horizon=None,upper_horizon=None,n_models=5,tol=1e-5):
+
+    if mpc_horizon is None:
+        mpc_horizon = randint(1,5)
+
+    if upper_horizon is None:
+        upper_horizon = randint(2,10)
 
     # generate noise free dynamics
-    dynamics_dict, dynamics_matrices = sample_dynamics(use_d=False,use_w=False,use_theta=True,nonlinear=True)
+    dynamics_dict, _ = sample_dynamics(use_d=False,use_w=False,use_theta=True,nonlinear=False)
 
     # extract theta
     theta = dynamics_dict['theta']
@@ -55,7 +67,7 @@ def test_parallel_derivatives(mpc_horizon=1,upper_horizon=1,n_models=5):
     for theta in theta0:
 
         # update initialization
-        scenario.set_init(init_dict | {'theta':theta})
+        scenario.set_init({'theta':theta})
 
         # simulate
         sim_single,*_ = scenario.simulate(options={'simulate_parallel_models':False})
@@ -66,7 +78,21 @@ def test_parallel_derivatives(mpc_horizon=1,upper_horizon=1,n_models=5):
     # concatenate
     j_x = ca.hcat(j_x)
 
-    print('me')
+    # compute error
+    error = ca.fabs(j_x-sim.j_x)
+    error_max = ca.mmax(error)
+    error_mean = ca.sum1(ca.sum2(error)) / error.numel()
+    cos_sim = ca.vec(j_x).T@ca.vec(sim.j_x) / ( ca.norm_2(ca.vec(j_x)) * ca.norm_2(ca.vec(sim.j_x)) )
+
+    if 1-cos_sim > tol:
+
+        # save data for debug purposes
+        data = {'init_dict':init_dict,'theta0':theta0,'p':p,'dynamics_dict':dynamics_dict,'upper_horizon':upper_horizon,'mpc_horizon':mpc_horizon}
+
+        # get current date and time
+        now = datetime.datetime.now()
+
+    assert 1-cos_sim <= tol, 'Parallel derivative error is too large.'
 
 
 if __name__ == "__main__":

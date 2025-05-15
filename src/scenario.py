@@ -521,14 +521,20 @@ class Scenario:
             if self._options['mode'] == 'optimize':
 
                 # extract jacobian of qp variables
-                j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_0,idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t,0,n_models))
+                if single_model:
+                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_0,idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t,0,n_models))
+                else:
+                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_0,idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models),order='F'),j_y_p_t,0,n_models))
 
                 # extract portion associated to y
                 j_y_p_t = j_qp_p_t[qp.idx['out']['y'],:]
 
                 # rearrange appropriately (note that the first entry of
                 # y is x0)
-                j_y_p_t = ca.vertcat(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t[qp.idx['out']['x'][:-n['x']],:],j_y_p_t[qp.idx['out']['u'],:])
+                if single_model:
+                    j_y_p_t = ca.vertcat(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t[qp.idx['out']['x'][:-n['x']],:],j_y_p_t[qp.idx['out']['u'],:])
+                else:
+                    j_y_p_t = ca.vertcat(j_x_p_t.reshape((n['x'],n['p']*n_models),order='F'),j_y_p_t[qp.idx['out']['x'][:-n['x']],:],j_y_p_t[qp.idx['out']['u'],:])
         else:
             lam_t = None
             mu_t = None
@@ -644,7 +650,7 @@ class Scenario:
                 if single_model:
                     j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_t,idx_jac(j_x_p_t,j_y_p_t,t))
                 else:
-                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_t)@idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t.reshape((n['y'],n['p']*n_models)),t,multiplier=n_models)
+                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_t)@idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models),order='F'),j_y_p_t,t,multiplier=n_models)
 
                 # select entries associated to y
                 if self._options['shift_linearization']:
@@ -671,11 +677,11 @@ class Scenario:
                     sim.add_sim_jac(j_x_p_t,j_u0_p_t,j_y_p_t)
                 else:
                     j_x_p_t = np.einsum('mnr,ndr->mdr',
-                                        np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models)),
-                                        np.array(j_x_p_t).reshape((n['x'],n['p'],n_models))) \
-                              + np.einsum('ijk,ljk->ilk',
-                                          np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models)),
-                                          np.array(j_u0_p_t).reshape((n['u'],n['p'],n_models)))
+                                        np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models),order='F'),
+                                        j_x_p_t) \
+                              + np.einsum('mnr,ndr->mdr',
+                                          np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models),order='F'),
+                                          np.array(j_u0_p_t).reshape((n['u'],n['p'],n_models),order='F'))
                     
                     # store conservative jacobians of state and input
                     sim.add_sim_jac(j_x_p_t,j_u0_p_t,j_y_p_t)

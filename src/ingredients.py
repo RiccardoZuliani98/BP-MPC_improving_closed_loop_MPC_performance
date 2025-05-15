@@ -28,7 +28,7 @@ class Ingredients:
     
     _ALL_DIMENSIONS = ['x','u','one','cst_x','eps','cst_u']
 
-    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'], 'slack':bool}
+    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state','affine'], 'slack':bool}
     
     _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'slack':False}
 
@@ -231,6 +231,8 @@ class Ingredients:
             Q = ca.blockcat(Q,ca.SX(Q.shape[0],n_eps),ca.SX(n_eps,Q.shape[0]),ca.diag(s_quad))
 
         # inverse of quadratic cost matrix
+        Q = ca.sparsify(ca.cse(Q))
+        # Qinv = ca.pinv(Q)
         Qinv = ca.inv_minor(Q)
         # Qinv = ca.inv(Q)
 

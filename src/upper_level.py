@@ -122,7 +122,7 @@ class UpperLevel:
             j_p = ca.repmat(ca.DM.eye(self.dim['p']),1,multiplier)[self._idx['p'](t),:]
 
             # get entries o y
-            j_y = j_y_p[self.idx['y_next'](t),:] if y_idx else ca.DM(0,self.dim['p'])
+            j_y = j_y_p[self.idx['y_next'](t),:] if y_idx else ca.DM(0,self.dim['p']*multiplier)
 
             return ca.vertcat(j_x_p,j_y,j_p)
         

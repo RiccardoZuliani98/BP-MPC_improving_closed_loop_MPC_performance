@@ -87,7 +87,7 @@ class simVar:
             
             if isinstance(var,list) and len(var) > 0:
                 
-                concat_var = vcat(var) if isinstance(var[0],DM) else DM(vstack(var).reshape((-1,var[0].shape[1]*var[0].shape[2])))
+                concat_var = vcat(var) if isinstance(var[0],DM) else DM(vstack(var).reshape((-1,var[0].shape[1]*var[0].shape[2]),order='F'))
                 
                 setattr(self,elem,concat_var)
 

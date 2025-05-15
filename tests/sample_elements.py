@@ -150,7 +150,7 @@ def sample_ingredients(
     Q = Q_half@Q_half.T + 0.01*ca.DM.eye(n['x'])
 
     if p:
-        p = ca.SX.sym('p',randint(1,4),1)
+        p = ca.SX.sym('p',2,1)#ca.SX.sym('p',randint(1,4),1)
         Q = Q + ca.SX.eye(Q.shape[0])*ca.sum1(p)
     else:
         p = None
