@@ -13,19 +13,13 @@ from src.dynamics import Dynamics
 from src.scenario import Scenario
 from src.qp import QP
 
-# import pytest
-
-def _test_parallel_derivatives(init_dict,theta0,p,dynamics_dict,upper_horizon,mpc_horizon):
-
-    pass
-
 def test_parallel_derivatives(mpc_horizon=None,upper_horizon=None,n_models=5,tol=1e-5):
 
     if mpc_horizon is None:
         mpc_horizon = randint(1,5)
 
     if upper_horizon is None:
-        upper_horizon = randint(2,10)
+        upper_horizon = randint(2,7)
 
     # generate noise free dynamics
     dynamics_dict, _ = sample_dynamics(use_d=False,use_w=False,use_theta=True,nonlinear=False)

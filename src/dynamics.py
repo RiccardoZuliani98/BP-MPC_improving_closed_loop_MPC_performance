@@ -260,7 +260,7 @@ class Dynamics:
             # create nominal dynamics f(x,u) = Ax + bu + c
             a_mat = ca.sparsify(ca.cse(list(a.call(param_nom).values())[0]))
             b_mat = ca.sparsify(ca.cse(list(b.call(param_nom).values())[0]))
-            c_mat = ca.sparsify(ca.cse( -(list(fd.call(param_nom).values())[0] - a_mat@x - b_mat@u) ))
+            c_mat = ca.sparsify(ca.cse(list(fd.call(param_nom).values())[0] - a_mat@x - b_mat@u))
 
             # substitute x and u (sometimes casadi does not recognize that c_mat is constant)
             c_mat_num_1 = ca.substitute(c_mat,x,ca.SX.zeros(*x.shape))
@@ -284,7 +284,7 @@ class Dynamics:
             # compute derivatives
             a_lin = list(a.call(param_nom).values())[0]
             b_lin = list(b.call(param_nom).values())[0]
-            c_lin = - ( list(fd.call(param_nom).values())[0] - a_lin@x - b_lin@u_lin )
+            c_lin = list(fd.call(param_nom).values())[0] - a_lin@x - b_lin@u_lin
 
             # stack in list
             a_list = [a_lin] * horizon
@@ -328,7 +328,7 @@ class Dynamics:
                 b_list.append(b_i)
 
                 # evaluate linear part
-                c_i = - ( list(fd.call(param_nom).values())[0] - a_i@x_i - b_i@u_i )
+                c_i = list(fd.call(param_nom).values())[0] - a_i@x_i - b_i@u_i
                 c_list.append(c_i)
 
             # store y_lin
