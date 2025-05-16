@@ -189,11 +189,19 @@ class Dynamics:
             # save in dynamics
             self._A_nom = a_nom
             self._B_nom = b_nom
+
+            # check if df_dx_nom and df_du_nom are constant
+            if ca.jacobian(ca.vcat([*ca.symvar(df_dx_nom),*ca.symvar(df_du_nom)]),ca.vertcat(self.param['x'],self.param['u'])).is_zero():
+                self._is_nominal_affine = True
+            else:
+                self._is_nominal_affine = False
+
         else:
             # otherwise, copy exact dynamics
             a_nom = a
             b_nom = b
             comp_time_dict = comp_time_dict | {'A_nom':comp_time_dict['A'],'B_nom':comp_time_dict['B']}
+            self._is_nominal_affine = self._is_affine
         
         # store in dynamics
         self._A = a
@@ -203,9 +211,6 @@ class Dynamics:
 
         # store computation times
         self._compTimes = comp_time_dict
-
-        # store empty model
-        self._model = {}
 
     def _linearize(self,horizon:int,method='trajectory') -> dict | SymbolicVar | str:
         """
@@ -255,7 +260,7 @@ class Dynamics:
         symbolic_vars = self._sym.copy()
 
         # if model is affine, compute exact dynamics
-        if self._is_affine:
+        if self._is_nominal_affine:
 
             # create nominal dynamics f(x,u) = Ax + bu + c
             a_mat = ca.sparsify(ca.cse(list(a.call(param_nom).values())[0]))
@@ -341,7 +346,7 @@ class Dynamics:
         model = {'A':a_list, 'B':b_list, 'c':c_list}
 
         # determine linearization method that was used
-        linearization_method = 'affine' if self._is_affine else method
+        linearization_method = 'affine' if self._is_nominal_affine else method
 
         # return used linearization method
         return model, symbolic_vars, linearization_method

@@ -102,15 +102,29 @@ def test_nominal_and_derivatives():
     assert ca.mmin(dynamics_2.B_nom(x2,u2) == ca.DM(dynamics_2_matrices['B'])), 'u derivative does not match.'
     assert ca.mmin(dynamics_2.A_nom(x2,u2) == ca.DM(dynamics_2_matrices['A'])), 'u derivative does not match.'
 
-    # create model where nonlinearity occurs only if d is not zero
-    # x_next = A*x + B*u + c + d*x**2
-    # dyn = {'x':x, 'u':u, 'd':d, 'x_next':x_next, 'x_dot':x_dot, 'd0':0}
-    # mod = scenario()
-    # mod.makeDynamics(dyn)
+def test_nonlinear_if_d_nonzero():
 
-    # # check that model is recognized as nonlinear
-    # if not mod.dyn.type == 'nonlinear':
-    #     raise Exception('Model was not recognized as nonlinear.')
+    # create model where nonlinearity occurs only if d is not zero
+    dynamics_dict,_ = sample_dynamics(use_d=True,use_w=False,use_theta=True,nonlinear=False)
+
+    # add nonlinear term that is zero for d = 0
+    d = dynamics_dict['d']
+    x = dynamics_dict['x']
+    A_d_x = ca.DM(rand(x.shape[0],x.shape[0]))
+    dynamics_dict['x_next'] = dynamics_dict['x_next'] + (A_d_x@d[0])@(x**2)
+
+    # create dynamics
+    dynamics = Dynamics(dynamics_dict)
+    
+    # check that true model is recognized as nonlinear
+    assert not dynamics._is_affine, 'Model was not recognized as nonlinear.'
+
+    # check that nominal model is recognized as affine
+    assert dynamics._is_nominal_affine, 'Nominal model was not recognized as affine'
+
+    # run linearization and check that linearization method == 'affine'
+    *_, linearization_method = dynamics._linearize(3, method='trajectory')
+    assert linearization_method == 'affine', 'linearize method did not choose the affine linearization option'
     
 def test_linearize_affine():
     """

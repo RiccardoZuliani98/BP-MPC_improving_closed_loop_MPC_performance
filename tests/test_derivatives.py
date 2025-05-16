@@ -3,7 +3,6 @@ import os
 import casadi as ca
 from numpy.random import randint, rand
 from sample_elements import sample_dynamics, sample_ingredients, sample_upper_level
-import pickle
 import datetime
 
 # add source path
