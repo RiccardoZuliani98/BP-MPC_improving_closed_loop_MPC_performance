@@ -2,6 +2,68 @@ import casadi as ca
 import numpy as np
 import os, glob
 
+def average_gradient_descent(rho,eta,log=True):
+
+    def parameter_update(sim,k):
+
+        # average all jacobians
+        j_p = ca.sum2(sim.j_p) / sim.j_p.shape[1]
+
+        # gradient step
+        p_next = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*j_p if log else sim.p - (rho/(k+1)**eta)*j_p
+
+        return p_next, None
+
+    return parameter_update, lambda sim: None
+
+# def robust_gradient_descent(rho,eta,n_models,log=True):
+
+#     # get list of jacobians
+#     j_p_list = ca.horzsplit(sim.j_p)
+
+    
+
+
+def gradient_descent(rho,eta=1,log=True):
+    
+    def update_log(sim,k):
+        return sim.p - (rho*ca.log(k+2)/(k+1)**eta)*sim.j_p, None
+    
+    def update_simple(sim,k):
+        return sim.p - (rho/(k+1)**eta)*sim.j_p, None
+        
+    parameter_update = update_log if log else update_simple
+        
+    return parameter_update, lambda sim: None
+
+def minibatch_descent(rho,eta=1,log=True,batch_size=1):
+
+    def parameter_update(sim,k):
+        
+        # check if number of steps has been reached
+        if ca.fmod(k+1,batch_size) == 0:
+
+            # construct average gradient
+            j_p = (sim.psi + sim.j_p) / batch_size
+
+            # zero the running gradient
+            psi = ca.DM.zeros(*j_p.shape)
+            
+            # run update
+            p = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*j_p if log else sim.p - (rho/(k+1)**eta)*j_p
+
+        # else update gradient
+        else:
+            psi = sim.psi + sim.j_p
+            p = sim.p
+
+        return p,psi
+    
+    def parameter_init(sim):
+        return ca.DM.zeros(*sim.j_p.shape)
+
+    return parameter_update, parameter_init
+    
 def quadCostAndBounds(Q,R,x_cl,u_cl,x_max=None,x_min=None,x_ref=None,u_ref=None):
 
     # get symbolic type

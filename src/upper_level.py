@@ -2,7 +2,7 @@ import casadi as ca
 from src.qp import QP
 from typing import Callable, Union, Optional
 import numpy as np
-from src.symb import SymbolicVar
+from src.symbolic_var import SymbolicVar
 from typeguard import typechecked
 
 """
@@ -122,7 +122,7 @@ class UpperLevel:
             j_p = ca.repmat(ca.DM.eye(self.dim['p']),1,multiplier)[self._idx['p'](t),:]
 
             # get entries o y
-            j_y = j_y_p[self.idx['y_next'](t),:] if y_idx else ca.DM(0,self.dim['p'])
+            j_y = j_y_p[self.idx['y_next'](t),:] if y_idx else ca.DM(0,self.dim['p']*multiplier)
 
             return ca.vertcat(j_x_p,j_y,j_p)
         
@@ -317,66 +317,106 @@ class UpperLevel:
         # store in upper level
         self._J_cost = j_cost_func
 
-    @typechecked
-    def set_alg(self,
-            p_next,
-            psi_init:Optional[ca.SX]=ca.SX(0),
-            psi_next:Optional[ca.SX]=ca.SX(0),
-            psi:Optional[ca.SX]=ca.SX.sym('psi',1,1)
-        ):
-        
-        # check that p_next returns a vector with the same dimension as p
-        assert p_next.shape == self.param['p'].shape, 'Parameters p and p_next must have the same dimension.'
-        
-        # check if pf is present
-        pf = self.param['pf'] if 'pf' in self.param else ca.SX.sym('pf',1,1)
+    def set_alg(self,parameter_update,parameter_init=None,sys_id=None):
 
-        # construct list of parameters on which p_next is allowed to depend
-        param_p_next = [self.param['p'],pf,psi,self.param['k'],self.param['J_p']]
+        self._parameter_init = parameter_init if parameter_init is not None else lambda sim: None
+        self._parameter_update = parameter_update
+        self._sys_id = sys_id if sys_id is not None else lambda sim: None
+    
+    @property
+    def parameter_init(self):
+        return self._parameter_init
+    
+    @property
+    def parameter_update(self):
+        return self._parameter_update
+    
+    @property
+    def sys_id(self):
+        return self._sys_id
 
-        # helper function to check if symbolic variables are correct
-        def symvar_str(expr):
-            return [str(v) for v in ca.symvar(expr)]
+    # @typechecked
+    # def set_alg_old(self,
+    #         p_next,
+    #         psi_init:Optional[ca.SX]=ca.SX(0),
+    #         psi_next:Optional[ca.SX]=ca.SX(0),
+    #         psi:Optional[ca.SX]=ca.SX.sym('psi',1,1),
+    #         mode:Optional[str]='single'
+    #     ):
+        
+    #     # check that p_next returns a vector with the same dimension as p
+    #     assert p_next.shape == self.param['p'].shape, 'Parameters p and p_next must have the same dimension.'
+        
+    #     # check if pf is present
+    #     pf = self.param['pf'] if 'pf' in self.param else ca.SX.sym('pf',1,1)
 
-        # check if p_next is a function of p, pf, psi, k, and Jp
-        assert len(set(symvar_str(p_next)) - set(symvar_str(ca.vcat(param_p_next)))) == 0, 'Parameter p_next must depend on p, pf, psi, k, and Jp.'
-        
-        # check that psi_init and psi_next have the same dimension as psi
-        assert psi_init.shape == psi.shape, 'Initial value of psi must have the same dimension as psi.'
-        assert psi_next.shape == psi.shape, 'Next value of psi must have the same dimension as psi.'
-        
-        # check that psi_next is a function of p, pf, psi, k, and Jp
-        assert len(set(symvar_str(psi_next)) - set(symvar_str(ca.vcat(param_p_next)))) == 0, 'Parameter p_next must depend on p, pf, psi, k, and Jp.'
-        
-        # check that psi is a function of p, pf, and Jp
-        assert len(set(symvar_str(psi_init)) - set(symvar_str(ca.vcat([self.param['p'],pf,self.param['J_p']])))) == 0, 'Initial value of psi must depend on p, pf, and Jp.'
-        
-        # create casadi function
-        psi_next_func = ca.Function('psi_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[psi_next],['p','pf','psi','k','Jp'],['psi_next'])
-        psi_init_func = ca.Function('psi_init',[self.param['p'],pf,self.param['J_p']],[psi_init],['p','pf','Jp'],['psi_init'])
-        p_next_func = ca.Function('p_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[p_next],['p','pf','psi','k','Jp'],['p_next'])
+    #     # construct list of parameters on which p_next is allowed to depend
+    #     param_p_next = [self.param['p'],pf,psi,self.param['k'],self.param['J_p']]
 
-        # if pf is not passed, wrap a python function around that defaults pf to 0
-        if 'pf' not in self.param:
-            def p_next_func_py(p,pf_loc,psi_loc,k,j_p):
-                if pf_loc is None:
-                    pf_loc = 0
-                return p_next_func(p,pf_loc,psi_loc,k,j_p)
-            def psi_next_func_py(p,pf_loc,psi_loc,k,j_p):
-                if pf_loc is None:
-                    pf_loc = 0
-                return psi_next_func(p,pf_loc,psi_loc,k,j_p)
-            def psi_init_func_py(p,pf_loc,j_p):
-                if pf_loc is None:
-                    pf_loc = 0
-                return psi_init_func(p,pf_loc,j_p)
-        else:
-            p_next_func_py = p_next_func
-            psi_next_func_py = psi_next_func
-            psi_init_func_py = psi_init_func
+    #     # helper function to check if symbolic variables are correct
+    #     def symvar_str(expr):
+    #         return [str(v) for v in ca.symvar(expr)]
 
-        # store in upperLevel
-        self._alg = {'psi_next':psi_next_func_py,'psi_init':psi_init_func_py,'p_next':p_next_func_py}
+    #     # check if p_next is a function of p, pf, psi, k, and Jp
+    #     assert len(set(symvar_str(p_next)) - set(symvar_str(ca.vcat(param_p_next)))) == 0, 'Parameter p_next must depend on p, pf, psi, k, and Jp.'
+        
+    #     # check that psi_init and psi_next have the same dimension as psi
+    #     assert psi_init.shape == psi.shape, 'Initial value of psi must have the same dimension as psi.'
+    #     assert psi_next.shape == psi.shape, 'Next value of psi must have the same dimension as psi.'
+        
+    #     # check that psi_next is a function of p, pf, psi, k, and Jp
+    #     assert len(set(symvar_str(psi_next)) - set(symvar_str(ca.vcat(param_p_next)))) == 0, 'Parameter p_next must depend on p, pf, psi, k, and Jp.'
+        
+    #     # check that psi is a function of p, pf, and Jp
+    #     assert len(set(symvar_str(psi_init)) - set(symvar_str(ca.vcat([self.param['p'],pf,self.param['J_p']])))) == 0, 'Initial value of psi must depend on p, pf, and Jp.'
+
+    #     # TODO: implement scenario descent
+    #     # get list of individual jacobians
+    #     # j_p_list = ca.horzsplit(j_p,p.shape[0])
+
+    #     # # create opti instance
+    #     # opti = ca.Opti('conic')
+
+    #     # # create main optimization variables
+    #     # d = opti.variable(*p.shape)
+    #     # epsilon = opti.variable()
+
+    #     # # bound error on each jacobian
+    #     # for j_p in j_p_list:
+    #     #     opti.subject_to( ca.norm_1(j_p-d) <= epsilon )
+
+    #     # # create objective
+    #     # opti.minimize(epsilon**2)
+
+    #     # # set parameters
+    #     # opti.parameter
+        
+    #     # create casadi function
+    #     psi_next_func = ca.Function('psi_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[psi_next],['p','pf','psi','k','Jp'],['psi_next'])
+    #     psi_init_func = ca.Function('psi_init',[self.param['p'],pf,self.param['J_p']],[psi_init],['p','pf','Jp'],['psi_init'])
+    #     p_next_func = ca.Function('p_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[p_next],['p','pf','psi','k','Jp'],['p_next'])
+
+    #     # if pf is not passed, wrap a python function around that defaults pf to 0
+    #     if 'pf' not in self.param:
+    #         def p_next_func_py(p,pf_loc,psi_loc,k,j_p):
+    #             if pf_loc is None:
+    #                 pf_loc = 0
+    #             return p_next_func(p,pf_loc,psi_loc,k,j_p)
+    #         def psi_next_func_py(p,pf_loc,psi_loc,k,j_p):
+    #             if pf_loc is None:
+    #                 pf_loc = 0
+    #             return psi_next_func(p,pf_loc,psi_loc,k,j_p)
+    #         def psi_init_func_py(p,pf_loc,j_p):
+    #             if pf_loc is None:
+    #                 pf_loc = 0
+    #             return psi_init_func(p,pf_loc,j_p)
+    #     else:
+    #         p_next_func_py = p_next_func
+    #         psi_next_func_py = psi_next_func
+    #         psi_init_func_py = psi_init_func
+
+    #     # store in upperLevel
+    #     self._alg = {'psi_next':psi_next_func_py,'psi_init':psi_init_func_py,'p_next':p_next_func_py}
 
     @property
     def alg(self):

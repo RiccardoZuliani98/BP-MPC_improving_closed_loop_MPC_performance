@@ -2,114 +2,13 @@ import sys
 import os
 import casadi as ca
 from numpy.random import randint, rand
+from sample_elements import sample_dynamics
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import pytest
 from src.dynamics import Dynamics
-
-def sample_dynamics(use_d:bool=False,use_w:bool=False,use_theta:bool=False,nonlinear:bool=False) -> dict:
-    """
-    This function generates a dictionary that can be used to setup a Dynamics object.
-    The true dynamics are given by
-
-        x_next = (A_1 + A_2@d) @ x + x**2 + B@u + c + B_d@w,
-
-    whereas the nominal dynamics are given by
-
-        x_next_nom = (A_1 + A_3@theta) @ x + x**2 + B@u + c.
-
-    The terms A_1,A_2,A_3,B,B_d,c are randomly generated with entries between 0 and 1.
-
-    Args:
-        use_d (bool, optional): if true the dynamics contain model uncertainty d
-        use_w (bool, optional): if true the dynamics contain noise w
-        use_theta (bool, optional): if true the dynamics contain nominal model theta
-        nonlinear (bool, optional): if true the dynamics contain quadratic term x**2
-        
-    Returns:
-        dict: dictionary that can be used to setup a Dynamics object
-        dict: dictionary containing A=A_1+A_2@d, A_nom=A_1+A_3@theta, B, c
-    """
-
-    # generate random state and input dimension
-    n_x = randint(1,4)
-    n_u = randint(1,4)
-
-    # create state and input variables
-    x = ca.SX.sym('x',n_x,1)
-    u = ca.SX.sym('u',n_u,1)
-
-    # add to output dictionary
-    out = {'x':x,'u':u}
-
-    # create random A and B matrices
-    A = ca.SX(rand(n_x,n_x))
-    B = ca.SX(rand(n_x,n_u))
-
-    # nominal A matrix
-    A_nom = A
-
-    # if model uncertainty is present, add it!
-    if use_d:
-
-        # generate random dimension for d
-        n_d = randint(1,4)
-
-        # create symbolic variable
-        d = ca.SX.sym('d',n_d,1)
-
-        # add to model 
-        A = A + ca.SX(rand(n_x,n_d))@d
-
-        # add d to output dictionary
-        out = out | {'d':d}
-
-    # if theta is present, add it!
-    if use_theta:
-
-        # generate random dimension for theta
-        n_theta = randint(1,4)
-
-        # create symbolic variable
-        theta = ca.SX.sym('theta',n_theta,1)
-
-        # add to nominal model
-        A_nom = A_nom + ca.SX(rand(n_x,n_theta))@theta
-
-        # add to output dictionary
-        out = out | {'theta':theta}
-
-    # create random affine part
-    c = ca.SX(rand(n_x,1))
-
-    # create next state
-    x_next = A@x + B@u + c
-    x_next_nom = A_nom@x + B@u + c
-
-    # if noise is present, add it!
-    if use_w:
-
-        # generate random dimension for w
-        n_w = randint(1,4)
-
-        # create symbolic variable
-        w = ca.SX.sym('w',n_w,1)
-
-        # add to model 
-        x_next = x_next + ca.SX(rand(n_x,n_w))@w
-
-        # add to output dictionary
-        out = out | {'w':w}
-
-    # if model is nonlinear, add quadratic term
-    if nonlinear:
-        x_next = x_next + x**2
-        x_next_nom = x_next_nom + x**2
-
-    return out | {'x_next':x_next, 'x_next_nom':x_next_nom}, {'A':A,'A_nom':A_nom,'B':B,'c':c}
-
 
 def test_affine():
     """
@@ -203,15 +102,29 @@ def test_nominal_and_derivatives():
     assert ca.mmin(dynamics_2.B_nom(x2,u2) == ca.DM(dynamics_2_matrices['B'])), 'u derivative does not match.'
     assert ca.mmin(dynamics_2.A_nom(x2,u2) == ca.DM(dynamics_2_matrices['A'])), 'u derivative does not match.'
 
-    # create model where nonlinearity occurs only if d is not zero
-    # x_next = A*x + B*u + c + d*x**2
-    # dyn = {'x':x, 'u':u, 'd':d, 'x_next':x_next, 'x_dot':x_dot, 'd0':0}
-    # mod = scenario()
-    # mod.makeDynamics(dyn)
+def test_nonlinear_if_d_nonzero():
 
-    # # check that model is recognized as nonlinear
-    # if not mod.dyn.type == 'nonlinear':
-    #     raise Exception('Model was not recognized as nonlinear.')
+    # create model where nonlinearity occurs only if d is not zero
+    dynamics_dict,_ = sample_dynamics(use_d=True,use_w=False,use_theta=True,nonlinear=False)
+
+    # add nonlinear term that is zero for d = 0
+    d = dynamics_dict['d']
+    x = dynamics_dict['x']
+    A_d_x = ca.DM(rand(x.shape[0],x.shape[0]))
+    dynamics_dict['x_next'] = dynamics_dict['x_next'] + (A_d_x@d[0])@(x**2)
+
+    # create dynamics
+    dynamics = Dynamics(dynamics_dict)
+    
+    # check that true model is recognized as nonlinear
+    assert not dynamics._is_affine, 'Model was not recognized as nonlinear.'
+
+    # check that nominal model is recognized as affine
+    assert dynamics._is_nominal_affine, 'Nominal model was not recognized as affine'
+
+    # run linearization and check that linearization method == 'affine'
+    *_, linearization_method = dynamics._linearize(3, method='trajectory')
+    assert linearization_method == 'affine', 'linearize method did not choose the affine linearization option'
     
 def test_linearize_affine():
     """
@@ -250,8 +163,11 @@ def test_linearize_initial_state():
     dynamics_dict, _ = sample_dynamics(nonlinear=True)
     dynamics = Dynamics(dynamics_dict)
 
+    # get nominal dynamics
+    f = dynamics.f_nom
+
     # Set horizon
-    horizon = 3
+    horizon = randint(2,5)
 
     # Call _linearize
     model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='initial_state')
@@ -267,6 +183,26 @@ def test_linearize_initial_state():
     # Check symbolic variable y_lin
     assert 'y_lin' in symbolic_vars.var, 'y_lin not found in symbolic variables.'
 
+    # get variables required to run functions
+    x = symbolic_vars.var['x']
+    u = symbolic_vars.var['y_lin']
+
+    # verify that derivatives are correct
+    for A,B,c in zip(model['A'],model['B'],model['c']):
+
+        # create casadi functions
+        A_func = ca.Function('A',[x,u],[A])
+        B_func = ca.Function('A',[x,u],[B])
+        c_func = ca.Function('A',[x,u],[c])
+
+        # random value for x and u
+        x0 = ca.DM(rand(*x.shape))
+        u0 = ca.DM(rand(*u.shape))
+
+        # compute error
+        error = f(x0,u0) - ( A_func(x0,u0)@x0 + B_func(x0,u0)@u0 + c_func(x0,u0) )
+        assert ca.norm_2(error) <= 1e-12, 'Linearized dynamics are incorrect'
+
 
 def test_linearize_trajectory():
     """
@@ -277,10 +213,13 @@ def test_linearize_trajectory():
     dynamics = Dynamics(dynamics_dict)
 
     # Set horizon
-    horizon = 4
+    horizon = randint(2,5)
 
     # Call _linearize
     model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='trajectory')
+
+    # get nominal dynamics
+    f = dynamics.f_nom
 
     # Check linearization method
     assert linearization_method == 'trajectory', 'Linearization method should be trajectory.'
@@ -292,6 +231,30 @@ def test_linearize_trajectory():
 
     # Check symbolic variable y_lin
     assert 'y_lin' in symbolic_vars.var, 'y_lin not found in symbolic variables.'
+
+        # get variables required to run functions
+    x = symbolic_vars.var['x']
+    y_lin = symbolic_vars.var['y_lin']
+    u = symbolic_vars.var['u']
+
+    # verify that derivatives are correct
+    for A,B,c in zip(model['A'],model['B'],model['c']):
+
+        # create casadi functions
+        A_func = ca.Function('A',[x,y_lin],[A])
+        B_func = ca.Function('A',[x,y_lin],[B])
+        c_func = ca.Function('A',[x,y_lin],[c])
+
+        # random value for x and u
+        x0 = ca.DM(rand(*x.shape))
+        u0 = ca.DM(rand(*u.shape))
+
+        # construct y_lin accordingly
+        y_lin0 = ca.vertcat(ca.repmat(x0,horizon,1),ca.repmat(u0,horizon,1))
+
+        # compute error
+        error = f(x0,u0) - ( A_func(x0,y_lin0)@x0 + B_func(x0,y_lin0)@u0 + c_func(x0,y_lin0) )
+        assert ca.norm_2(error) <= 1e-12, 'Linearized dynamics are incorrect'
 
 
 def test_linearize_invalid_method():

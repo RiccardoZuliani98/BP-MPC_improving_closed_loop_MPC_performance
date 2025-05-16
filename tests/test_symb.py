@@ -5,7 +5,7 @@ import pytest
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.symb import SymbolicVar
+from src.symbolic_var import SymbolicVar
 
 def test_check_and_convert_scalar():
     # Test with a scalar value

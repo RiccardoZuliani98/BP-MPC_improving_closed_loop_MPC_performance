@@ -15,7 +15,7 @@ import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-
+from src.utils import gradient_descent, minibatch_descent
 
 # cleanup jit files
 utils.cleanup()
@@ -26,26 +26,34 @@ COMPILE_QP_SPARSE = False
 COMPILE_QP_DENSE = False
 COMPILE_JAC = False
 
+# decide whether to include noise or not
+NOISE = False
+
 
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict = cart_pend.dynamics(dt=0.015)
+dyn_dict = cart_pend.dynamics(dt=0.015,use_d=NOISE,use_w=NOISE)
 
 # create dynamics object
 dyn = Dynamics(dyn_dict,jit=COMPILE_DYNAMICS)
 
 # get state and input dimensions
-n_x, n_u, n_w, n_d = dyn.dim['x'], dyn.dim['u'], dyn.dim['w'], dyn.dim['d']
+n_x, n_u = dyn.dim['x'], dyn.dim['u']
+
+if NOISE:
+    n_w, n_d = dyn.dim['w'], dyn.dim['d']
 
 # upper-level horizon
-T = 170
+upper_horizon = 170
 
 # set initial conditions
 x0 = ca.vertcat(0,0,-ca.pi,0)
 u0 = 0.1
-w0 = ca.horzsplit(ca.DM(n_w,T))
-d0 = ca.DM(n_d,1)
+
+if NOISE:
+    w0 = ca.horzsplit(ca.DM(n_w,upper_horizon))
+    d0 = ca.DM(n_d,1)
 
 
 ### CREATE MPC -----------------------------------------------------------------------------
@@ -55,7 +63,7 @@ Q_true = ca.diag(ca.vertcat(100,1,100,1))
 R_true = 1e-6
 
 # mpc horizon
-N = 11
+mpc_horizon = 11
 
 # constraints are simple bounds on state and input
 x_max = ca.vertcat(5,5,ca.inf,ca.inf)
@@ -68,7 +76,7 @@ c_q = ca.SX.sym('c_q',int(n_x*(n_x+1)/2),1)
 c_r = ca.SX.sym('c_r',1,1)
 
 # stage cost (state)
-Qx = [Q_true] * (N-1)
+Qx = [Q_true] * (mpc_horizon-1)
 
 # stage cost (input)
 Ru = c_r**2 + 1e-6
@@ -96,7 +104,7 @@ Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
-ing = Ingredients(horizon=N,dynamics=dyn,cost=cost,constraints=cst)
+ing = Ingredients(horizon=mpc_horizon,dynamics=dyn,cost=cost,constraints=cst)
 
 # create options
 qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,
@@ -110,7 +118,7 @@ MPC = QP(ingredients=ing,p=p,options=qp_options)
 ### UPPER LEVEL -----------------------------------------------------------
 
 # create upper level
-UL = UpperLevel(p=p,horizon=T,mpc=MPC)
+upper_level = UpperLevel(p=p,horizon=upper_horizon,mpc=MPC)
 
 # extract linearized dynamics at the origin
 A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1))
@@ -120,8 +128,8 @@ B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1))
 p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
 
 # extract closed-loop variables for upper level
-x_cl = ca.vec(UL.param['x_cl'])
-u_cl = ca.vec(UL.param['u_cl'])
+x_cl = ca.vec(upper_level.param['x_cl'])
+u_cl = ca.vec(upper_level.param['u_cl'])
 
 track_cost, cst_viol_l1, cst_viol_l2 = utils.quadCostAndBounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
@@ -129,27 +137,20 @@ track_cost, cst_viol_l1, cst_viol_l2 = utils.quadCostAndBounds(Q_true,R_true,x_c
 cost = track_cost
 
 # create upper-level constraints
-Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,T+1)
-_,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,T)
+Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,upper_horizon+1)
+_,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,upper_horizon)
 cst_viol = ca.vcat([Hx@ca.vec(x_cl)-hx,Hu@ca.vec(u_cl)-hu])
 
 # store in upper-level
-UL.set_cost(cost,track_cost,cst_viol)
+upper_level.set_cost(cost,track_cost,cst_viol)
 
 # create algorithm
-p = UL.param['p']
-J_p = UL.param['J_p']
-k = UL.param['k']
-
-# hyperparameters
-rho = 0.0001
-eta = 0.51
-
-# create GD update rule
-p_next = p -(rho*ca.log(k+2)/(k+2)**eta)*J_p
+p = upper_level.param['p']
+J_p = upper_level.param['J_p']
+k = upper_level.param['k']
 
 # create update function
-UL.set_alg(p_next)
+upper_level.set_alg(*gradient_descent(rho=0.0001,eta=0.51,log=True))
 
 # test derivatives
 # # out = tests.derivatives(mod)
@@ -157,10 +158,11 @@ UL.set_alg(p_next)
 
 ### CREATE SCENARIO -----------------------------------------------------------
 
-scenario = Scenario(dyn,MPC,UL)
+scenario = Scenario(dyn,MPC,upper_level)
 
 # initialize
-scenario.set_init({'p':p_init,'x': x0,'u': u0, 'w': w0, 'd': d0})
+init_dict = {'p':p_init,'x': x0,'u': u0, 'w': w0, 'd': d0} if NOISE else {'p':p_init,'x': x0,'u': u0}
+scenario.set_init(init_dict)
 
 # simulate with initial parameter
 S,qp_data_sparse,_ = scenario.simulate()

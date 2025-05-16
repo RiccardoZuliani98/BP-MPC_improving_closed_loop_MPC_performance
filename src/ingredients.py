@@ -28,7 +28,7 @@ class Ingredients:
     
     _ALL_DIMENSIONS = ['x','u','one','cst_x','eps','cst_u']
 
-    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state'], 'slack':bool}
+    _OPTIONS_ALLOWED_VALUES = {'linearization':['trajectory','initial_state','affine'], 'slack':bool}
     
     _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'slack':False}
 
@@ -112,29 +112,20 @@ class Ingredients:
         n_eps = self.dim['eps']
         N = self.dim['N']
 
-
         # check if affine term is present
-        if 'c' in processed_data:
-            c_list = processed_data['c']
-        else:
-            c_list = [ca.SX(n_x,1)]*N
+        c_list_original = processed_data['c'] if 'c' in processed_data else [ca.SX(n_x,1)]*N
 
         # patch first affine term
-        c_list[0] = c_list[0] - A_list[0]@x
+        c_list = c_list_original
+        c_list[0] = c_list[0] + A_list[0]@x
 
         # extract cost
         Qx_list = processed_data['Qx']
         Ru_list = processed_data['Ru']
 
         # check if reference is passed
-        if 'x_ref' in processed_data:
-            x_ref = ca.vcat(processed_data['x_ref'])
-        else:
-            x_ref = ca.SX(n_x*N,1)
-        if 'u_ref' in processed_data:
-            u_ref = ca.vcat(processed_data['u_ref'])
-        else:
-            u_ref = ca.SX(n_u*N,1)
+        x_ref = ca.vcat(processed_data['x_ref']) if 'x_ref' in processed_data else ca.SX(n_x*N,1)
+        u_ref = ca.vcat(processed_data['u_ref']) if 'u_ref' in processed_data else ca.SX(n_u*N,1)
 
         # extract constraints
         Hx_list = processed_data['Hx']
@@ -214,7 +205,7 @@ class Ingredients:
             F[i*n_x:(i+1)*n_x,N*n_x+i*n_u:N*n_x+(i+1)*n_u] = B_list[i]
 
             # affine term 
-            f[i*n_x:(i+1)*n_x] = c_list[i]
+            f[i*n_x:(i+1)*n_x] = -c_list[i]
 
         # sparsify F and f
         F = ca.cse(ca.sparsify(F))
@@ -231,7 +222,9 @@ class Ingredients:
             Q = ca.blockcat(Q,ca.SX(Q.shape[0],n_eps),ca.SX(n_eps,Q.shape[0]),ca.diag(s_quad))
 
         # inverse of quadratic cost matrix
-        Qinv = ca.inv_minor(Q)
+        Q = ca.sparsify(ca.cse(Q))
+        Qinv = ca.pinv(Q)
+        # Qinv = ca.inv_minor(Q)
         # Qinv = ca.inv(Q)
 
         # create linear part of the cost

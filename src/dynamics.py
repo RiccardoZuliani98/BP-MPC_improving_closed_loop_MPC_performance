@@ -1,6 +1,6 @@
 import casadi as ca
 import time
-from src.symb import SymbolicVar
+from src.symbolic_var import SymbolicVar
 
 class Dynamics:
     """
@@ -137,7 +137,7 @@ class Dynamics:
         comp_time_dict = comp_time_dict | {'f':time.time()-start}
 
         # if d or w were passed, nominal and true models are different
-        model_is_noisy = True if len(p) > len(p_nom) else False
+        model_is_noisy = False if set(ca.symvar(ca.vcat(p))) == set(ca.symvar(ca.vcat(p_nom))) else True
 
         # create nominal dynamics
         if model_is_noisy:
@@ -189,11 +189,19 @@ class Dynamics:
             # save in dynamics
             self._A_nom = a_nom
             self._B_nom = b_nom
+
+            # check if df_dx_nom and df_du_nom are constant
+            if ca.jacobian(ca.vcat([*ca.symvar(df_dx_nom),*ca.symvar(df_du_nom)]),ca.vertcat(self.param['x'],self.param['u'])).is_zero():
+                self._is_nominal_affine = True
+            else:
+                self._is_nominal_affine = False
+
         else:
             # otherwise, copy exact dynamics
             a_nom = a
             b_nom = b
             comp_time_dict = comp_time_dict | {'A_nom':comp_time_dict['A'],'B_nom':comp_time_dict['B']}
+            self._is_nominal_affine = self._is_affine
         
         # store in dynamics
         self._A = a
@@ -203,9 +211,6 @@ class Dynamics:
 
         # store computation times
         self._compTimes = comp_time_dict
-
-        # store empty model
-        self._model = {}
 
     def _linearize(self,horizon:int,method='trajectory') -> dict | SymbolicVar | str:
         """
@@ -255,17 +260,21 @@ class Dynamics:
         symbolic_vars = self._sym.copy()
 
         # if model is affine, compute exact dynamics
-        if self._is_affine:
+        if self._is_nominal_affine:
 
             # create nominal dynamics f(x,u) = Ax + bu + c
-            a_mat = list(a.call(param_nom).values())[0]
-            b_mat = list(b.call(param_nom).values())[0]
-            c_mat = -(list(fd.call(param_nom).values())[0] - a_mat@x - b_mat@u)
+            a_mat = ca.sparsify(ca.cse(list(a.call(param_nom).values())[0]))
+            b_mat = ca.sparsify(ca.cse(list(b.call(param_nom).values())[0]))
+            c_mat = ca.sparsify(ca.cse( list(fd.call(param_nom).values())[0] - a_mat@x - b_mat@u ))
+
+            # substitute x and u (sometimes casadi does not recognize that c_mat is constant)
+            c_mat_num_1 = ca.substitute(c_mat,x,ca.SX.zeros(*x.shape))
+            c_mat_num_2 = ca.substitute(c_mat_num_1,u,ca.SX.zeros(*u.shape))
 
             # stack in list
             a_list = [a_mat] * horizon
             b_list = [b_mat] * horizon
-            c_list = [c_mat] * horizon
+            c_list = [c_mat_num_2] * horizon
 
         # if mode is 'initial_state', linearize around the initial state
         elif method == 'initial_state':
@@ -280,7 +289,7 @@ class Dynamics:
             # compute derivatives
             a_lin = list(a.call(param_nom).values())[0]
             b_lin = list(b.call(param_nom).values())[0]
-            c_lin = - ( list(fd.call(param_nom).values())[0] - a_lin@x - b_lin@u_lin )
+            c_lin = list(fd.call(param_nom).values())[0] - a_lin@x - b_lin@u_lin
 
             # stack in list
             a_list = [a_lin] * horizon
@@ -324,7 +333,7 @@ class Dynamics:
                 b_list.append(b_i)
 
                 # evaluate linear part
-                c_i = - ( list(fd.call(param_nom).values())[0] - a_i@x_i - b_i@u_i )
+                c_i = list(fd.call(param_nom).values())[0] - a_i@x_i - b_i@u_i
                 c_list.append(c_i)
 
             # store y_lin
@@ -337,7 +346,7 @@ class Dynamics:
         model = {'A':a_list, 'B':b_list, 'c':c_list}
 
         # determine linearization method that was used
-        linearization_method = 'affine' if self._is_affine else method
+        linearization_method = 'affine' if self._is_nominal_affine else method
 
         # return used linearization method
         return model, symbolic_vars, linearization_method
