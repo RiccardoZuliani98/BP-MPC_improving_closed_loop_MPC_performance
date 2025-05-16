@@ -11,6 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.dynamics import Dynamics
 from src.scenario import Scenario
 from src.qp import QP
+from src.ingredients import Ingredients
 
 def test_parallel_derivatives(mpc_horizon=None,upper_horizon=None,n_models=5,tol=1e-5):
 
@@ -28,9 +29,12 @@ def test_parallel_derivatives(mpc_horizon=None,upper_horizon=None,n_models=5,tol
 
     # create dynamics
     dynamics = Dynamics(dynamics_dict)
+    
+    # create ingredients
+    p, _, cost, constraints = sample_ingredients(dynamics.dim,p=True,horizon=mpc_horizon)
+    ingredients = Ingredients(horizon=mpc_horizon,cost=cost,constraints=constraints,dynamics=dynamics)
 
-    # create sample QP
-    ingredients, p, _ = sample_ingredients(dynamics,p=True,horizon=mpc_horizon)
+    # create MPC
     mpc = QP(ingredients=ingredients,p=p,pf=theta)
 
     # create sample upper level

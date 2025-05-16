@@ -1,44 +1,171 @@
 import sys
 import os
 import casadi as ca
+from numpy.random import randint, rand
+import pytest
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from sample_elements import sample_dynamics, sample_ingredients
 from src.dynamics import Dynamics
+from src.ingredients import Ingredients
 
-def test_init():
+# def test_init():
 
-    # generate sample affine dynamics
-    dynamics_dict, dynamics_matrices = sample_dynamics(use_d=True,use_w=True,use_theta=True,nonlinear=False)
+#     # generate sample affine dynamics
+#     dynamics_dict, dynamics_matrices = sample_dynamics(use_d=True,use_w=True,use_theta=True,nonlinear=False)
     
-    # create dynamics
+#     # create dynamics
+#     dynamics = Dynamics(dynamics_dict)
+
+#     # create sample QP
+#     ingredients, *_ = sample_ingredients(dynamics,p=False,horizon=1)
+
+#     # check that dynamics are correct
+#     print('me')
+
+#     # construct dynamics from matrices
+#     A,B,c = dynamics_matrices['A_nom'],dynamics_matrices['B'],dynamics_matrices['c']
+
+#     # get equality constraints (sparse) from ingredients
+#     F = ingredients.sparse['F']
+#     f = ingredients.sparse['f']
+
+#     # create symbolic variable for x and u
+#     x = ca.SX.sym('x',A.shape[0],1)
+#     u = ca.SX.sym('x',B.shape[1],1)
+
+#     # get next state
+#     x_next = A@x+B@u+c
+
+#     # apply to equality constraints
+
+def test_parse_inputs_all_lists():
+
+    # create dummy dynamics
+    dynamics_dict, _ = sample_dynamics(use_d=True,use_w=True,use_theta=True,nonlinear=False)
     dynamics = Dynamics(dynamics_dict)
 
-    # create sample QP
-    ingredients, *_ = sample_ingredients(dynamics,p=False,horizon=1)
+    # random horizon
+    horizon = randint(1,5)
 
-    # check that dynamics are correct
-    print('me')
+    # get model
+    model = dynamics._linearize(horizon=horizon)[0]
 
-    # construct dynamics from matrices
-    A,B,c = dynamics_matrices['A_nom'],dynamics_matrices['B'],dynamics_matrices['c']
+    # create dictionary that can be passed to ingredients
+    _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
+    ing_dict = cost | constraints | model
 
-    # get equality constraints (sparse) from ingredients
-    F = ingredients.sparse['F']
-    f = ingredients.sparse['f']
-
-    # create symbolic variable for x and u
-    x = ca.SX.sym('x',A.shape[0],1)
-    u = ca.SX.sym('x',B.shape[1],1)
-
-    # get next state
-    x_next = A@x+B@u+c
-
-    # apply to equality constraints
+    out = Ingredients._parse_inputs(ing_dict,horizon)
     
+    for key in out.keys():
 
+        assert isinstance(out[key], list), 'Element ' + key + ' is not a list'
+        assert key in ing_dict, 'Element ' + key + ' is not in the input dictionary'
+        assert len(out[key]) == horizon, 'Element ' + key + ' does not have the correct length'
 
+        if key in cost:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(cost[key],out[key])]), 'Element ' + key + ' does not match'
+        elif key in constraints:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(constraints[key],out[key])]), 'Element ' + key + ' does not match'
+        elif key in model:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(model[key],out[key])]), 'Element ' + key + ' does not match'
+
+def test_parse_inputs_all_single():
+
+    # create dummy dynamics
+    dynamics_dict, _ = sample_dynamics(use_d=True,use_w=True,use_theta=True,nonlinear=False)
+    dynamics = Dynamics(dynamics_dict)
+
+    # random horizon
+    horizon = randint(2,5)
+
+    # get model
+    model = dynamics._linearize(horizon=1)[0]
+
+    # create dictionary that can be passed to ingredients
+    _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=1)
+    ing_dict = cost | constraints | model
+
+    out = Ingredients._parse_inputs(ing_dict,horizon)
+    
+    for key in out.keys():
+
+        assert isinstance(out[key], list), 'Element ' + key + ' is not a list'
+        assert key in ing_dict, 'Element ' + key + ' is not in the input dictionary'
+        assert len(out[key]) == horizon, 'Element ' + key + ' does not have the correct length'
+
+        if key in cost:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(cost[key],out[key])]), 'Element ' + key + ' does not match'
+        elif key in constraints:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(constraints[key],out[key])]), 'Element ' + key + ' does not match'
+        elif key in model:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(model[key],out[key])]), 'Element ' + key + ' does not match'
+
+def test_parse_inputs_some_single_lists():
+
+    # create dummy dynamics
+    dynamics_dict, _ = sample_dynamics(use_d=True,use_w=True,use_theta=True,nonlinear=False)
+    dynamics = Dynamics(dynamics_dict)
+
+    # random horizon
+    horizon = randint(1,5)
+
+    # get model
+    model = dynamics._linearize(horizon=1)[0]
+
+    # create dictionary that can be passed to ingredients
+    _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
+    ing_dict = cost | constraints | model
+
+    out = Ingredients._parse_inputs(ing_dict,horizon)
+    
+    for key in out.keys():
+
+        assert isinstance(out[key], list), 'Element ' + key + ' is not a list'
+        assert key in ing_dict, 'Element ' + key + ' is not in the input dictionary'
+        assert len(out[key]) == horizon, 'Element ' + key + ' does not have the correct length'
+
+        if key in cost:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(cost[key],out[key])]), 'Element ' + key + ' does not match'
+        elif key in constraints:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(constraints[key],out[key])]), 'Element ' + key + ' does not match'
+        elif key in model:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(model[key],out[key])]), 'Element ' + key + ' does not match'
+
+def test_parse_inputs_some_single_elements():
+
+    # create dummy dynamics
+    dynamics_dict, _ = sample_dynamics(use_d=True,use_w=True,use_theta=True,nonlinear=False)
+    dynamics = Dynamics(dynamics_dict)
+
+    # random horizon
+    horizon = randint(1,5)
+
+    # get model
+    model = dynamics._linearize(horizon=1)[0]
+    model['A'] = model['A'][0]
+    model['B'] = model['B'][0]
+    model['c'] = model['c'][0]
+
+    # create dictionary that can be passed to ingredients
+    _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
+    ing_dict = cost | constraints | model
+
+    out = Ingredients._parse_inputs(ing_dict,horizon)
+    
+    for key in out.keys():
+
+        assert isinstance(out[key], list), 'Element ' + key + ' is not a list'
+        assert key in ing_dict, 'Element ' + key + ' is not in the input dictionary'
+        assert len(out[key]) == horizon, 'Element ' + key + ' does not have the correct length'
+
+        if key in cost:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(cost[key],out[key])]), 'Element ' + key + ' does not match'
+        elif key in constraints:
+            assert all([ca.mmax(ca.fabs(elem1-elem2))==0 for elem1,elem2 in zip(constraints[key],out[key])]), 'Element ' + key + ' does not match'
+        elif key in model:
+            assert all([ca.mmax(ca.fabs(elem-model[key]))==0 for elem in out[key]]), 'Element ' + key + ' does not match'
 
 # test to ensure that a quadratic penalty is imposed on slack if present
