@@ -149,8 +149,11 @@ def test_linearize_initial_state():
     dynamics_dict, _ = sample_dynamics(nonlinear=True)
     dynamics = Dynamics(dynamics_dict)
 
+    # get nominal dynamics
+    f = dynamics.f_nom
+
     # Set horizon
-    horizon = 3
+    horizon = randint(2,5)
 
     # Call _linearize
     model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='initial_state')
@@ -166,6 +169,26 @@ def test_linearize_initial_state():
     # Check symbolic variable y_lin
     assert 'y_lin' in symbolic_vars.var, 'y_lin not found in symbolic variables.'
 
+    # get variables required to run functions
+    x = symbolic_vars.var['x']
+    u = symbolic_vars.var['y_lin']
+
+    # verify that derivatives are correct
+    for A,B,c in zip(model['A'],model['B'],model['c']):
+
+        # create casadi functions
+        A_func = ca.Function('A',[x,u],[A])
+        B_func = ca.Function('A',[x,u],[B])
+        c_func = ca.Function('A',[x,u],[c])
+
+        # random value for x and u
+        x0 = ca.DM(rand(*x.shape))
+        u0 = ca.DM(rand(*u.shape))
+
+        # compute error
+        error = f(x0,u0) - ( A_func(x0,u0)@x0 + B_func(x0,u0)@u0 + c_func(x0,u0) )
+        assert ca.norm_2(error) <= 1e-12, 'Linearized dynamics are incorrect'
+
 
 def test_linearize_trajectory():
     """
@@ -176,10 +199,13 @@ def test_linearize_trajectory():
     dynamics = Dynamics(dynamics_dict)
 
     # Set horizon
-    horizon = 4
+    horizon = randint(2,5)
 
     # Call _linearize
     model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='trajectory')
+
+    # get nominal dynamics
+    f = dynamics.f_nom
 
     # Check linearization method
     assert linearization_method == 'trajectory', 'Linearization method should be trajectory.'
@@ -191,6 +217,30 @@ def test_linearize_trajectory():
 
     # Check symbolic variable y_lin
     assert 'y_lin' in symbolic_vars.var, 'y_lin not found in symbolic variables.'
+
+        # get variables required to run functions
+    x = symbolic_vars.var['x']
+    y_lin = symbolic_vars.var['y_lin']
+    u = symbolic_vars.var['u']
+
+    # verify that derivatives are correct
+    for A,B,c in zip(model['A'],model['B'],model['c']):
+
+        # create casadi functions
+        A_func = ca.Function('A',[x,y_lin],[A])
+        B_func = ca.Function('A',[x,y_lin],[B])
+        c_func = ca.Function('A',[x,y_lin],[c])
+
+        # random value for x and u
+        x0 = ca.DM(rand(*x.shape))
+        u0 = ca.DM(rand(*u.shape))
+
+        # construct y_lin accordingly
+        y_lin0 = ca.vertcat(ca.repmat(x0,horizon,1),ca.repmat(u0,horizon,1))
+
+        # compute error
+        error = f(x0,u0) - ( A_func(x0,y_lin0)@x0 + B_func(x0,y_lin0)@u0 + c_func(x0,y_lin0) )
+        assert ca.norm_2(error) <= 1e-12, 'Linearized dynamics are incorrect'
 
 
 def test_linearize_invalid_method():
