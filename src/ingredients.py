@@ -683,7 +683,8 @@ class Ingredients:
         for key,val in dimension_dict_stripped.items():
             assert val.count(val[0]) == len(val), 'Wrong dimension detected for key: ' + key
 
-    def _check_slack(self,data:dict) -> bool | int:
+    @staticmethod
+    def _check_slack(data:dict) -> bool | int:
         """
         Checks and validates the presence and configuration of slack variables and their penalties in the
         provided data dictionary.
