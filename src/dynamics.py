@@ -227,10 +227,10 @@ class Dynamics:
                 - 'A': List of state transition matrices for each time step.
                 - 'B': List of input matrices for each time step.
                 - 'c': List of offset vectors for each time step.
-        symbolic_vars (SymbolicVar): The symbolic variables used during the linearization
-            process as well as the symbolic variables of the dynamics class object.
-        linearization_method (str): The method used for linearization ('affine', 
-            'trajectory', or 'initial_state').
+            symbolic_vars (SymbolicVar): The symbolic variables used during the linearization
+                process as well as the symbolic variables of the dynamics class object.
+            linearization_method (str): The method used for linearization ('affine', 
+                'trajectory', or 'initial_state').
         
         Notes:
             - If the model is affine, the dynamics are computed exactly as f(x, u) = Ax + Bu + c.

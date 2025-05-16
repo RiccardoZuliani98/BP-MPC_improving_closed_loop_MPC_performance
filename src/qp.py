@@ -6,14 +6,60 @@ import numpy as np
 from copy import copy
 from numpy.linalg import lstsq
 
-"""
-TODO
-* better init function?
-* descriptions
-* comp times
-"""
-
 class QP:
+    """
+    QP: Quadratic Program Solver Class
+    This class provides a flexible interface for constructing, compiling, and solving quadratic programming (QP)
+    problems using symbolic and numerical tools, primarily leveraging CasADi. It supports both sparse and dense
+    QP formulations, warmstarting, multiple solver backends, and automatic Jacobian computation for sensitivity
+    analysis. 
+    Attributes:
+        _OPTIONS_ALLOWED_VALUES (dict): Allowed keys and their valid values/types for solver options.
+        _OPTIONS_DEFAULT_VALUES (dict): Default values for solver options.
+        _options (Options): Instance managing current solver options.
+        _sym (SymbolManager): Symbolic variable manager (copied from Ingredients).
+        _ingredients (Ingredients): Problem data and symbolic variables.
+        _qp_sparse (ca.Function): Compiled CasADi function for sparse QP.
+        _dual_sparse (ca.Function): Compiled CasADi function for dual problem.
+        _solve (callable): Local QP solver function for sparse QP.
+        _denseSolve (callable): Local QP solver function for dense QP.
+        _J (ca.Function): CasADi function for conservative Jacobian evaluation.
+        _J_y_p (callable): Function for computing conservative Jacobian of the primal variable.
+        _compTimes (dict): Compilation and setup timing information.
+    Methods:
+        __init__(self, ingredients, p=None, pf=None, options=None)
+            Initializes the QP object with problem data, symbolic variables, parameters, and options.
+        _makeSparseQP(self)
+            Constructs and compiles the sparse QP and dual functions, sets up the solver interface, and defines the local QP solver.
+        make_dense_qp(self, p)
+            Constructs and compiles a dense QP solver using CasADi, based on current model parameters and options.
+        _makeConsJac(self)
+            Constructs and compiles conservative Jacobian functions for QP constraints and primal variables.
+        debug(self, lam, mu, p_t, epsilon=1e-6, roundoff=10, y_all=None)
+            Numerically checks the computed Jacobian against finite differences for debugging and validation.
+    Properties:
+        ingredients: Returns the Ingredients instance.
+        idx: Returns the input index dictionary.
+        solve: Returns the local sparse QP solver function.
+        denseSolve: Returns the local dense QP solver function.
+        qp_sparse: Returns the compiled sparse QP function.
+        qp_dense: Returns the compiled dense QP function.
+        dual_sparse: Returns the compiled dual function.
+        J: Returns the CasADi Jacobian function.
+        J_y_p: Returns the conservative Jacobian computation function.
+        param: Returns the symbolic parameter dictionary.
+        dim: Returns the symbolic dimensions dictionary.
+        options: Returns the current options.
+        init: Returns the dictionary of initialized symbolic variables.
+    Usage:
+        - Instantiate with problem Ingredients and optional parameters/options.
+        - Call `solve` or `denseSolve` to solve the QP.
+        - Use Jacobian functions for sensitivity analysis.
+        - Use `debug` to validate Jacobian computations.
+        - Requires CasADi and NumPy.
+        - Supports multiple QP solvers (e.g., qpoases, daqp, gurobi, cplex, osqp, qrqp).
+        - Designed for use in model predictive control (MPC) and related optimization tasks.
+    """
     
     # Allowed option keys
     _OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp'],'dense_solver':['qpoases','daqp'],
@@ -28,6 +74,23 @@ class QP:
                                'ls_solver':'casadi'}
 
     def __init__(self,ingredients,p=None,pf=None,options=None):
+        """
+        Initializes the QP (Quadratic Program) object with the provided ingredients, parameters, and options.
+        Parameters:
+            ingredients (Ingredients): An instance of the Ingredients class containing all necessary problem data and symbolic variables.
+            p (ca.SX, optional): Optional symbolic parameter vector to be included in the QP. Must be of type casadi.SX.
+            pf (ca.SX, optional): Optional terminal parameter vector to be included in the QP. Must be of type casadi.SX.
+            options (dict, optional): Dictionary of user-specified options to override default and ingredient options.
+        Raises:
+            AssertionError: If `ingredients` is not an instance of Ingredients.
+            AssertionError: If `p` or `pf` are provided and are not of type casadi.SX.
+        Notes:
+            - Copies symbolic variables and options from the provided ingredients.
+            - Constructs and stores the full parameter vector required for the QP.
+            - Sets up indexing for input variables.
+            - Initializes symbolic variables for primal and dual optimization variables.
+            - Prepares the sparse QP structure and conservative Jacobian.
+        """
 
         # check if options is not passed
         if options is None:
@@ -113,6 +176,30 @@ class QP:
         self._makeConsJac()
 
     def _makeSparseQP(self):
+        """
+        Constructs and compiles sparse Quadratic Programming (QP) and dual functions for the model,
+        sets up the QP solver interface, and defines a local QP solver function with optional warmstarting.
+        This method performs the following steps:
+        1. Sets compilation options for just-in-time (JIT) compilation if enabled.
+        2. Extracts sparse QP and dual problem ingredients from the model's ingredients.
+        3. Checks that all symbolic outputs are a subset of the provided symbolic inputs.
+        4. Creates CasADi functions for the QP and dual problem using the extracted ingredients.
+        5. Sets up the QP solver interface using the specified solver (e.g., gurobi, cplex, qpoases, osqp, daqp, qrqp),
+           configuring solver-specific options and equality constraints.
+        6. Defines a local QP solver function (`local_qp`) that prepares the QP problem, applies warmstarting if requested,
+           solves the QP, and returns the solution (primal and dual variables).
+        7. Stores the compiled QP and dual functions, the local QP solver, and computation times in the model.
+        Raises:
+            AssertionError: If the QP ingredients depend on more symbolic inputs than provided.
+        Side Effects:
+            - Sets `self._qp_sparse` to the compiled QP function.
+            - Sets `self._dual_sparse` to the compiled dual function.
+            - Sets `self._solve` to the local QP solver function.
+            - Sets `self._compTimes` to a dictionary of compilation times.
+        Note:
+            This method is intended for internal use and assumes that the model's ingredients and symbolic variables
+            have been properly initialized.
+        """
 
         # compilation options
         if self._options['compile_qp_sparse']:
@@ -237,9 +324,34 @@ class QP:
         self._solve = local_qp
 
         # store computation times (if compile is true)
-        self._compTimes = comp_time_dict
+        self._comp_times = comp_time_dict
 
     def make_dense_qp(self,p):
+        """
+        Constructs and compiles a dense Quadratic Program (QP) solver using CasADi, based on the current model
+        parameters and options. This method performs the following steps:
+        1. Sets up compilation and JIT options for the QP function if enabled.
+        2. Extracts dense QP ingredients from the model.
+        3. Creates a CasADi function to compute dense QP outputs symbolically.
+        4. Substitutes symbolic parameters with provided numerical values.
+        5. Computes the QP matrices (Q, q, G, lba, uba) and other required ingredients.
+        6. Re-creates a CasADi function for the QP with the computed outputs.
+        7. Sets up the QP solver using the specified backend (e.g., gurobi, cplex, osqp, etc.).
+        8. Defines a local QP solver function that supports warmstarting and returns the solution and multipliers.
+        9. Stores the local QP solver and computation times in the model.
+        
+        Parameters:
+            p (array-like or CasADi DM): The numerical value for the QP parameter vector, used to substitute symbolic parameters.
+        
+        Side Effects:
+            - Sets `self._dense_solve` to the local QP solver function.
+            - Updates `self._compTimes` with timing information for function compilation and solver setup.
+        
+        Notes:
+            - The method supports multiple QP solvers via CasADi's conic interface.
+            - Warmstarting is supported if an initial guess is provided to the local QP solver.
+            - The function assumes that model parameters and dimensions are properly initialized.
+        """
 
         # compilation options
         if self._options['compile_qp_dense']:
@@ -258,7 +370,7 @@ class QP:
         # create function
         start = time.time()
         QP_dense_func = ca.Function('QP_dense',[self._sym.var['p_qp_full']],QP_outs_dense,['p'],QP_outs_dense_names,options)
-        self._compTimes['QP_dense_func'] = time.time()-start
+        self._comp_times['QP_dense_func'] = time.time()-start
 
         # get p_qp_full parameter
         p_qp_full = copy(self.param['p_qp_full'])
@@ -373,9 +485,33 @@ class QP:
         self._dense_solve = local_qp
 
         # store computation times (if compile is true)
-        self._compTimes = self._compTimes | comp_time_dict
+        self._comp_times = self._comp_times | comp_time_dict
 
     def _makeConsJac(self):
+        """
+        Constructs and compiles the conservative Jacobian functions for the QP constraints and primal variables.
+        This method generates symbolic Jacobians using CasADi for the constraint projector and the primal variable
+        with respect to the QP parameters and dual variables. It supports both NumPy and CasADi-based least-squares solvers
+        for evaluating the Jacobians. The resulting functions are stored as attributes for later use.
+        Steps performed:
+            - Configures compilation options for CasADi functions based on user settings.
+            - Extracts relevant parameters, dual variables, and QP data from class attributes.
+            - Computes conservative Jacobians for the constraint projector and the primal variable.
+            - Applies common subexpression elimination and sparsification to optimize symbolic expressions.
+            - Stacks outputs and creates a CasADi function for efficient evaluation.
+            - Defines a function to compute the conservative Jacobian of the primal variable with respect to parameters,
+              using either NumPy or CasADi solvers as specified.
+            - Stores the generated functions and computation times in class attributes.
+        Attributes Set:
+            self._J: CasADi Function for evaluating Jacobians.
+            self._J_y_p: Function for computing the conservative Jacobian of the primal variable.
+            self._compTimes: Dictionary updated with computation times for Jacobian generation.
+        Raises:
+            None
+        Notes:
+            - This method assumes that all required parameters and data structures are already initialized in the class.
+            - The method is intended for internal use within the QP solver class.
+        """
 
         # compilation options
         if self._options['compile_jac']:
@@ -477,11 +613,11 @@ class QP:
                     return J_y_p@t+J_y_z_mat@A
 
         # save in QP
-        self._J = J
-        self._J_y_p = J_y_p
+        self._j = J
+        self._j_y_p = J_y_p
 
         # store computation times
-        self._compTimes = self._compTimes | comp_time_dict
+        self._comp_times = self._comp_times | comp_time_dict
 
     @property
     def ingredients(self):
@@ -496,8 +632,8 @@ class QP:
         return self._solve
 
     @property
-    def denseSolve(self):
-        return self._denseSolve
+    def dense_solve(self):
+        return self._dense_solve
 
     @property
     def qp_sparse(self):
@@ -512,12 +648,12 @@ class QP:
         return self._dual_sparse
 
     @property
-    def J(self):
-        return self._J
+    def j(self):
+        return self._j
 
     @property
-    def J_y_p(self):
-        return self._J_y_p
+    def j_y_p(self):
+        return self._j_y_p
 
     @property
     def param(self):
@@ -536,9 +672,11 @@ class QP:
         return {key:val for key,val in self._sym.init.items() if val is not None}
     
     def _set_init(self, data):
+        # TODO: improve the set_init function
         self._sym.set_init(data)
 
     def debug(self,lam,mu,p_t,epsilon=1e-6,roundoff=10,y_all=None):
+        #TODO: update this
 
         # get full derivative
         J_QP = QP.J_y_p(lam,mu,p_t)

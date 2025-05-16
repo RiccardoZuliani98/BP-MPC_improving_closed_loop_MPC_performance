@@ -5,8 +5,50 @@ from typeguard import typechecked
 from typing import Optional,Union
 
 class SymbolicVar:
+    """
+    SymbolicVar is a class for managing symbolic variables, their dimensions, and initializations,
+    primarily for use with CasADi symbolic expressions in optimization and control applications.
 
-    def __init__(self):
+    Attributes:
+        _var (dict): Dictionary mapping variable names to CasADi SX symbolic variables.
+        _dim (dict): Dictionary mapping variable names to their dimensions (int or tuple).
+        _init (dict): Dictionary mapping variable names to their initial values (CasADi DM objects).
+
+    Properties:
+        dim (dict): Returns the dictionary of variable dimensions.
+        var (dict): Returns the dictionary of symbolic variables.
+        init (dict): Returns the dictionary of variable initializations.
+    
+    Methods:
+        _check_and_convert(value, expected_shape):
+            Recursively checks and converts input values to CasADi DM objects, ensuring they match 
+            the expected shape. Raises AssertionError if the shape does not match.
+        set_init(data):
+            Initializes symbolic variables with given values from a dictionary.
+            Ensures variables exist and dimensions match.
+            Raises AssertionError for invalid input or mismatched dimensions.
+        get_var(name):
+            Returns the symbolic variable, its dimension, and its initialization for the given name.
+        add_var(name, var, init=None):
+            Adds a symbolic variable with its dimension and optionally initializes it.
+            If init is provided, calls set_init.
+        add_dim(name, val):
+            Adds a dimension for a variable.
+            Ensures the dimension is a non-negative integer or a list of up to two non-negative integers.
+        __add__(other):
+            Returns a new SymbolicVar instance that is the union of self and other.
+        __iadd__(other):
+            In-place addition: updates self to be the union of self and other.
+        copy(vars2keep=None):
+            Returns a copy of the current object, optionally retaining only specified variables.
+    
+    Usage:
+        This class is intended for symbolic modeling, especially in contexts where variables,
+        their dimensions, and initializations need to be managed systematically, such as in
+        model predictive control (MPC) or optimization problems using CasADi.
+    """
+
+    def __init__(self) -> None:
         self._var = {}
         self._dim = {}
         self._init = {}
@@ -181,6 +223,7 @@ class SymbolicVar:
 
         return self
     
+    @typechecked
     def copy(self,vars2keep:Optional[list]=None):
         """
         Create a copy of the current object, optionally retaining only specified variables.

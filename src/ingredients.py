@@ -7,13 +7,57 @@ from src.options import Options
 from typeguard import typechecked
 from typing import Optional
 
-"""
-TODO:
-* add descriptions
-* add update function
-"""
-
 class Ingredients:
+    """
+    Ingredients class for Model Predictive Control (MPC) problem formulation.
+    This class encapsulates the construction and validation of all ingredients required to formulate
+    a (possibly constrained) MPC problem, including system dynamics, cost, constraints, and optional
+    configuration such as slack variables and linearization methods. It provides methods to assemble
+    sparse, dense, and dual QP representations compatible with CasADi, and ensures all data is
+    dimensionally consistent and properly structured.
+
+    Attributes:
+        _REQUIRED_KEYS (list): List of keys required in the input data for a valid MPC problem.
+        _ALLOWED_KEYS (list): List of all allowed keys for model, cost, and constraint data.
+        _EXPECTED_DIMENSIONS (dict): Dictionary mapping each key to its expected dimensions.
+        _ALL_DIMENSIONS (list): List of all possible dimension names used in the problem.
+        _OPTIONS_ALLOWED_VALUES (dict): Allowed values for configuration options.
+        _OPTIONS_DEFAULT_VALUES (dict): Default values for configuration options.
+
+    Methods:
+        __init__(horizon, dynamics, cost, constraints, options=None):
+            Initializes the Ingredients object, validates and processes all inputs, and constructs
+            the symbolic and numeric representations of the MPC problem.
+        update(Q=None, q=None, G=None, g=None, F=None, f=None):
+            Placeholder for updating QP matrices after initialization.
+        _makeSparseQP(processed_data):
+            Constructs the sparse QP matrices (G, g, F, f, Q, Qinv, q, A, uba, lba) for the MPC problem.
+        _makeDenseQP(processed_data):
+            Constructs the dense (condensed) QP matrices (G_x, G_u, g_c, Hx, hx, Hu, hu, Qx, Ru, x_ref, u_ref).
+        _makeDualQP():
+            Constructs the dual QP matrices (H, h) from the sparse QP representation.
+        _makeIdx():
+            Generates and returns a dictionary of index ranges for state, input, slack, and combined variables.
+        _parseInputs(data):
+            Parses and processes input data, ensuring correct dimensions and presence of required keys.
+        _checkDimensions(data):
+            Checks the consistency of dimensions for all model, cost, and constraint data.
+        _checkSlack(data):
+            Checks and validates the presence and configuration of slack variables and their penalties.
+    
+    Properties:
+        sparse: Returns the dictionary of sparse QP matrices.
+        dense: Returns the dictionary of dense QP matrices.
+        dual: Returns the dictionary of dual QP matrices.
+        idx: Returns the dictionary of index ranges for variables.
+        param: Returns the symbolic parameter variables.
+        options: Returns the options dictionary.
+        dim: Returns the dictionary of variable dimensions.
+        - The class is designed for use with CasADi symbolic expressions and supports both standard and
+          slack-variable-augmented MPC formulations.
+        - All input data is validated for dimensional consistency and completeness.
+        - The class supports different linearization strategies for the system dynamics.
+    """
 
     _REQUIRED_KEYS = ['A','B','Qx','Ru','Hx','hx','Hu','hu']
 
@@ -33,7 +77,33 @@ class Ingredients:
     _OPTIONS_DEFAULT_VALUES = {'linearization':'trajectory', 'slack':False}
 
     @typechecked
-    def __init__(self,horizon:int,dynamics:Dynamics,cost:dict,constraints:dict,options:Optional[dict]=None) -> None:
+    def __init__(
+            self,
+            horizon:int,
+            dynamics:Dynamics,
+            cost:dict,
+            constraints:dict,
+            options:Optional[dict]=None
+        ) -> None:
+        """
+        Initializes the object with the specified prediction horizon, system dynamics, cost, constraints, and optional configuration options.
+        Args:
+            horizon (int): The prediction horizon. Must be a positive integer.
+            dynamics (Dynamics): The system dynamics object to be used.
+            cost (dict): Dictionary specifying the cost function parameters.
+            constraints (dict): Dictionary specifying the constraints.
+            options (Optional[dict], optional): Additional configuration options. Defaults to None.
+        Raises:
+            AssertionError: If the horizon is not a positive integer.
+        Notes:
+            - Copies the provided dynamics object to avoid side effects.
+            - Initializes and updates options with user-specified values.
+            - Performs model linearization based on the specified or default method.
+            - Sets up symbolic variables and their dimensions.
+            - Merges model, cost, and constraints into a single data structure.
+            - Parses and checks input data for correctness, including dimensions and slack variables.
+            - Constructs sparse, dense, and dual quadratic programming (QP) representations as needed.
+        """
 
         if options is None:
             options = {}
@@ -97,7 +167,37 @@ class Ingredients:
         #TODO remember to remove the dense and to update the dual
         pass
 
-    def _makeSparseQP(self,processed_data):
+    def _makeSparseQP(self,processed_data:dict) -> dict:
+        """
+        Constructs the sparse Quadratic Program (QP) matrices for a Model Predictive Control (MPC) problem using 
+        the provided processed data. This method extracts system dynamics, cost, and constraint information from
+        the input `processed_data` and assembles the matrices required to define a sparse QP suitable for use
+        with CasADi's conic solver interface. It supports both standard and slack-variable-augmented formulations.
+
+        Parameters:
+        
+            processed_data (dict): Dictionary containing all necessary processed model data, including system 
+                matrices (A, B, c), cost matrices (Qx, Ru), constraint matrices (Hx, Hu, hx, hu), references 
+                (x_ref, u_ref), and optionally slack-related data (Hx_e, s_lin, s_quad).
+        
+        Returns: 
+            dict: Dictionary containing the following keys:
+                - 'G': Inequality constraint matrix (CasADi SX or sparse SX).
+                - 'g': Inequality constraint vector.
+                - 'F': Equality constraint matrix.
+                - 'f': Equality constraint vector.
+                - 'Q': Quadratic cost matrix.
+                - 'Qinv': Pseudoinverse of the quadratic cost matrix.
+                - 'q': Linear cost vector.
+                - 'A': Combined constraint matrix for CasADi's conic interface.
+                - 'uba': Upper bound vector for constraints.
+                - 'lba': Lower bound vector for constraints.
+        
+        Notes:
+            - The method supports both standard and slack-variable-augmented QP formulations, depending on the `self._options['slack']` flag.
+            - All matrices are constructed to be compatible with CasADi's sparse matrix operations.
+            - Equality constraints are enforced by setting `lba=uba` for the corresponding rows.
+        """
 
         # extract initial condition
         x = self.param['x']
@@ -113,10 +213,9 @@ class Ingredients:
         N = self.dim['N']
 
         # check if affine term is present
-        c_list_original = processed_data['c'] if 'c' in processed_data else [ca.SX(n_x,1)]*N
+        c_list = processed_data['c'] if 'c' in processed_data else [ca.SX(n_x,1)]*N
 
         # patch first affine term
-        c_list = c_list_original
         c_list[0] = c_list[0] + A_list[0]@x
 
         # extract cost
@@ -244,7 +343,45 @@ class Ingredients:
 
         return {'G':G, 'g':g, 'F':F, 'f':f, 'Q':Q, 'Qinv':Qinv, 'q':q, 'A':A, 'uba':uba, 'lba':lba}
 
-    def _makeDenseQP(self,processed_data):
+    def _makeDenseQP(self,processed_data:dict) -> dict:
+        """
+        Constructs the dense QP (Quadratic Program) matrices for a given processed system model and parameters.
+        This method builds the condensed system dynamics and cost matrices required for solving a dense QP 
+        in the context of Model Predictive Control (MPC). It computes matrices G_x, G_u, and g_c such that 
+        the predicted state trajectory x can be written as:
+            x = G_x * x_0 + G_u * u + g_c
+        where x is the stacked vector of predicted states, u is the stacked vector of control inputs, and x_0 
+        is the initial state.
+
+        Args:
+            processed_data (dict): Dictionary containing the linearized system matrices and other problem data.
+                Required keys:
+                    - 'A': List of state transition matrices (A_t) for each time step.
+                    - 'B': List of input matrices (B_t) for each time step.
+                    - 'Hx', 'hx': State constraint matrices and vectors.
+                    - 'Hu', 'hu': Input constraint matrices and vectors.
+                    - 'Qx': State cost matrix.
+                    - 'Ru': Input cost matrix.
+                Optional keys:
+                    - 'c': List of affine terms for each time step (default: zeros).
+                    - 'x_ref': List of state reference vectors (optional).
+                    - 'u_ref': List of input reference vectors (optional).
+                    - 'Hx_e': Matrix specifying slack constraints (optional).
+                    - 's_quad': Quadratic penalty for slack variables (optional).
+                    - 's_lin': Linear penalty for slack variables (optional).
+        
+        Returns:
+            dict: Dictionary containing the condensed QP matrices:
+                - 'G_x': Matrix mapping initial state to predicted states.
+                - 'G_u': Matrix mapping control inputs to predicted states.
+                - 'g_c': Vector of affine terms in the predicted states.
+                - 'Hx', 'hx': State constraint matrices and vectors.
+                - 'Hu', 'hu': Input constraint matrices and vectors.
+                - 'Qx': State cost matrix.
+                - 'Ru': Input cost matrix.
+                - 'x_ref': (optional) Stacked state reference vector.
+                - 'u_ref': (optional) Stacked input reference vector.
+        """
 
         # get horizon
         N = self.dim['N']
@@ -261,10 +398,7 @@ class Ingredients:
         n_u = self.dim['u']
 
         # check if affine term is present
-        if 'c' in processed_data:
-            c_list = processed_data['c']
-        else:
-            c_list = [ca.SX(n_x,1)]*N
+        c_list = processed_data['c'] if 'c' in processed_data else [ca.SX(n_x,1)]*N
 
         # start by constructing matrices G_x and G_u, and vector g_c such that
         # x = G_x*x_0 + G_u*u + g_c, where x = vec(x_1,x_2,...,x_N), 
@@ -304,7 +438,7 @@ class Ingredients:
         B_0 = B_list[0]
 
         # correct first entry of c_list
-        c_list[0] = c_list[0] + A_0@x
+        c_list[0] = c_list[0] - A_0@x
 
         # now we only miss the left-most column (use x0 instead of x[:n['x']])
         G_u[:,:n_u] = col@B_0
@@ -317,7 +451,7 @@ class Ingredients:
 
         # to create g_c concatenate vertically the entries in the list c_t_list
         # then multiply by G_c from the right
-        c_t = -ca.vcat(c_list)
+        c_t = ca.vcat(c_list)
         g_c = G_c@c_t
 
         # create output dictionary
@@ -334,7 +468,18 @@ class Ingredients:
 
         return out
 
-    def _makeDualQP(self):
+    def _makeDualQP(self) -> dict:
+        """
+        Constructs the dual Quadratic Program (QP) ingredients for the optimization problem.
+        This method extracts the necessary matrices and vectors from the `self.sparse` dictionary,
+        computes the Hessian and linear term of the dual QP using CasADi operations, and returns
+        them in a dictionary.
+
+        Returns:
+            dict: A dictionary containing:
+                - 'H': The Hessian matrix of the dual QP (CasADi sparse matrix).
+                - 'h': The linear term vector of the dual QP (CasADi vector).
+        """
 
         # extract ingredients
         Qinv = self.sparse['Qinv']
@@ -358,7 +503,20 @@ class Ingredients:
 
         return {'H':H, 'h':h}
 
-    def _makeIdx(self):
+    def _makeIdx(self) -> dict:
+        """
+        Generate and return a dictionary of index ranges for state, input, slack, and combined variables used 
+        in the optimization problem. This method computes index ranges for:
+            - All states (`x`)
+            - All inputs (`u`)
+            - All state-input variables (`y`)
+            - Slack variables (`eps`), if present
+            - The first and second input variables (`u0`, `u1`)
+            - Shifted indices for states, inputs, and combined variables (`x_shift`, `u_shift`, `y_shift`)
+            - Optionally, a function for the next step indices (`y_next`) depending on the linearization option
+        Returns:
+            dict: A dictionary containing index ranges and shifted indices for use in the optimization problem.
+        """
 
         # extract dimensions
         n_x = self.dim['x']
@@ -418,6 +576,26 @@ class Ingredients:
         return idx
 
     def _parseInputs(self, data):
+        """
+        Parses and processes input data for the MPC ingredient setup.
+        This method ensures that all input data elements have consistent dimensions
+        with the specified prediction horizon `N`, converts scalar values to lists
+        of CasADi SX symbols of length `N`, and validates the presence of required keys.
+        It also strips out any keys not allowed by the class configuration.
+        
+        Args:
+            data (dict): Dictionary containing input data for the MPC problem. Values can be
+                scalars or lists. Keys must correspond to allowed/required ingredient names.
+
+        Returns:
+            dict: Processed and dimension-checked dictionary containing only allowed keys,
+                with all values as lists of CasADi SX symbols of length `N`.
+        
+        Raises:
+            AssertionError: If no input lists are provided or the horizon `N` is not set.
+            AssertionError: If the dimensions of the input ingredients do not match.
+            AssertionError: If any required input is missing.
+        """
 
         # get horizon
         N = self.dim['N']
@@ -447,8 +625,19 @@ class Ingredients:
 
     def _checkDimensions(self,data):
         """
-        This function checks if the dimensions of the properties: dynamics, cost, csts are consistent.
-        If not, it throws an error.
+        Checks the consistency of dimensions for the properties: dynamics, cost, and csts within the provided data 
+        dictionary. This method verifies that:
+        - All elements in each list associated with a property have the same shape.
+        - The dimensions of each property match the expected dimensions defined in self._EXPECTED_DIMENSIONS.
+        - All collected dimensions for each expected key are consistent across the data.
+
+        Parameters:
+            data (dict): A dictionary where keys correspond to property names (e.g., 'dynamics', 'cost', 'csts') 
+            and values are lists of numpy arrays or similar objects with a .shape attribute.
+        
+        Raises:
+            AssertionError: If any list contains elements with differing shapes, or if the dimensions do not match
+            the expected configuration for any property.
         """
 
         # initialize dictionary containing all allowed keys
@@ -483,6 +672,23 @@ class Ingredients:
             assert val.count(val[0]) == len(val), 'Wrong dimension detected for key: ' + key
 
     def _checkSlack(self,data):
+        """
+        Checks and validates the presence and configuration of slack variables and their penalties in the
+        provided data dictionary.
+        
+        Parameters:
+            data (dict): A dictionary containing potential keys for slack constraints and their penalties
+                - 'Hx_e': Matrix specifying slack constraints.
+                - 's_quad': Quadratic penalty for slack variables (must be positive).
+                - 's_lin': Linear penalty for slack variables (must be positive).
+        
+        Returns:
+            slack (bool): True if slack variables are detected and properly configured, False otherwise.
+            n_eps (int): The number of slack variables (columns in 'Hx_e') if present, otherwise 0.
+        
+        Raises:
+            AssertionError: If required keys are missing or penalties are not positive as expected.
+        """
 
         slack = False
         n_eps = 0

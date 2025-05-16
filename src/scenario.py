@@ -522,9 +522,9 @@ class Scenario:
 
                 # extract jacobian of qp variables
                 if single_model:
-                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_0,idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t,0,n_models))
+                    j_qp_p_t = qp.j_y_p(lam_t,mu_t,p_0,idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models)),j_y_p_t,0,n_models))
                 else:
-                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_0,idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models),order='F'),j_y_p_t,0,n_models))
+                    j_qp_p_t = qp.j_y_p(lam_t,mu_t,p_0,idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models),order='F'),j_y_p_t,0,n_models))
 
                 # extract portion associated to y
                 j_y_p_t = j_qp_p_t[qp.idx['out']['y'],:]
@@ -648,9 +648,9 @@ class Scenario:
                 # get conservative jacobian of optimal solution of QP with respect to parameter
                 # vector p.
                 if single_model:
-                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_t,idx_jac(j_x_p_t,j_y_p_t,t))
+                    j_qp_p_t = qp.j_y_p(lam_t,mu_t,p_t,idx_jac(j_x_p_t,j_y_p_t,t))
                 else:
-                    j_qp_p_t = qp.J_y_p(lam_t,mu_t,p_t)@idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models),order='F'),j_y_p_t,t,multiplier=n_models)
+                    j_qp_p_t = qp.j_y_p(lam_t,mu_t,p_t)@idx_jac(j_x_p_t.reshape((n['x'],n['p']*n_models),order='F'),j_y_p_t,t,multiplier=n_models)
 
                 # select entries associated to y
                 if self._options['shift_linearization']:
