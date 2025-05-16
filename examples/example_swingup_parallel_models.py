@@ -155,8 +155,8 @@ j_p = upper_level.param['J_p']
 k = upper_level.param['k']
 
 # create update function
-# upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
-upper_level.set_alg(*robust_gradient_descent(rho=0.0001,eta=0.51,n_models=len(theta0),n_p=p.shape[0],log=True))
+upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
+# upper_level.set_alg(*robust_gradient_descent(rho=0.0001,eta=0.51,n_models=len(theta0),n_p=p.shape[0],log=True,verbose=False))
 
 # test derivatives
 # # out = tests.derivatives(mod)

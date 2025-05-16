@@ -4,6 +4,11 @@ import os, glob
 
 #TODO: add descriptions
 
+def rls(sim,k):
+
+    # get parameters
+    A_k = sim.psi
+
 def average_gradient_descent(rho,eta,log=True):
 
     def parameter_update(sim,k):
@@ -18,7 +23,7 @@ def average_gradient_descent(rho,eta,log=True):
 
     return parameter_update, lambda sim: None
 
-def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False):
+def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False,verbose=False):
 
     # compilation options
     if jit:
@@ -26,6 +31,9 @@ def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False):
         options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
     else:
         options = {}
+
+    if not verbose:
+        options = options | {'osqp':{'verbose':False}}
 
     # create optimization variables
     d = ca.SX.sym('d',n_p,1)
@@ -85,23 +93,23 @@ def minibatch_descent(rho,eta=1,log=True,batch_size=1):
         if ca.fmod(k+1,batch_size) == 0:
 
             # construct average gradient
-            j_p = (sim.psi + sim.j_p) / batch_size
+            j_p = (sim.psi['j_p'] + sim.j_p) / batch_size
 
             # zero the running gradient
-            psi = ca.DM.zeros(*j_p.shape)
+            psi = {'j_p':ca.DM.zeros(*j_p.shape)}
             
             # run update
             p = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*j_p if log else sim.p - (rho/(k+1)**eta)*j_p
 
         # else update gradient
         else:
-            psi = sim.psi + sim.j_p
+            psi = sim.psi['j_p'] + sim.j_p
             p = sim.p
 
         return p,psi
     
     def parameter_init(sim):
-        return ca.DM.zeros(*sim.j_p.shape)
+        return {'j_p':ca.DM.zeros(*sim.j_p.shape)}
 
     return parameter_update, parameter_init
     
