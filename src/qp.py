@@ -524,7 +524,7 @@ class QP:
         p = self.param['p_qp']
 
         # get all parameters including those that won't be differentiated
-        p_full = self.param['p_qp_full']  
+        p_full = self.param['p_qp_full']
 
         # extract multipliers
         lam = self.param['lam']
