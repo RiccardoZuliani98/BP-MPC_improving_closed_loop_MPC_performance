@@ -18,13 +18,52 @@ def average_gradient_descent(rho,eta,log=True):
 
     return parameter_update, lambda sim: None
 
-# def robust_gradient_descent(rho,eta,n_models,log=True):
+def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False):
 
-#     # get list of jacobians
-#     j_p_list = ca.horzsplit(sim.j_p)
+    # compilation options
+    if jit:
+        jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
+        options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
+    else:
+        options = {}
 
-    
+    # create optimization variables
+    d = ca.SX.sym('d',n_p,1)
+    epsilon = ca.SX.sym('epsilon',1,1)
 
+    # create constraint functions
+    g1 = -ca.repmat(d,n_models,1) + ca.SX.ones(n_models*n_p,1)*epsilon
+    g2 = ca.repmat(d,n_models,1) + ca.SX.ones(n_models*n_p,1)*epsilon
+
+    # form objective
+    f = epsilon**2
+
+    # form QP solver
+    S = ca.qpsol('S','osqp',{'x':ca.vertcat(epsilon,d),'f':f,'g':ca.vertcat(g1,g2)},options)
+
+    def parameter_update(sim,k):
+
+        # get gradient matrix and form lower-bound
+        j_p = ca.reshape(ca.DM(sim.j_p),-1,1)
+
+        # solve
+        sol = S(lbg=ca.vertcat(-j_p,j_p))['x']
+
+        # get direction
+        d = sol[1:]
+
+        # run GD update
+        p_next = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*d if log else sim.p - (rho/(k+1)**eta)*d
+
+        # no auxiliary parameter
+        psi = None
+
+        return p_next,psi
+
+    # no initialization for psi
+    parameter_init = lambda sim: None
+
+    return parameter_update,parameter_init
 
 def gradient_descent(rho,eta=1,log=True):
     

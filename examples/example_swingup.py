@@ -27,7 +27,7 @@ COMPILE_QP_DENSE = False
 COMPILE_JAC = False
 
 # decide whether to include noise or not
-NOISE = True
+NOISE = False
 
 
 ### CREATE DYNAMICS ------------------------------------------------------------------------

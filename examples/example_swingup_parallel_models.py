@@ -15,7 +15,7 @@ import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-from src.utils import average_gradient_descent
+from src.utils import average_gradient_descent, robust_gradient_descent
 
 # cleanup jit files
 utils.cleanup()
@@ -155,7 +155,8 @@ j_p = upper_level.param['J_p']
 k = upper_level.param['k']
 
 # create update function
-upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
+# upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
+upper_level.set_alg(*robust_gradient_descent(rho=0.0001,eta=0.51,n_models=len(theta0),n_p=p.shape[0],log=True))
 
 # test derivatives
 # # out = tests.derivatives(mod)
