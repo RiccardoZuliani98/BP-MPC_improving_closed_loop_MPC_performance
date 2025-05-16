@@ -333,6 +333,19 @@ class Scenario:
         return p,pf,w,d,theta,y,x
 
     def create_mapped_dynamics(self,n_models,jit=False):
+        """
+        Creates and stores mapped (vectorized or batched) versions of the system dynamics and cost Jacobian functions for multiple models.
+        This method prepares the system's nominal dynamics matrices (`A_nom` and `B_nom`) and the upper-level cost Jacobian function for efficient evaluation over `n_models` instances, optionally using JIT compilation for performance. The mapped functions are stored in the `self._mapped` dictionary for later use.
+        Args:
+            n_models (int): The number of model instances to map the dynamics and cost Jacobian over.
+            jit (bool, optional): If True, enables JIT compilation for the mapped functions to improve performance. Defaults to False.
+        Side Effects:
+            Updates `self._options` to enable compilation if `jit` is True.
+            Populates `self._mapped` with mapped versions of the system dynamics (`A`, `B`) and the cost Jacobian (`j_cost`).
+        Notes:
+            - The mapping and compilation options are configured based on the `jit` argument and the `self._options['compile_mapped_dynamics']` flag.
+            - The mapped cost Jacobian function (`j_cost`) internally computes the correct cost index and Jacobian components before evaluating the mapped function.
+        """
 
         if jit:
             self._options.update({'compile_mapped_dynamics' : True})

@@ -2,6 +2,8 @@ import casadi as ca
 import numpy as np
 import os, glob
 
+#TODO: add descriptions
+
 def average_gradient_descent(rho,eta,log=True):
 
     def parameter_update(sim,k):
