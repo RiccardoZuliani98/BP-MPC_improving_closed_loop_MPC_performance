@@ -121,59 +121,59 @@ def sample_dynamics(
 
 
 def sample_ingredients(
-        dynamics:Dynamics,
+        dim:dict,
         p:Optional[bool]=True,
         pf:Optional[bool]=False,
         slack:Optional[bool]=False,
         horizon:Optional[int]=1
     ) -> Union[Ingredients, Optional[ca.SX], Optional[ca.SX]]:
     """
-    Generate sample cost and constraint ingredients for a given system dynamics, with optional parameters and slack variables.
+    Generate sample ingredients for testing optimal control problems, including cost matrices, references, and constraints.
     Args:
-        dynamics: An object representing the system dynamics, expected to have a 'dim' attribute with keys 'x' (state dimension) and 'u' (input dimension).
-        p (bool, optional): If True, include a symbolic parameter in the state cost matrix. Defaults to True.
-        pf (bool, optional): If True, include a symbolic parameter in the input cost matrix. Defaults to False.
-        slack (bool, optional): If True, include slack variables and penalties in the constraints and cost. Defaults to False.
-        horizon (int, optional): Prediction horizon for the ingredients. Defaults to 1.
+        dim (dict): Dictionary specifying dimensions with keys 'x' (state dimension) and 'u' (input dimension).
+        p (Optional[bool], optional): If True, include symbolic parameter 'p' in state cost matrices. Defaults to True.
+        pf (Optional[bool], optional): If True, include symbolic parameter 'pf' in input cost matrices. Defaults to False.
+        slack (Optional[bool], optional): If True, include slack variables and penalties in constraints and cost. Defaults to False.
+        horizon (Optional[int], optional): Prediction horizon length. Defaults to 1.
     Returns:
-        tuple: (ingredients, p, pf)
-            - ingredients: An Ingredients object containing the generated cost and constraint dictionaries.
-            - p: The symbolic parameter for the state cost if enabled, otherwise None.
-            - pf: The symbolic parameter for the input cost if enabled, otherwise None.
+        Tuple[
+            Optional[ca.SX],         # Symbolic parameter 'p' if enabled, else None
+            Optional[ca.SX],         # Symbolic parameter 'pf' if enabled, else None
+            dict,                    # Cost dictionary with keys: 'Qx', 'Ru', 'x_ref', 'u_ref', and optionally 's_quad', 's_lin'
+            dict                     # Constraints dictionary with keys: 'Hx', 'hx', 'Hu', 'hu', and optionally 'Hx_e'
+        ]
     """
 
-    # get dimensions for simplicity
-    n = dynamics.dim
-
     # create sample state cost
-    Q_half = ca.DM(rand(n['x'],n['x']))
-    Q = Q_half@Q_half.T + 0.01*ca.DM.eye(n['x'])
+    Q_half = [ca.DM(rand(dim['x'],dim['x'])) for _ in range(horizon)]
+    Q = [elem@elem.T + 0.01*ca.DM.eye(dim['x']) for elem in Q_half]
+
+    # create sample input cost
+    R_half = [ca.DM(rand(dim['u'],dim['u'])) for _ in range(horizon)]
+    R = [elem@elem.T + 0.01*ca.DM.eye(dim['u']) for elem in R_half]
 
     if p:
         p = ca.SX.sym('p',2,1)#ca.SX.sym('p',randint(1,4),1)
-        Q = Q + ca.SX.eye(Q.shape[0])*ca.sum1(p)
+        Q = [elem + ca.SX.eye(dim['x'])*ca.sum1(p) for elem in Q]
     else:
         p = None
     
     if pf:
         pf = ca.SX.sym('p',randint(1,4),1)
-        R = R + ca.SX.eye(R.shape[0])*pf
+        R = [elem + ca.SX.eye(dim['u'])*pf for elem in R]
     else:
         pf = None
 
-    # create sample input cost
-    R_half = ca.DM(rand(n['u'],n['u']))
-    R = R_half@R_half.T + 0.01*ca.DM.eye(n['u'])
-
     # create sample references
-    x_ref = ca.DM(rand(n['x']))
-    u_ref = ca.DM(rand(n['u']))
+    x_ref = [ca.DM(rand(dim['x'])) for _ in range(horizon)]
+    u_ref = [ca.DM(rand(dim['u'])) for _ in range(horizon)]
 
     # create sample constraints
-    Hx = ca.DM(rand(randint(1,3),n['x']))
-    hx = ca.DM(rand(Hx.shape[0]))
-    Hu = ca.DM(rand(randint(1,3),n['u']))
-    hu = ca.DM(rand(Hu.shape[0]))
+    n_hx,n_hu = randint(1,3),randint(1,3)
+    Hx = [ca.DM(rand(n_hx,dim['x'])) for _ in range(horizon)]
+    hx = [ca.DM(rand(n_hx)) for _ in range(horizon)]
+    Hu = [ca.DM(rand(n_hu,dim['u'])) for _ in range(horizon)]
+    hu = [ca.DM(rand(n_hu)) for _ in range(horizon)]
 
     # create output dictionaries
     constraints = {'Hx':Hx, 'hx':hx, 'Hu':Hu, 'hu':hu}
@@ -183,13 +183,14 @@ def sample_ingredients(
     if slack:
 
         # create quadratic penalty
-        s_quad = ca.DM(rand()**2)
+        s_quad = [ca.DM(rand()**2) for _ in range(horizon)]
 
         # create linear penalty
-        s_lin = ca.DM(rand()**2)
+        s_lin = [ca.DM(rand()**2) for _ in range(horizon)]
 
         # create slack matrix
-        Hx_e = ca.DM(rand(n['x'],randint(1,Hx.shape[0])))
+        n_hx_e = randint(1,n_hx)
+        Hx_e = [ca.DM(rand(dim['x'],n_hx_e)) for _ in range(horizon)]
 
         # add to constraint dictionary
         constraints['Hx_e'] = Hx_e
@@ -198,10 +199,7 @@ def sample_ingredients(
         cost['s_quad'] = s_quad
         cost['s_lin'] = s_lin
 
-    # create ingredients
-    ingredients = Ingredients(horizon,dynamics,cost,constraints)
-
-    return ingredients, p, pf
+    return p, pf, cost, constraints
 
 def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
 

@@ -212,7 +212,7 @@ class Dynamics:
         # store computation times
         self._compTimes = comp_time_dict
 
-    def _linearize(self,horizon:int,method='trajectory') -> dict | SymbolicVar | str:
+    def _linearize(self,horizon:int,method:str='trajectory') -> dict | SymbolicVar | str:
         """
         Linearizes the system dynamics based on the specified method and horizon.
         

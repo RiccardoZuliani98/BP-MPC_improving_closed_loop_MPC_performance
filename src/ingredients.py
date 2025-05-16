@@ -105,6 +105,8 @@ class Ingredients:
             - Constructs sparse, dense, and dual quadratic programming (QP) representations as needed.
         """
 
+        # TODO: horizon should be optional as it can be inferred from the length of the passed ingredients
+
         if options is None:
             options = {}
 
@@ -138,36 +140,36 @@ class Ingredients:
         data = model | cost | constraints
 
         # parse inputs
-        processed_data = self._parseInputs(data)
+        processed_data = self._parse_inputs(data,horizon)
 
         # check if dimensions are correct
-        self._checkDimensions(processed_data)
+        self._check_dimensions(processed_data)
 
         # check if slacks are passed correctly
-        slack_true = self._checkSlack(processed_data)
+        slack_true = self._check_slack(processed_data)
         self._options['slack'],n_eps = slack_true
 
         # save slack dimension in symbolic variable
         self._sym.add_dim('eps',n_eps)
 
         # create sparse QP
-        self._sparse = self._makeSparseQP(processed_data)
+        self._sparse = self._make_sparse_qp(processed_data)
 
         # create index
-        self._idx = {'out': self._makeIdx()}
+        self._idx = {'out': self._make_idx()}
 
         # create dense QP if requested
-        self._dense = self._makeDenseQP(processed_data)
+        self._dense = self._make_dense_qp(processed_data)
 
         # create dual QP
-        self._dual = self._makeDualQP()
+        self._dual = self._make_dual_qp()
     
 
     def update(self,Q=None,q=None,G=None,g=None,F=None,f=None):
         #TODO remember to remove the dense and to update the dual
         pass
 
-    def _makeSparseQP(self,processed_data:dict) -> dict:
+    def _make_sparse_qp(self,processed_data:dict) -> dict:
         """
         Constructs the sparse Quadratic Program (QP) matrices for a Model Predictive Control (MPC) problem using 
         the provided processed data. This method extracts system dynamics, cost, and constraint information from
@@ -343,7 +345,7 @@ class Ingredients:
 
         return {'G':G, 'g':g, 'F':F, 'f':f, 'Q':Q, 'Qinv':Qinv, 'q':q, 'A':A, 'uba':uba, 'lba':lba}
 
-    def _makeDenseQP(self,processed_data:dict) -> dict:
+    def _make_dense_qp(self,processed_data:dict) -> dict:
         """
         Constructs the dense QP (Quadratic Program) matrices for a given processed system model and parameters.
         This method builds the condensed system dynamics and cost matrices required for solving a dense QP 
@@ -468,7 +470,7 @@ class Ingredients:
 
         return out
 
-    def _makeDualQP(self) -> dict:
+    def _make_dual_qp(self) -> dict:
         """
         Constructs the dual Quadratic Program (QP) ingredients for the optimization problem.
         This method extracts the necessary matrices and vectors from the `self.sparse` dictionary,
@@ -503,7 +505,7 @@ class Ingredients:
 
         return {'H':H, 'h':h}
 
-    def _makeIdx(self) -> dict:
+    def _make_idx(self) -> dict:
         """
         Generate and return a dictionary of index ranges for state, input, slack, and combined variables used 
         in the optimization problem. This method computes index ranges for:
@@ -575,7 +577,8 @@ class Ingredients:
 
         return idx
 
-    def _parseInputs(self, data):
+    @staticmethod
+    def _parse_inputs(data:dict,N:int=None) -> dict:
         """
         Parses and processes input data for the MPC ingredient setup.
         This method ensures that all input data elements have consistent dimensions
@@ -586,6 +589,7 @@ class Ingredients:
         Args:
             data (dict): Dictionary containing input data for the MPC problem. Values can be
                 scalars or lists. Keys must correspond to allowed/required ingredient names.
+            N (int,optional): The prediction horizon. Must be a positive integer.
 
         Returns:
             dict: Processed and dimension-checked dictionary containing only allowed keys,
@@ -597,33 +601,41 @@ class Ingredients:
             AssertionError: If any required input is missing.
         """
 
-        # get horizon
-        N = self.dim['N']
-
         # get length of all elements
-        N_list = [len(elem) for elem in data.values() if isinstance(elem,list)]
+        N_list = [len(elem) for elem in data.values() if isinstance(elem,list) if len(elem) > 1]
 
-        # append N
-        N_list.append(N)
+        # check if N is passed
+        if N is not None:
+            
+            # if so, check that it is positive
+            assert N > 0, 'Please set a positive horizon N.'
+
+            # and append to list of lengths
+            N_list.append(N)
 
         # check that all dimensions match
         assert len(N_list) > 0, 'Please either pass a list of qp ingredients or set horizon N.'
         assert N_list.count(N_list[0]) == len(N_list), 'Dimensions of passed ingredients do not match.'
 
+        # define N in case it was not passed
+        N = N_list[0]
+
         # turn all elements into list of appropriate dimension
         processed_data = data \
                          | {key : [ca.SX(val)]*N for key,val in data.items() if val is not None and not isinstance(val,list)} \
-                         | {key : [ca.SX(val) for val in val_list] for key,val_list in data.items() if isinstance(val_list,list)}
+                         | {key : [ca.SX(val) for val in val_list] for key,val_list in data.items() if isinstance(val_list,list) and len(val_list) > 1} \
+                         | {key : [ca.SX(val_list[0])]*N for key,val_list in data.items() if isinstance(val_list,list) and len(val_list) == 1}
 
         # check that required entries were passed
-        assert all([processed_data[key] is not None for key in self._REQUIRED_KEYS] ), 'Some required inputs are missing.'
+        assert all([processed_data[key] is not None for key in Ingredients._REQUIRED_KEYS] ), 'Some required inputs are missing.'
 
         # strip unwanted inputs
-        processed_data_stripped = {key : val for key,val in processed_data.items() if key in self._ALLOWED_KEYS}
+        processed_data_stripped = {key : val for key,val in processed_data.items() if key in Ingredients._ALLOWED_KEYS}
 
         return processed_data_stripped
 
-    def _checkDimensions(self,data):
+    @staticmethod
+    def _check_dimensions(data:dict) -> None:
         """
         Checks the consistency of dimensions for the properties: dynamics, cost, and csts within the provided data 
         dictionary. This method verifies that:
@@ -632,7 +644,7 @@ class Ingredients:
         - All collected dimensions for each expected key are consistent across the data.
 
         Parameters:
-            data (dict): A dictionary where keys correspond to property names (e.g., 'dynamics', 'cost', 'csts') 
+            data (dict): A dictionary where keys correspond to property names (e.g., 'dynamics', 'cost', 'constraints') 
             and values are lists of numpy arrays or similar objects with a .shape attribute.
         
         Raises:
@@ -641,7 +653,7 @@ class Ingredients:
         """
 
         # initialize dictionary containing all allowed keys
-        dimension_dict = {key:[] for key in self._ALL_DIMENSIONS}
+        dimension_dict = {key:[] for key in Ingredients._ALL_DIMENSIONS}
 
         # specify 'one' entry
         dimension_dict['one'] = [1]
@@ -650,7 +662,7 @@ class Ingredients:
         for key,val in data.items():
 
             # get expected dimensions
-            expected_dimension = self._EXPECTED_DIMENSIONS[key]
+            expected_dimension = Ingredients._EXPECTED_DIMENSIONS[key]
             
             # get dimensions of each element of list and turn to set
             actual_dimension_set = set([entry.shape for entry in val])
@@ -671,7 +683,7 @@ class Ingredients:
         for key,val in dimension_dict_stripped.items():
             assert val.count(val[0]) == len(val), 'Wrong dimension detected for key: ' + key
 
-    def _checkSlack(self,data):
+    def _check_slack(self,data:dict) -> bool | int:
         """
         Checks and validates the presence and configuration of slack variables and their penalties in the
         provided data dictionary.
