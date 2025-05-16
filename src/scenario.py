@@ -843,11 +843,8 @@ class Scenario:
         best_cost = ca.inf
         p_best = p
 
-        if self._options['mode'] == 'optimize':
-
-            # extract parameter update law
-            parameter_init = self.upper_level.parameter_init
-            parameter_update = self.upper_level.parameter_update
+        # check if sys_id should be performed
+        sys_id = self.upper_level.sys_id_update is not None
 
         # # check if NLP was solved
         # if self.opt['sol']['cost'] is None:
@@ -917,13 +914,21 @@ class Scenario:
 
                 # on first iteration, initialize psi
                 if k == 0:
-                    psi = parameter_init(sim_k)
+                    psi = self.upper_level.parameter_init(sim_k)
+
+                    # if running sys_id, initialize sys_id
+                    if sys_id:
+                        psi = psi | self.upper_level.sys_id_init()
 
                 # store psi in simvar
                 sim_k.psi = psi
 
                 # update parameter
-                p,psi = parameter_update(sim_k,k)
+                p,psi = self.upper_level.parameter_update(sim_k,k)
+
+                # run sys_id if needed
+                if sys_id:
+                    psi = self._upper_level.sys_id_update(sim_k,k)
                 
             else:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout

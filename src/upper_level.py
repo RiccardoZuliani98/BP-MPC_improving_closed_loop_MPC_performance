@@ -387,7 +387,8 @@ class UpperLevel:
     def set_alg(
             self,parameter_update:callable,
             parameter_init:Optional[callable]=None,
-            sys_id:Optional[callable]=None
+            sys_id_update:Optional[callable]=None,
+            sys_id_init:Optional[callable]=None
         ) -> None:
         """
         Sets the algorithmic functions for parameter initialization, parameter update, and system identification.
@@ -399,7 +400,8 @@ class UpperLevel:
 
         self._parameter_init = parameter_init if parameter_init is not None else lambda sim: None
         self._parameter_update = parameter_update
-        self._sys_id = sys_id if sys_id is not None else lambda sim: None
+        self._sys_id_update = sys_id_update if sys_id_update is not None else None
+        self._sys_id_init = sys_id_init if sys_id_init is not None else None
     
     @property
     def parameter_init(self):
@@ -410,8 +412,12 @@ class UpperLevel:
         return self._parameter_update
     
     @property
-    def sys_id(self):
-        return self._sys_id
+    def sys_id_update(self):
+        return self._sys_id_update
+    
+    @property
+    def sys_id_init(self):
+        return self._sys_id_init
 
     @property
     def alg(self):

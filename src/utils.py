@@ -4,10 +4,24 @@ import os, glob
 
 #TODO: add descriptions
 
-def rls(sim,k):
+def rls(psi_init):
 
-    # get parameters
-    A_k = sim.psi
+    def sys_id_update(sim,k):
+
+        # get parameters
+        A_k = sim.psi['A']
+        b_k = sim.psi['b']
+        theta = sim.psi['theta']
+
+        # run through the horizon and perform the RLS updates
+        new_psi = {'A':A_k,'b':b_k,'theta':theta}
+
+        return sim.psi | new_psi
+    
+    def sys_id_init():
+        return psi_init
+    
+    return sys_id_update, sys_id_init
 
 def average_gradient_descent(rho,eta,log=True):
 

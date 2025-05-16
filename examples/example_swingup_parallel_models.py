@@ -15,7 +15,7 @@ import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-from src.utils import average_gradient_descent, robust_gradient_descent
+from src.utils import average_gradient_descent, robust_gradient_descent, gradient_descent, rls, minibatch_descent
 
 # cleanup jit files
 utils.cleanup()
@@ -155,7 +155,11 @@ j_p = upper_level.param['J_p']
 k = upper_level.param['k']
 
 # create update function
-upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
+# parameter_update, parameter_init = gradient_descent(rho=0.0001,eta=0.51,log=True)
+parameter_update, parameter_init = minibatch_descent(rho=0.0001,eta=0.51,log=True,batch_size=2)
+sys_id_update, sys_id_init = rls({'A':ca.DM.zeros(2,1),'b':ca.DM.zeros(2,1),'theta':ca.DM.zeros(2,1)})
+upper_level.set_alg(parameter_update=parameter_update,parameter_init=parameter_init,sys_id_update=sys_id_update,sys_id_init=sys_id_init)
+# upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
 # upper_level.set_alg(*robust_gradient_descent(rho=0.0001,eta=0.51,n_models=len(theta0),n_p=p.shape[0],log=True,verbose=False))
 
 # test derivatives
@@ -167,13 +171,15 @@ upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
 scenario = Scenario(dyn,mpc,upper_level)
 
 # initialize
-init_dict = {'p':p_init,'pf':ca.DM(n_d,1),'x': x0,'u': u0, 'd': d0, 'theta':theta0}
+# init_dict = {'p':p_init,'pf':ca.DM(n_d,1),'x': x0,'u': u0, 'd': d0, 'theta':theta0}
+init_dict = {'p':p_init,'pf':ca.DM(n_d,1),'x': x0,'u': u0, 'd': d0, 'theta':theta0[0]}
 if NOISE:
     init_dict['w'] = w0
 scenario.set_init(init_dict)
 
 # simulate with initial parameter
-S,qp_data_sparse,_ = scenario.simulate(options={'simulate_parallel_models':True})
+# S,qp_data_sparse,_ = scenario.simulate(options={'simulate_parallel_models':True})
+S,qp_data_sparse,_ = scenario.simulate(options={'use_true_model':False})
 
 # test closed loop
 SIM,_,p_best = scenario.closed_loop(options={'max_k':5})
