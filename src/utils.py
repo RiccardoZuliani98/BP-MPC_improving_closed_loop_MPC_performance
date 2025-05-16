@@ -4,10 +4,6 @@ import os, glob
 
 #TODO: add descriptions
 
-def rls():
-
-    
-
 def average_gradient_descent(rho,eta,log=True):
 
     def parameter_update(sim,k):
