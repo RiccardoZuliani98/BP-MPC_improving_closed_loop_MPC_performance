@@ -5,15 +5,36 @@ import numpy as np
 from src.symbolic_var import SymbolicVar
 from typeguard import typechecked
 
-"""
-TODO
-* are JacVarSetup and QPVarSetup slow?
-* descriptions
-"""
-
-
 class UpperLevel:
-
+    """
+    UpperLevel class for managing upper-level optimization in a hierarchical MPC framework.
+    This class encapsulates the symbolic variables, parameter indexing, cost function setup, and algorithmic hooks
+    required for upper-level optimization, typically in a bi-level or hierarchical MPC structure.
+    
+    Methods:
+        __init__(p, horizon, mpc, pf=None, idx_p=None, idx_pf=None):
+        set_cost(cost, track_cost=None, cst_viol=None):
+            Performs checks for variable consistency, scalar cost, and allowed dependencies, and constructs helper functions for cost and Jacobian evaluation.
+        set_alg(parameter_update, parameter_init=None, sys_id=None):
+            Sets the algorithmic functions for parameter initialization, parameter update, and system identification.
+    
+    Properties:
+        parameter_init: Returns the parameter initialization function.
+        parameter_update: Returns the parameter update function.
+        sys_id: Returns the system identification function.
+        alg: Returns the algorithm function.
+        cost: Returns the cost evaluation function.
+        j_cost: Returns the cost Jacobian evaluation function
+        idx: Returns the dictionary of indexing functions.
+        param: Returns the dictionary of symbolic variables.
+        dim: Returns the dictionary of variable dimensions.
+        init: Returns the dictionary of initial values for symbolic variables.
+    
+    Usage:
+        This class is intended to be used as the upper-level controller in a hierarchical MPC setup, where it manages
+        symbolic representations, parameter passing, cost evaluation, and algorithmic updates for the upper-level optimization.
+    """
+    
     @typechecked
     def __init__(
             self,
@@ -24,10 +45,28 @@ class UpperLevel:
             idx_p: Optional[Callable[[int], Union[range, np.ndarray]]] = None,
             idx_pf: Optional[Callable[[int], Union[range, np.ndarray]]] = None
         ) -> None:
+        """
+        Initializes the UpperLevel class with symbolic variables, dimensions, and indexing functions for parameters and optional parameters.
+        Args:
+            p (ca.SX): Symbolic parameter vector for the QP.
+            horizon (int): Prediction horizon length.
+            mpc (QP): Instance of the lower-level QP controller, providing dimensions and parameters.
+            pf (Optional[ca.SX], optional): Optional symbolic parameter vector for additional QP parameters. Defaults to None.
+            idx_p (Optional[Callable[[int], Union[range, np.ndarray]]], optional): Function to index into `p` at each time step. If None, assumes `p` is time-invariant. Defaults to None.
+            idx_pf (Optional[Callable[[int], Union[range, np.ndarray]]], optional): Function to index into `pf` at each time step. If None, assumes `pf` is time-invariant. Defaults to None.
+        Raises:
+            AssertionError: If the indexing functions `idx_p` or `idx_pf` do not return the correct dimensions for the QP parameters.
+        Attributes:
+            _sym (SymbolicVar): Stores symbolic variables and their dimensions.
+            _idx (dict): Dictionary of indexing functions for parameters and optional parameters.
+            _cost: Placeholder for the cost function.
+            _J_cost: Placeholder for the Jacobian of the cost function.
+            _alg: Placeholder for the algorithm.
+        """
 
         # create symbolic variable
         self._sym = SymbolicVar()
-            
+
         # add to dimensions
         self._sym.add_dim('T',horizon)
 
@@ -93,6 +132,8 @@ class UpperLevel:
 
             # set flag to true
             y_idx = True
+
+        # TODO: JacVarSetup and QPVarSetup slow?
         
         # create function that sets up the necessary inputs to the QP
         def qp_var_setup(x,y,p_loc,pf_loc,t):
@@ -141,6 +182,33 @@ class UpperLevel:
             track_cost:Optional[ca.SX]=None,
             cst_viol:Optional[ca.SX]=None
         ):
+        """
+        Set the cost function and its associated tracking and constraint violation costs for the upper-level optimization problem.
+        This method performs several checks and setups:
+        - Ensures that the tracking cost and constraint violation cost are compatible with the main cost function.
+        - Validates that all symbolic variables in the tracking and constraint violation costs are contained within the main cost.
+        - Ensures the cost is a scalar symbolic expression.
+        - Checks that the cost only depends on the allowed variables (`p_cl`, `x_cl`, `u_cl`, `y_cl`).
+        - Identifies which parameters enter the cost and computes their Jacobians.
+        - Constructs helper functions to extract relevant indices and Jacobians for the cost.
+        - Creates callable CasADi functions for evaluating the cost and its Jacobian, storing them as attributes for later use.
+        Args:
+            cost (ca.SX): The main cost function as a scalar CasADi symbolic expression.
+            track_cost (Optional[ca.SX], optional): The tracking cost function. If not provided, defaults to `cost`.
+            cst_viol (Optional[ca.SX], optional): The constraint violation cost function. If not provided, defaults to a zero scalar.
+        Raises:
+            AssertionError: If the tracking cost or constraint violation cost contains variables not present in the main cost.
+            AssertionError: If the cost is not a scalar expression.
+            AssertionError: If the cost contains variables other than `p_cl`, `x_cl`, `u_cl`, or `y_cl`.
+            AssertionError: If the helper function for extracting cost indices does not match the expected output.
+        Side Effects:
+            Sets the following attributes on the class instance:
+                - self._cost: Function to evaluate the cost given a state.
+                - self._get_cost_idx: Helper function to extract relevant indices from state variables.
+                - self._get_cost_jacobian: Helper function to extract relevant Jacobians.
+                - self._j_cost_func_temp: Temporary CasADi function for the cost Jacobian.
+                - self._J_cost: Function to evaluate the cost Jacobian given a state.
+        """
 
         # check if tracking cost function is passed, if not, set it equal to cost
         if track_cost is None:
@@ -307,7 +375,6 @@ class UpperLevel:
 
             # get true input cost
             cost_in_loc = get_cost_idx(s.x,s.u,s.y,s.p)
-            # cost_in = getCostIdx(S.x,S.u,S.y,S.p[:,-1])
 
             # get true Jacobian
             j_x,j_u,j_y = get_cost_jacobian(s.j_x,s.j_u,s.j_y)
@@ -317,7 +384,18 @@ class UpperLevel:
         # store in upper level
         self._J_cost = j_cost_func
 
-    def set_alg(self,parameter_update,parameter_init=None,sys_id=None):
+    def set_alg(
+            self,parameter_update:callable,
+            parameter_init:Optional[callable]=None,
+            sys_id:Optional[callable]=None
+        ) -> None:
+        """
+        Sets the algorithmic functions for parameter initialization, parameter update, and system identification.
+        Args:
+            parameter_update (callable): Function to update parameters during simulation. Must accept a simulation object as input.
+            parameter_init (callable, optional): Function to initialize parameters before simulation starts. Must accept a simulation object as input. Defaults to a no-op function if not provided.
+            sys_id (callable, optional): Function for system identification during simulation. Must accept a simulation object as input. Defaults to a no-op function if not provided.
+        """
 
         self._parameter_init = parameter_init if parameter_init is not None else lambda sim: None
         self._parameter_update = parameter_update
@@ -334,89 +412,6 @@ class UpperLevel:
     @property
     def sys_id(self):
         return self._sys_id
-
-    # @typechecked
-    # def set_alg_old(self,
-    #         p_next,
-    #         psi_init:Optional[ca.SX]=ca.SX(0),
-    #         psi_next:Optional[ca.SX]=ca.SX(0),
-    #         psi:Optional[ca.SX]=ca.SX.sym('psi',1,1),
-    #         mode:Optional[str]='single'
-    #     ):
-        
-    #     # check that p_next returns a vector with the same dimension as p
-    #     assert p_next.shape == self.param['p'].shape, 'Parameters p and p_next must have the same dimension.'
-        
-    #     # check if pf is present
-    #     pf = self.param['pf'] if 'pf' in self.param else ca.SX.sym('pf',1,1)
-
-    #     # construct list of parameters on which p_next is allowed to depend
-    #     param_p_next = [self.param['p'],pf,psi,self.param['k'],self.param['J_p']]
-
-    #     # helper function to check if symbolic variables are correct
-    #     def symvar_str(expr):
-    #         return [str(v) for v in ca.symvar(expr)]
-
-    #     # check if p_next is a function of p, pf, psi, k, and Jp
-    #     assert len(set(symvar_str(p_next)) - set(symvar_str(ca.vcat(param_p_next)))) == 0, 'Parameter p_next must depend on p, pf, psi, k, and Jp.'
-        
-    #     # check that psi_init and psi_next have the same dimension as psi
-    #     assert psi_init.shape == psi.shape, 'Initial value of psi must have the same dimension as psi.'
-    #     assert psi_next.shape == psi.shape, 'Next value of psi must have the same dimension as psi.'
-        
-    #     # check that psi_next is a function of p, pf, psi, k, and Jp
-    #     assert len(set(symvar_str(psi_next)) - set(symvar_str(ca.vcat(param_p_next)))) == 0, 'Parameter p_next must depend on p, pf, psi, k, and Jp.'
-        
-    #     # check that psi is a function of p, pf, and Jp
-    #     assert len(set(symvar_str(psi_init)) - set(symvar_str(ca.vcat([self.param['p'],pf,self.param['J_p']])))) == 0, 'Initial value of psi must depend on p, pf, and Jp.'
-
-    #     # TODO: implement scenario descent
-    #     # get list of individual jacobians
-    #     # j_p_list = ca.horzsplit(j_p,p.shape[0])
-
-    #     # # create opti instance
-    #     # opti = ca.Opti('conic')
-
-    #     # # create main optimization variables
-    #     # d = opti.variable(*p.shape)
-    #     # epsilon = opti.variable()
-
-    #     # # bound error on each jacobian
-    #     # for j_p in j_p_list:
-    #     #     opti.subject_to( ca.norm_1(j_p-d) <= epsilon )
-
-    #     # # create objective
-    #     # opti.minimize(epsilon**2)
-
-    #     # # set parameters
-    #     # opti.parameter
-        
-    #     # create casadi function
-    #     psi_next_func = ca.Function('psi_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[psi_next],['p','pf','psi','k','Jp'],['psi_next'])
-    #     psi_init_func = ca.Function('psi_init',[self.param['p'],pf,self.param['J_p']],[psi_init],['p','pf','Jp'],['psi_init'])
-    #     p_next_func = ca.Function('p_next',[self.param['p'],pf,psi,self.param['k'],self.param['J_p']],[p_next],['p','pf','psi','k','Jp'],['p_next'])
-
-    #     # if pf is not passed, wrap a python function around that defaults pf to 0
-    #     if 'pf' not in self.param:
-    #         def p_next_func_py(p,pf_loc,psi_loc,k,j_p):
-    #             if pf_loc is None:
-    #                 pf_loc = 0
-    #             return p_next_func(p,pf_loc,psi_loc,k,j_p)
-    #         def psi_next_func_py(p,pf_loc,psi_loc,k,j_p):
-    #             if pf_loc is None:
-    #                 pf_loc = 0
-    #             return psi_next_func(p,pf_loc,psi_loc,k,j_p)
-    #         def psi_init_func_py(p,pf_loc,j_p):
-    #             if pf_loc is None:
-    #                 pf_loc = 0
-    #             return psi_init_func(p,pf_loc,j_p)
-    #     else:
-    #         p_next_func_py = p_next_func
-    #         psi_next_func_py = psi_next_func
-    #         psi_init_func_py = psi_init_func
-
-    #     # store in upperLevel
-    #     self._alg = {'psi_next':psi_next_func_py,'psi_init':psi_init_func_py,'p_next':p_next_func_py}
 
     @property
     def alg(self):
@@ -448,7 +443,3 @@ class UpperLevel:
 
     def _set_init(self, data):
         self._sym.set_init(data)
-    
-    # # overwrite the __dir__ method
-    # def __dir__(self):
-    #     return [attr for attr in super().__dir__() if not attr.startswith('_UpperLevel__')]
