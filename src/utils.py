@@ -6,7 +6,7 @@ import os, glob
 
 def rls(psi_init):
 
-    def sys_id_update(sim,k):
+    def sys_id_update(sim,_):
 
         # get parameters
         A_k = sim.psi['A']
@@ -27,7 +27,7 @@ def average_gradient_descent(rho,eta,log=True):
 
     def parameter_update(sim,k):
 
-        # average all jacobians
+        # average all Jacobians
         j_p = ca.sum2(sim.j_p) / sim.j_p.shape[1]
 
         # gradient step
@@ -127,10 +127,10 @@ def minibatch_descent(rho,eta=1,log=True,batch_size=1):
 
     return parameter_update, parameter_init
     
-def quadCostAndBounds(Q,R,x_cl,u_cl,x_max=None,x_min=None,x_ref=None,u_ref=None):
+def quad_cost_and_bounds(Q,R,x_cl,u_cl,x_max=None,x_min=None,x_ref=None,u_ref=None):
 
     # get symbolic type
-    MSX = type(x_cl)
+    msx = type(x_cl)
 
     # ensure that x_cl and u_cl are column vectors
     x_cl = ca.vec(x_cl)
@@ -143,63 +143,58 @@ def quadCostAndBounds(Q,R,x_cl,u_cl,x_max=None,x_min=None,x_ref=None,u_ref=None)
     T = int(x_cl.shape[0]/n_x) - 1
 
     # stack all constraints
-    if x_max is not None:
-        x_max_stack = ca.repmat(x_max,T+1,1)
-    if x_min is not None:
-        x_min_stack = ca.repmat(x_min,T+1,1)
+    x_max_stack = ca.repmat(x_max,T+1,1) if x_max is not None else None
+    x_min_stack = ca.repmat(x_min,T+1,1) if x_min is not None else None
 
     if x_ref is None:
-        x_ref = MSX(*x_cl.shape)
+        x_ref = msx(*x_cl.shape)
     else:
         if x_ref.shape[0] != x_cl.shape[0]:
             raise Exception('Inconsistent dimensions for x_ref.')
     if u_ref is None:
-        u_ref = MSX(*u_cl.shape)
+        u_ref = msx(*u_cl.shape)
     else:
         if u_ref.shape[0] != u_cl.shape[0]:
             raise Exception('Inconsistent dimensions for u_ref.')
 
     # closed-loop tracking cost
-    track_cost = (x_cl-x_ref).T@ca.kron(MSX.eye(T+1),Q)@(x_cl-x_ref) + (u_cl-u_ref).T@ca.kron(MSX.eye(T),R)@(u_cl-u_ref)
+    track_cost = (x_cl-x_ref).T@ca.kron(msx.eye(T+1),Q)@(x_cl-x_ref) + (u_cl-u_ref).T@ca.kron(msx.eye(T),R)@(u_cl-u_ref)
 
-    try:
+    # sparsify if symbolic type is SX
+    if msx == ca.SX:
         track_cost = ca.cse(ca.sparsify(track_cost))
-    except:
-        pass
 
     # constraint violation (l2 and l1 norm)
     if x_max is not None:    
-        cst_viol_l1 = MSX.ones(1,x_cl.shape[0])@ca.fmax(x_cl-MSX(x_max_stack),ca.fmax(MSX(x_min_stack)-x_cl,MSX((T+1)*n_x,1)))
-        cst_viol_l2 = ca.fmax(x_cl-MSX(x_max_stack),ca.fmax(MSX(x_min_stack)-x_cl,MSX((T+1)*n_x,1))).T@ca.fmax(x_cl-MSX(x_max_stack),ca.fmax(MSX(x_min_stack)-x_cl,MSX((T+1)*n_x,1)))
-        try:
+        cst_viol_l1 = msx.ones(1,x_cl.shape[0])@ca.fmax(x_cl-msx(x_max_stack),ca.fmax(msx(x_min_stack)-x_cl,msx((T+1)*n_x,1)))
+        cst_viol_l2 = ca.fmax(x_cl-msx(x_max_stack),ca.fmax(msx(x_min_stack)-x_cl,msx((T+1)*n_x,1))).T@ca.fmax(x_cl-msx(x_max_stack),ca.fmax(msx(x_min_stack)-x_cl,msx((T+1)*n_x,1)))
+        if msx == ca.SX:
             cst_viol_l1 = ca.cse(ca.sparsify(cst_viol_l1))
             cst_viol_l2 = ca.cse(ca.sparsify(cst_viol_l2))
-        except:
-            pass
     else:
         cst_viol_l1 = None
         cst_viol_l2 = None
                     
     return track_cost, cst_viol_l1, cst_viol_l2
 
-def param2terminalCost(p):
+def param_2_terminal_cost(p):
 
     # get symbolic type
-    MSX = type(p)
+    msx = type(p)
 
     # get state dimension
     n_x = int(0.5*(ca.sqrt(8*p.shape[0]+1)-1))
 
-    # construct cholesky decomposition Qn = LL.T of terminal cost by
+    # construct Cholesky decomposition Qn = LL.T of terminal cost by
     # rearranging the entries in the parameter vector c_qx. First
     # preallocate L
-    L = MSX(n_x,n_x)
+    L = msx(n_x,n_x)
 
     # construct L row by row
-    len = 0
+    length = 0
     for i in range(n_x):
-        len = len + i
-        L[i,0:i+1] = p[len:len+i+1]
+        length = length + i
+        L[i,0:i+1] = p[length:length+i+1]
 
     if isinstance(p,ca.SX):
         out = ca.cse(ca.sparsify(L@L.T))
