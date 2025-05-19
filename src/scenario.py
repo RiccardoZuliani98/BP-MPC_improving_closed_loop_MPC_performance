@@ -17,6 +17,7 @@ TODO:
 """
 
 class Scenario:
+    # TODO: add description
 
     _OPTIONS_ALLOWED_VALUES = {'shift_linearization': bool, 'warmstart_first_qp': bool, 'warmstart_shift': bool,
                                'epsilon': float, 'roundoff_qp': int, 'mode': ['optimize', 'simulate', 'dense'],
@@ -34,6 +35,7 @@ class Scenario:
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
+        # TODO: add description
 
         # initialize properties
         self._sym = None
@@ -47,6 +49,7 @@ class Scenario:
         self.update(dyn=dyn,qp=mpc,upper_level=upper_level)
 
     def update(self,**kwargs):
+        # TODO: add description
 
         # initialize properties
         for key, value in kwargs.items():
@@ -106,6 +109,7 @@ class Scenario:
         return self._trajectory_opt
     
     def make_trajectory_opt(self,theta=None):
+        # TODO: add description
   
         # extract system dynamics
         if theta is not None:
@@ -189,17 +193,25 @@ class Scenario:
 
     def create_mapped_dynamics(self,n_models,jit=False):
         """
-        Creates and stores mapped (vectorized or batched) versions of the system dynamics and cost Jacobian functions for multiple models.
-        This method prepares the system's nominal dynamics matrices (`A_nom` and `B_nom`) and the upper-level cost Jacobian function for efficient evaluation over `n_models` instances, optionally using JIT compilation for performance. The mapped functions are stored in the `self._mapped` dictionary for later use.
+        Creates and stores mapped (vectorized or batched) versions of the system dynamics and cost
+        Jacobian functions for multiple models. This method prepares the system's nominal dynamics
+        matrices (`A_nom` and `B_nom`) and the upper-level cost Jacobian function for efficient
+        evaluation over `n_models` instances, optionally using JIT compilation for performance.
+        The mapped functions are stored in the `self._mapped` dictionary for later use.
+
         Args:
             n_models (int): The number of model instances to map the dynamics and cost Jacobian over.
-            jit (bool, optional): If True, enables JIT compilation for the mapped functions to improve performance. Defaults to False.
+            jit (bool, optional): If True, enables JIT compilation for the mapped functions to improve
+                performance. Defaults to False.
         Side Effects:
             Updates `self._options` to enable compilation if `jit` is True.
-            Populates `self._mapped` with mapped versions of the system dynamics (`A`, `B`) and the cost Jacobian (`j_cost`).
+            Populates `self._mapped` with mapped versions of the system dynamics (`A`, `B`) and the
+                cost Jacobian (`j_cost`).
         Notes:
-            - The mapping and compilation options are configured based on the `jit` argument and the `self._options['compile_mapped_dynamics']` flag.
-            - The mapped cost Jacobian function (`j_cost`) internally computes the correct cost index and Jacobian components before evaluating the mapped function.
+            - The mapping and compilation options are configured based on the `jit` argument and the
+                `self._options['compile_mapped_dynamics']` flag.
+            - The mapped cost Jacobian function (`j_cost`) internally computes the correct cost index
+                and Jacobian components before evaluating the mapped function.
         """
 
         if jit:
@@ -233,7 +245,41 @@ class Scenario:
 
         self._mapped['j_cost'] = j_cost_func
 
-    def _get_init_parameters(self,init=None):
+    def _get_init_parameters(self,init:dict=None):
+        """
+        Prepare and validate initialization parameters for the scenario.
+        This method processes the initialization dictionary or vector, ensuring that all required
+        parameters are present and correctly formatted for simulation or optimization. It handles
+        special cases for parameters such as 'theta', 'w', and 'y_lin', supporting both single
+        values and lists (trajectories), and adapts their structure as needed for the chosen
+        linearization mode.
+
+        Parameters
+            init (dict, optional): Initialization values for the scenario parameters. If provided,
+            it is used to set the initial values for the scenario variables (e.g., x, u, w, d, 
+            theta, p, pf, y_lin). If None, uses the current self.init values.
+        
+        Returns
+        
+            p (casadi.DM, list, or None): Parameters for the scenario.
+            pf (casadi.DM, list, or None): Fixed parameters for the scenario.
+            w (casadi.DM, list, or None): Noise values for the scenario.
+            d (casadi.DM, list, or None): Model uncertainty values for the scenario.
+            theta (casadi.DM, list, or None): Nominal model parameters for the scenario.
+            y (casadi.DM, list, or None): Linearization trajectory for the scenario.
+            x (casadi.DM or list): Initial state(s) for the scenario.
+        
+        Raises
+            AssertionError, If required parameters are missing or if lengths are inconsistent.
+            Exception, If required parameters for simulation are missing or if an unsupported
+                linearization mode is requested.
+        
+        Notes
+            - Handles both single-step and multi-step (trajectory) initializations.
+            - Adapts parameter shapes to match the required simulation or optimization format.
+            - Special handling for 'theta', 'w', and 'y_lin' to support lists and matrices.
+            - Ensures all required parameters are present based on the scenario configuration.
+        """
 
         # pass the initialization and use the SymbolicVar.set_init function
         if init is not None:
@@ -392,7 +438,7 @@ class Scenario:
             n_models = theta.shape[1]
 
             # check that mapped (nominal) dynamics have been created
-            if not hasattr(self,'_mapped'):
+            if not self._mapped:
                 self.create_mapped_dynamics(n_models,self._options['compile_mapped_dynamics'])
             else:
                 # if they have been created, check that n_models matches
@@ -418,7 +464,45 @@ class Scenario:
             var_in,
             n_models:int=1
         ) -> Tuple[simVar,dict,bool]:
-
+        """
+        Simulates the closed-loop system using the specified QP-based controller for a given scenario.
+        This method performs a simulation loop over the prediction horizon, solving a quadratic program
+        (QP) at each time step to compute the optimal control input, propagating the system dynamics,
+        and optionally computing Jacobians for sensitivity analysis. It supports both single and multiple
+        model scenarios, warmstarting, dense/sparse QP solvers, and various debugging and optimization options.
+        
+        Parameters
+            var_in (dict): Dictionary containing the initial conditions for the simulation. Expected keys:
+                - 'x': Initial state vector.
+                - 'y': Initial guess for optimization variables (optional).
+                - 'theta': Model parameters (optional).
+                - 'p': Parameters for the QP (optional).
+                - 'pf': Final parameters for the QP (optional).
+                - 'd': Disturbance vector (optional).
+                - 'w': Process noise matrix (optional).
+            n_models (int, optional): Number of models to simulate in parallel. Default is 1 (single model).
+        
+        Returns
+            sim (simVar): Object containing the simulation results, including state, input, slack variables,
+                and optionally Jacobians.
+            out_dict (dict): Dictionary containing additional simulation information, such as:
+                - 'qp_time': List of QP solver times per step.
+                - 'jac_time': List of Jacobian computation times per step (if applicable).
+                - 'qp_debug': Debug information for each QP (if enabled).
+                - 'qp_ingredients': QP ingredients for each step (if enabled).
+            qp_failed (bool): Flag indicating whether the QP solver failed during the simulation.
+        
+        Raises
+            Exception If the QP solver fails at any time step, the simulation loop is broken and `qp_failed
+                is set to True.
+        
+        Notes
+            - The method supports both dense and sparse QP solvers, as well as warmstarting and shifting of
+                optimization variables.
+            - Jacobians are computed if the simulation is run in 'optimize' mode.
+            - Additional debug and QP ingredient information can be collected based on options.
+            - The simulation results are stacked at the end for easier post-processing.
+        """
 
         # check if multiple models have been passed
         single_model = False if n_models > 1 else True

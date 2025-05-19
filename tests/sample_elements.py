@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.qp import QP
 from src.upper_level import UpperLevel
-from src.utils import quadCostAndBounds, gradient_descent
+from src.utils import quad_cost_and_bounds, gradient_descent
 
 def sample_dynamics(
         use_d:bool=False,
@@ -226,7 +226,7 @@ def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
     x_min = -x_max
 
     # create tracking cost and constraint violation
-    track_cost, cst_viol_l1, _ =  quadCostAndBounds(q,r,x_cl,u_cl,x_max,x_min)
+    track_cost, cst_viol_l1, _ =  quad_cost_and_bounds(q,r,x_cl,u_cl,x_max,x_min)
 
     # set cost
     upper_level.set_cost(track_cost+cst_viol_l1,track_cost,cst_viol_l1)
