@@ -28,7 +28,7 @@ def rls(dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False):
     phi_sym = ca.jacobian(dynamics.x_next_nom,theta)
 
     # check that jacobian does not depend on theta
-    assert ca.depends_on(phi_sym,theta), 'Model is not parameter affine.'
+    assert not ca.depends_on(phi_sym,theta), 'Model is not parameter affine.'
 
     # turn into function
     phi_single = ca.Function('phi',[x,u],[phi_sym])
