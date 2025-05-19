@@ -4,25 +4,61 @@ import os, glob
 
 #TODO: add descriptions
 
-def rls(psi_init,phi):
+def rls(dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False):
 
-    def sys_id_update(sim,_):
+    # check if dynamics should be compiled
+    if jit:
+        jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
+        compilation_options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
+    else:
+        compilation_options = {}
+
+    # check that nominal model is not fully known
+    assert 'theta' in dynamics.param_nom, 'Theta should be set as nominal parameter in dynamics.'
+
+    # check that theta is initialized
+    if theta0 is None:
+        assert 'theta' in dynamics.init, 'Theta must be initialized.'
+        theta0 = dynamics.init['theta']
+
+    # extract parameters
+    theta,x,u = dynamics.param_nom['theta'],dynamics.param_nom['x'],dynamics.param_nom['u']
+
+    # represent the model as f(x,u) = theta.T@phi(x,u)
+    phi_sym = ca.jacobian(dynamics.x_next_nom,theta)
+
+    # check that jacobian does not depend on theta
+    assert ca.depends_on(phi_sym,theta), 'Model is not parameter affine.'
+
+    # turn into function
+    phi_single = ca.Function('phi',[x,u],[phi_sym])
+
+    # map to accept entire trajectories
+    phi = phi_single.map(horizon,compilation_options)
+
+    # precompute dimension of theta
+    n_theta = phi_sym.shape[0]
+
+    def sys_id_update(sim,running_vars):
+
+        # get past a and 
+        a_k = running_vars['A']
+        b_k = running_vars['b']
 
         # compute feature vectors
         phi_k = phi(sim.x,sim.u)
 
-        # compute inner product of all phi_t^k
-        horizon = phi_k.shape[1]
-        n = phi_k.shape[0]
+        # compute output vector
+        z_k = sim.x[:,1:].reshape((-1,1))
 
-        # reshape to (m, n, 1)
-        phi_reshaped = phi_k.reshape(horizon, n, 1)
+        # reshape to (horizon, n_theta, 1)
+        phi_reshaped = phi_k.reshape(horizon, n_theta, 1)
 
-        # batched outer product: shape (m, n, n)
+        # batched outer product: shape (horizon, n_theta, n_theta)
         outer_product_1 = phi_reshaped @ np.transpose(phi_reshaped, (0, 2, 1))
 
         # sum over all m components
-        result = np.sum(outer_product_1, axis=0)  # shape (n, n)
+        result = np.sum(outer_product_1, axis=0)  # shape (n_theta, n_theta)
 
         # get parameters
         a_k = sim.psi['A']
@@ -35,7 +71,7 @@ def rls(psi_init,phi):
         return sim.psi | new_psi
     
     def sys_id_init():
-        return psi_init
+        return {'A':ca.DM.eye(n_theta)*lam,'b':dynamics.init['theta']}
     
     return sys_id_update, sys_id_init
 

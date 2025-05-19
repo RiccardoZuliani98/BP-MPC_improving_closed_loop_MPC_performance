@@ -236,7 +236,6 @@ class Scenario:
 
             # get true input cost
             cost_in_loc = self.upper_level._get_cost_idx(s.x,s.u,s.y,s.p)
-            # cost_in = getCostIdx(S.x,S.u,S.y,S.p[:,-1])
 
             # get true Jacobian
             j_x,j_u,j_y = self.upper_level._get_cost_jacobian(s.j_x,s.j_u,s.j_y)
