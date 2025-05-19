@@ -104,7 +104,7 @@ Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
-ing = Ingredients(horizon=mpc_horizon,dynamics=dyn,cost=cost,constraints=cst)
+ing = Ingredients(horizon=mpc_horizon,dynamics=dyn,cost=cost,constraints=cst,options={'linearization':'initial_state'})
 
 # create options
 qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,

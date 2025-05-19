@@ -140,7 +140,7 @@ class UpperLevel:
             # It contains all the variables necessary to set up the QP. The QP always requires
             # the current state x, everything else is optional. Optional variables are: p, pf,
             # y_lin, theta. Variables that are not required are not present in var_in.
-            # Note that the variables in var_in are ordered as follows: [x,y,theta,p,pf].
+            # Note that the variables in var_in are ordered as follows: [x,y,p,pf].
 
             # preallocate output
             out = []
@@ -150,7 +150,8 @@ class UpperLevel:
                 
                 # convert input to DM in case it is not DM already, and read the required entries
                 # according to the indexing function
-                out.append(ca.DM(val)[local_idx[key](t)])
+                if key in local_idx:
+                    out.append(ca.DM(val)[local_idx[key](t)])
 
             return ca.vcat(out)
 

@@ -380,7 +380,8 @@ class Scenario:
                     raise Exception('Either pass an input or a linearization trajectory.')
                 
                 # set equal to input (note that input is already either a list or a vector)
-                init_values['y_lin'] = init_values['u']
+                init_values['y_lin'] = ca.DM.zeros(self.qp.dim['y'],1)
+                init_values['y_lin'][self.upper_level.idx['y'](0)] = init_values['u']
 
         # initial condition
         assert 'x' in init_values, 'Initial state x is required to simulate the system.'
@@ -545,7 +546,7 @@ class Scenario:
         # create qp variable. This variable is a "view" on the dictionary var_in.
         # This means that if var_in is modified, then var_in_qp will access the
         # modified variables. However, var_in_qp cannot overwrite var_in.
-        var_in_qp = {key:var_in[key] for key in ['x','y','theta','p','pf'] if key in var_in and var_in[key] is not None}
+        var_in_qp = {key:var_in[key] for key in ['x','y','p','pf'] if key in var_in and var_in[key] is not None}
 
         # extract solver
         if self._options['mode'] == 'dense':
