@@ -4,17 +4,33 @@ import os, glob
 
 #TODO: add descriptions
 
-def rls(psi_init):
+def rls(psi_init,phi):
 
     def sys_id_update(sim,_):
 
+        # compute feature vectors
+        phi_k = phi(sim.x,sim.u)
+
+        # compute inner product of all phi_t^k
+        horizon = phi_k.shape[1]
+        n = phi_k.shape[0]
+
+        # reshape to (m, n, 1)
+        phi_reshaped = phi_k.reshape(horizon, n, 1)
+
+        # batched outer product: shape (m, n, n)
+        outer_product_1 = phi_reshaped @ np.transpose(phi_reshaped, (0, 2, 1))
+
+        # sum over all m components
+        result = np.sum(outer_product_1, axis=0)  # shape (n, n)
+
         # get parameters
-        A_k = sim.psi['A']
+        a_k = sim.psi['A']
         b_k = sim.psi['b']
         theta = sim.psi['theta']
 
         # run through the horizon and perform the RLS updates
-        new_psi = {'A':A_k,'b':b_k,'theta':theta}
+        new_psi = {'A':a_k,'b':b_k,'theta':theta}
 
         return sim.psi | new_psi
     

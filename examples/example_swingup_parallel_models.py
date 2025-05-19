@@ -90,7 +90,7 @@ p = ca.vcat([c_q,c_r])
 pf = theta
 
 # MPC terminal cost
-Qn = utils.param2terminalCost(c_q) + 0.01*ca.SX.eye(n_x)
+Qn = utils.param_2_terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
 
 # append to Qx
 Qx.append(Qn)
@@ -136,7 +136,7 @@ p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
 x_cl = ca.vec(upper_level.param['x_cl'])
 u_cl = ca.vec(upper_level.param['u_cl'])
 
-track_cost, cst_viol_l1, cst_viol_l2 = utils.quadCostAndBounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
+track_cost, cst_viol_l1, cst_viol_l2 = utils.quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
 # put together
 cost = track_cost

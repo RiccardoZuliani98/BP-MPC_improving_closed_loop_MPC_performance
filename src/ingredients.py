@@ -515,7 +515,7 @@ class Ingredients:
             - Slack variables (`eps`), if present
             - The first and second input variables (`u0`, `u1`)
             - Shifted indices for states, inputs, and combined variables (`x_shift`, `u_shift`, `y_shift`)
-            - Optionally, a function for the next step indices (`y_next`) depending on the linearization option
+            - Optionally, a function for the next step indices (`y_lin`) depending on the linearization option
         Returns:
             dict: A dictionary containing index ranges and shifted indices for use in the optimization problem.
         """
@@ -571,9 +571,9 @@ class Ingredients:
         
         # if a linearization trajectory is used, add entry to idx
         if self._options['linearization'] == 'trajectory':
-            idx['y_next'] = lambda time: idx['y']
+            idx['y_lin'] = lambda time: idx['y']
         elif self._options['linearization'] == 'initial_state':
-            idx['y_next'] = lambda time: idx['u1']
+            idx['y_lin'] = lambda time: idx['u1']
 
         return idx
 
