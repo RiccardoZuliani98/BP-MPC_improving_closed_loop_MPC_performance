@@ -49,9 +49,9 @@ def average_gradient_descent(rho,eta,log=True):
         # gradient step
         p_next = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*j_p if log else sim.p - (rho/(k+1)**eta)*j_p
 
-        return p_next, None
+        return {'p':p_next}
 
-    return parameter_update, lambda sim: None
+    return parameter_update, lambda sim: {}
 
 def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False,verbose=False):
 
@@ -93,27 +93,24 @@ def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False,verbose=Fals
         # run GD update
         p_next = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*d if log else sim.p - (rho/(k+1)**eta)*d
 
-        # no auxiliary parameter
-        psi = None
-
-        return p_next,psi
+        return {'p':p_next}
 
     # no initialization for psi
-    parameter_init = lambda sim: None
+    parameter_init = lambda sim: {}
 
     return parameter_update,parameter_init
 
 def gradient_descent(rho,eta=1,log=True):
     
     def update_log(sim,k):
-        return sim.p - (rho*ca.log(k+2)/(k+1)**eta)*sim.j_p, None
+        return {'p': sim.p - (rho*ca.log(k+2)/(k+1)**eta)*sim.j_p}
     
     def update_simple(sim,k):
-        return sim.p - (rho/(k+1)**eta)*sim.j_p, None
+        return {'p': sim.p - (rho/(k+1)**eta)*sim.j_p}
         
     parameter_update = update_log if log else update_simple
         
-    return parameter_update, lambda sim: None
+    return parameter_update, lambda sim: {}
 
 def minibatch_descent(rho,eta=1,log=True,batch_size=1):
 
@@ -136,7 +133,7 @@ def minibatch_descent(rho,eta=1,log=True,batch_size=1):
             psi = sim.psi['j_p'] + sim.j_p
             p = sim.p
 
-        return p,psi
+        return {'p':p,'psi':psi}
     
     def parameter_init(sim):
         return {'j_p':ca.DM.zeros(*sim.j_p.shape)}

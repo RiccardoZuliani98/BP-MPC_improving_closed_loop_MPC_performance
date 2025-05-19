@@ -10,7 +10,6 @@ from src.options import Options
 from src.symbolic_var import SymbolicVar
 import numpy as np
 from typing import Tuple
-from src.read_only_dict import ReadOnlyDictView
 
 """
 TODO:
@@ -806,7 +805,11 @@ class Scenario:
         p_best = p
 
         # check if sys_id should be performed
-        sys_id = self.upper_level.sys_id_update is not None
+        if self.upper_level.sys_id_update:
+            sys_id = True
+            running_vars = running_vars | self.upper_level.sys_id_init()
+        else:
+            sys_id = False
 
         # # check if NLP was solved
         # if self.opt['sol']['cost'] is None:
@@ -876,21 +879,17 @@ class Scenario:
 
                 # on first iteration, initialize psi
                 if k == 0:
-                    psi = self.upper_level.parameter_init(sim_k)
-
-                    # if running sys_id, initialize sys_id
-                    if sys_id:
-                        psi = psi | self.upper_level.sys_id_init()
+                    running_vars = running_vars | self.upper_level.parameter_init(sim_k)
 
                 # store psi in simvar
-                sim_k.psi = psi
+                sim_k.psi = running_vars
 
                 # update parameter
-                p,psi = self.upper_level.parameter_update(sim_k,k)
+                running_vars = running_vars | self.upper_level.parameter_update(sim_k,k)
 
                 # run sys_id if needed
                 if sys_id:
-                    psi = self._upper_level.sys_id_update(sim_k,k)
+                    running_vars = running_vars | self._upper_level.sys_id_update(sim_k,k)
                 
             else:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout

@@ -151,6 +151,7 @@ k = upper_level.param['k']
 
 # create update function
 upper_level.set_alg(*gradient_descent(rho=0.0001,eta=0.51,log=True))
+# upper_level.set_alg(*minibatch_descent(rho=0.0001,eta=0.51,log=True,batch_size=2))
 
 # test derivatives
 # # out = tests.derivatives(mod)
