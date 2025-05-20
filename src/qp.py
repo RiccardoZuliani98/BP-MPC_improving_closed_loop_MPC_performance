@@ -5,6 +5,7 @@ from src.options import Options
 import numpy as np
 from copy import copy
 from numpy.linalg import lstsq
+from src.utils import daqp_interface
 
 class QP:
     """
@@ -268,7 +269,10 @@ class QP:
                 S = ca.conic('S','osqp',qp,options | {'osqp':{'verbose':False},'equality':is_equality})
                 # S = ca.conic('S','osqp',qp,options | {'equality':is_equality})
             case 'daqp':
-                S = ca.conic('S','daqp',qp,options)
+
+                S = daqp_interface(is_equality)
+
+                # S = ca.conic('S','daqp',qp,options)
             case 'qrqp':
                 S = ca.conic('S','qrqp',qp,options | {'print_iter':False,'equality':is_equality})
         comp_time_dict['S_sparse'] = time.time()-start

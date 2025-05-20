@@ -720,7 +720,7 @@ class Ingredients:
             slack = True
 
         if 's_lin' in data:
-            assert all(data['s_lin']>0), 'The linear slack penalty must be positive'
+            assert all([elem > 0 for elem in data['s_lin']]), 'The linear slack penalty must be positive'
             slack = True
 
         return slack,n_eps

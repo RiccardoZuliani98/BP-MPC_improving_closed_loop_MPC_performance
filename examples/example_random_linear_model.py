@@ -28,21 +28,21 @@ COMPILE_JAC = False
 
 # horizons
 UPPER_HORIZON = 50
-MPC_HORIZON = 10
+MPC_HORIZON = 5
 ITERATIONS = 10
 
 # how spread out the initial condition is
 X0_MAG = 5
 
 # decide whether to include noise or not
-NOISE = True
+NOISE = False
 NOISE_MAG = 0.4
 
 
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict,true_theta = random_linear.dynamics(n_x=3,use_w=NOISE,pole_mag=[0.5,1])
+dyn_dict,true_theta = random_linear.dynamics(n_x=4,use_w=NOISE,pole_mag=[0.5,1])    
 print(true_theta)
 
 # model uncertainty parameter
@@ -55,7 +55,7 @@ dyn = Dynamics(dyn_dict,jit=COMPILE_DYNAMICS)
 n_x, n_u = dyn.dim['x'], dyn.dim['u']
 
 # set initial conditions
-x0 = ca.DM( X0_MAG * (np.ones((n_x,1)) + 2*np.random.rand(n_x,1)) )
+x0 = ca.DM.ones(n_x,1)#ca.DM( X0_MAG * (np.ones((n_x,1)) + 2*np.random.rand(n_x,1)) )
 theta0 = ca.DM( np.multiply(np.ones(theta.shape)+2*np.random.rand(*theta.shape),np.array(true_theta)) )
 print(f'Initial condition: {x0}')
 print(f'Initial parameter estimate: {theta0}')
@@ -98,7 +98,7 @@ Qn = utils.param_2_terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
 Qx.append(Qn)
 
 # add to mpc dictionary
-cost = {'Qx': Qx, 'Ru':Ru, 's_quad':100}
+cost = {'Qx': Qx, 'Ru':Ru, 's_quad':5, 's_lin':5}
 
 # turn bounds into polyhedral constraints
 Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
@@ -129,7 +129,7 @@ A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1),theta0)
 B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1),theta0)
 
 # compute terminal cost initialization
-p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
+p_init = ca.vertcat(ca.DM.ones(p.shape[0]-1,1)*1e-3,0.1)#ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
 
 # extract closed-loop variables for upper level
 x_cl = ca.vec(upper_level.param['x_cl'])
