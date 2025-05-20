@@ -26,6 +26,10 @@ COMPILE_QP_SPARSE = False
 COMPILE_QP_DENSE = False
 COMPILE_JAC = False
 
+# horizons
+UPPER_HORIZON = 20
+MPC_HORIZON = 11
+
 # decide whether to include noise or not
 NOISE = False
 
@@ -47,29 +51,23 @@ n_x, n_u = dyn.dim['x'], dyn.dim['u']
 if NOISE:
     n_w = dyn.dim['w']
 
-# upper-level horizon
-upper_horizon = 20
-
 # set initial conditions
-x0 = ca.DM(np.random.rand())
-theta0 = ca.DM()
+x0 = ca.DM(np.random.rand(n_x,1))
+theta0 = ca.DM(*theta.shape)
 
 if NOISE:
-    w0 = ca.horzsplit(ca.DM(n_w,upper_horizon))
+    w0 = ca.horzsplit(ca.DM(n_w,UPPER_HORIZON))
 
 ### CREATE MPC -----------------------------------------------------------------------------
 
 # upper level cost
-Q_true = ca.diag(ca.vertcat(100,1,100,1))
-R_true = 1e-6
-
-# mpc horizon
-mpc_horizon = 11
+Q_true = ca.DM.eye(n_x)
+R_true = 0.01
 
 # constraints are simple bounds on state and input
-x_max = ca.vertcat(5,5,ca.inf,ca.inf)
+x_max = 50*ca.DM.ones(n_x,1)
 x_min = -x_max
-u_max = 4
+u_max = 0.5
 u_min = -u_max
 
 # parameter = terminal state cost and input cost
@@ -77,7 +75,7 @@ c_q = ca.SX.sym('c_q',int(n_x*(n_x+1)/2),1)
 c_r = ca.SX.sym('c_r',1,1)
 
 # stage cost (state)
-Qx = [Q_true] * (mpc_horizon-1)
+Qx = [Q_true] * (MPC_HORIZON-1)
 
 # stage cost (input)
 Ru = c_r**2 + 1e-6
@@ -92,10 +90,6 @@ Qn = utils.param_2_terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
 # append to Qx
 Qx.append(Qn)
 
-# slack penalties
-c_lin = 15
-c_quad = 5
-
 # add to mpc dictionary
 cost = {'Qx': Qx, 'Ru':Ru}
 
@@ -106,7 +100,7 @@ Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
-ing = Ingredients(horizon=mpc_horizon,dynamics=dyn,cost=cost,constraints=cst)
+ing = Ingredients(horizon=MPC_HORIZON,dynamics=dyn,cost=cost,constraints=cst)
 
 # create options
 qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,
@@ -120,11 +114,11 @@ mpc = QP(ingredients=ing,p=p,pf=pf,options=qp_options)
 ### UPPER LEVEL -----------------------------------------------------------
 
 # create upper level
-upper_level = UpperLevel(p=p,pf=pf,horizon=upper_horizon,mpc=mpc)
+upper_level = UpperLevel(p=p,pf=pf,horizon=UPPER_HORIZON,mpc=mpc)
 
 # extract linearized dynamics at the origin
-A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1),ca.DM(n_d,1))
-B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1),ca.DM(n_d,1))
+A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1),theta0)
+B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1),theta0)
 
 # compute terminal cost initialization
 p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
@@ -139,8 +133,8 @@ track_cost, cst_viol_l1, cst_viol_l2 = utils.quad_cost_and_bounds(Q_true,R_true,
 cost = track_cost
 
 # create upper-level constraints
-Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,upper_horizon+1)
-_,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,upper_horizon)
+Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON+1)
+_,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON)
 cst_viol = ca.vcat([Hx@ca.vec(x_cl)-hx,Hu@ca.vec(u_cl)-hu])
 
 # store in upper-level
@@ -152,10 +146,24 @@ j_p = upper_level.param['J_p']
 k = upper_level.param['k']
 
 # create update function
-# parameter_update, parameter_init = gradient_descent(rho=0.0001,eta=0.51,log=True)
-parameter_update, parameter_init = minibatch_descent(rho=0.0001,eta=0.51,log=True,batch_size=2)
-sys_id_update, sys_id_init = rls(dynamics=dyn,horizon=upper_horizon,lam=0.1,theta0=theta0[0],jit=False)
-upper_level.set_alg(parameter_update=parameter_update,parameter_init=parameter_init,sys_id_update=sys_id_update,sys_id_init=sys_id_init)
+parameter_update, parameter_init = gradient_descent(rho=0.0001,eta=0.51,log=True)
+
+# create system identification
+sys_id_update, sys_id_init = rls(
+    dynamics=dyn,
+    horizon=UPPER_HORIZON,
+    lam=0.1,
+    theta0=theta0,
+    jit=False)
+
+# update upper-level algorithm
+upper_level.set_alg(
+    parameter_update=parameter_update,
+    parameter_init=parameter_init,
+    sys_id_update=sys_id_update,
+    sys_id_init=sys_id_init)
+
+
 # upper_level.set_alg(*average_gradient_descent(rho=0.0001,eta=0.51,log=True))
 # upper_level.set_alg(*robust_gradient_descent(rho=0.0001,eta=0.51,n_models=len(theta0),n_p=p.shape[0],log=True,verbose=False))
 
@@ -168,18 +176,13 @@ upper_level.set_alg(parameter_update=parameter_update,parameter_init=parameter_i
 scenario = Scenario(dyn,mpc,upper_level)
 
 # initialize
-# init_dict = {'p':p_init,'pf':ca.DM(n_d,1),'x': x0,'u': u0, 'd': d0, 'theta':theta0}
-init_dict = {'p':p_init,'pf':ca.DM(n_d,1),'x': x0,'u': u0, 'd': d0, 'theta':theta0[0]}
+init_dict = {'p':p_init,'pf':theta0,'x': x0,'theta':theta0}
 if NOISE:
     init_dict['w'] = w0
 scenario.set_init(init_dict)
 
-# simulate with initial parameter
-# S,qp_data_sparse,_ = scenario.simulate(options={'simulate_parallel_models':True})
-S,qp_data_sparse,_ = scenario.simulate(options={'use_true_model':False})
-
 # test closed loop
-SIM,_,p_best = scenario.closed_loop(options={'max_k':5})
+sim_list,_,p_best = scenario.closed_loop(options={'use_true_model':False,'max_k':5})
 
 # get last value of p
 # p_final = SIM[-1].p

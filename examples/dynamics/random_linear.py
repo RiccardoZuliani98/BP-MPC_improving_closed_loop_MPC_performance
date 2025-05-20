@@ -13,14 +13,13 @@ def dynamics(n_x:int=2,pole_mag:list=[0.8,1.2],use_theta:bool=True,use_w:bool=Tr
     u = ca.SX.sym('u',n_u,1)
 
     # generate random floats between -1 and 1
-    random_units = 2*np.random.rand((1,n_x))-np.ones((1,n_x))
+    random_units = 2*np.random.rand(1,n_x)-np.ones((1,n_x))
 
     # adapt to specified range
     poles = random_units*(pole_mag[1]-pole_mag[0]) + np.ones((1,n_x))*pole_mag[0]
-    print(poles)
     
     # put ones in the off-diagonal of A
-    A = ca.SX(np.diag(np.ones(n_x-1,1),k=1))
+    A = ca.SX(np.diag(np.ones(n_x-1),k=1))
 
     # substitute last row of A with randomly generated poles (with flipped sign)
     A[-1,:] = -ca.DM(poles)
@@ -55,6 +54,9 @@ def dynamics(n_x:int=2,pole_mag:list=[0.8,1.2],use_theta:bool=True,use_w:bool=Tr
     # create successor state and nominal successor state
     x_next = ca.cse(ca.sparsify(A@x + B@u))
     x_next_nom = ca.cse(ca.sparsify(A_nom@x + B_nom@u))
+
+    # print true theta
+    print(f'True theta: {ca.DM(ca.vec(ca.jacobian(x_next,ca.vertcat(x,u))))}')
 
     # noise if required
     if use_w:

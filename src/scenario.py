@@ -889,7 +889,7 @@ class Scenario:
         p_best = p
 
         # check if sys_id should be performed
-        if self.upper_level.sys_id_update:
+        if self.upper_level.sys_id_update is not None:
             sys_id = True
             running_vars = running_vars | self.upper_level.sys_id_init()
         else:
@@ -973,7 +973,7 @@ class Scenario:
 
                 # run sys_id if needed
                 if sys_id:
-                    running_vars = running_vars | self._upper_level.sys_id_update(sim_k,k)
+                    running_vars = running_vars | self._upper_level.sys_id_update(sim_k,running_vars,k)
                 
             else:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
@@ -987,6 +987,9 @@ class Scenario:
                     pass
                 case 1:
                     print(f"Iteration: {k}, cost: {track_cost}, J: {ca.DM(np.linalg.norm(j_p,axis=0))}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
+
+                    if sys_id:
+                        print(f'Current theta: {running_vars['theta']}')
 
             # if self._options['figures']:
 

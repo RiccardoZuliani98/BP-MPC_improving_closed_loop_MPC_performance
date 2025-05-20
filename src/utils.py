@@ -34,44 +34,57 @@ def rls(dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False):
     phi_single = ca.Function('phi',[x,u],[phi_sym])
 
     # map to accept entire trajectories
-    phi = phi_single.map(horizon,compilation_options)
+    phi = phi_single.map(horizon,[False,False],[False],compilation_options)
 
     # precompute dimension of theta
-    n_theta = phi_sym.shape[0]
+    n_theta = theta.shape[0]
 
-    def sys_id_update(sim,running_vars):
+    def sys_id_update(sim,running_vars,k):
 
         # get past a and 
         a_k = running_vars['A']
         b_k = running_vars['b']
 
         # compute feature vectors
-        phi_k = phi(sim.x,sim.u)
+        phi_k = np.array(phi(sim.x[:,:-1],sim.u))
 
         # compute output vector
-        z_k = sim.x[:,1:].reshape((-1,1))
+        z_k = np.array(sim.x[:,1:])
 
-        # reshape to (horizon, n_theta, 1)
-        phi_reshaped = phi_k.reshape(horizon, n_theta, 1)
+        # reshape to (horizon, *phi.shape)
+        phi_reshaped = phi_k.reshape(phi_k.shape[0],-1,horizon,order='F').transpose(2,1,0)
 
-        # batched outer product: shape (horizon, n_theta, n_theta)
-        outer_product_1 = phi_reshaped @ np.transpose(phi_reshaped, (0, 2, 1))
+        # update a and b
+        a_k_1 = ca.DM(a_k + np.einsum('nij,njk->ik', phi_reshaped, phi_reshaped.transpose(0,2,1)))
+        b_k_1 = ca.DM(b_k + np.atleast_2d(np.einsum('nij,nj->i', phi_reshaped, z_k.T)).T)
 
-        # sum over all m components
-        result = np.sum(outer_product_1, axis=0)  # shape (n_theta, n_theta)
+        # compute new model
+        theta = ca.solve(a_k_1,b_k_1)
 
-        # get parameters
-        a_k = sim.psi['A']
-        b_k = sim.psi['b']
-        theta = sim.psi['theta']
+        # # test against for loop
+        # phi_k_list = np.split(phi_k.T,horizon,axis=0)
+        # z_k_list = np.split(z_k,horizon,axis=1)
+
+        # # preallocate outer products
+        # product_1 = np.zeros((phi_k_list[0].shape[0],phi_k_list[0].shape[0]))
+        # product_2 = np.zeros((phi_k_list[0].shape[0],z_k_list[0].shape[1]))
+
+        # # test against for loop
+        # for i in range(horizon):
+        #     product_1 = product_1 + phi_k_list[i]@(phi_k_list[i].T)
+        #     product_2 = product_2 + phi_k_list[i]@z_k_list[i]
+
+        # # check that this is equal to the list above
+        # for idx, elem in enumerate(phi_k_list):
+        #     assert np.allclose(elem,phi_reshaped[idx])
 
         # run through the horizon and perform the RLS updates
-        new_psi = {'A':a_k,'b':b_k,'theta':theta}
+        new_psi = {'A':a_k_1,'b':b_k_1,'theta':theta}
 
         return sim.psi | new_psi
     
     def sys_id_init():
-        return {'A':ca.DM.eye(n_theta)*lam,'b':dynamics.init['theta']}
+        return {'A':ca.DM.eye(n_theta)*lam,'b':theta0}
     
     return sys_id_update, sys_id_init
 
