@@ -1,7 +1,7 @@
 import casadi as ca
 import numpy as np
 
-def dynamics(n_x:int=2,pole_mag:list=[0.8,1.2],use_theta:bool=True,use_w:bool=True) -> dict:
+def dynamics(n_x:int=2,pole_mag:list=[0.5,1.2],use_theta:bool=True,use_w:bool=True) -> dict:
 
     assert pole_mag[1] >= pole_mag[0], 'Pole magnitude bounds should be given as [mag_min, mag_max] with mag_min <= mag_max.'
 
@@ -15,8 +15,11 @@ def dynamics(n_x:int=2,pole_mag:list=[0.8,1.2],use_theta:bool=True,use_w:bool=Tr
     # generate random floats between -1 and 1
     random_units = 2*np.random.rand(1,n_x)-np.ones((1,n_x))
 
+    # generate random signs
+    random_signs = np.sign(0.5*np.ones((1,n_x))-np.random.rand(1,n_x))
+
     # adapt to specified range
-    poles = random_units*(pole_mag[1]-pole_mag[0]) + np.ones((1,n_x))*pole_mag[0]
+    poles = random_units*(pole_mag[1]-pole_mag[0]) + random_signs*pole_mag[0]
     
     # put ones in the off-diagonal of A
     A = ca.SX(np.diag(np.ones(n_x-1),k=1))

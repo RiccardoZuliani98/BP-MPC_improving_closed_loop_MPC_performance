@@ -28,8 +28,11 @@ COMPILE_JAC = False
 
 # horizons
 UPPER_HORIZON = 50
-MPC_HORIZON = 8
-ITERATIONS = 100
+MPC_HORIZON = 10
+ITERATIONS = 10
+
+# how spread out the initial condition is
+X0_MAG = 5
 
 # decide whether to include noise or not
 NOISE = True
@@ -39,7 +42,8 @@ NOISE_MAG = 0.4
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict,true_theta = random_linear.dynamics(n_x=5,use_w=NOISE)
+dyn_dict,true_theta = random_linear.dynamics(n_x=3,use_w=NOISE,pole_mag=[0.5,1])
+print(true_theta)
 
 # model uncertainty parameter
 theta = dyn_dict['theta']
@@ -51,8 +55,11 @@ dyn = Dynamics(dyn_dict,jit=COMPILE_DYNAMICS)
 n_x, n_u = dyn.dim['x'], dyn.dim['u']
 
 # set initial conditions
-x0 = ca.DM(np.random.rand(n_x,1))
-theta0 = ca.DM(*theta.shape)
+x0 = ca.DM( X0_MAG * (np.ones((n_x,1)) + 2*np.random.rand(n_x,1)) )
+theta0 = ca.DM( np.multiply(np.ones(theta.shape)+2*np.random.rand(*theta.shape),np.array(true_theta)) )
+print(f'Initial condition: {x0}')
+print(f'Initial parameter estimate: {theta0}')
+
 
 # sample noise if requested
 if NOISE:
@@ -61,11 +68,11 @@ if NOISE:
 ### CREATE MPC -----------------------------------------------------------------------------
 
 # upper level cost
-Q_true = ca.DM.eye(n_x)
-R_true = 0.01
+Q_true = 10*ca.DM.eye(n_x)
+R_true = 0.1
 
 # constraints are simple bounds on state and input
-x_max = 50*ca.DM.ones(n_x,1)
+x_max = 500*ca.DM.ones(n_x,1)
 x_min = -x_max
 u_max = 0.5
 u_min = -u_max
@@ -91,13 +98,13 @@ Qn = utils.param_2_terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
 Qx.append(Qn)
 
 # add to mpc dictionary
-cost = {'Qx': Qx, 'Ru':Ru}
+cost = {'Qx': Qx, 'Ru':Ru, 's_quad':100}
 
 # turn bounds into polyhedral constraints
 Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
-cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
+cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu, 'Hx_e':ca.SX.eye(hx.shape[0])}
 
 # create QP ingredients
 ing = Ingredients(horizon=MPC_HORIZON,dynamics=dyn,cost=cost,constraints=cst)
@@ -105,7 +112,8 @@ ing = Ingredients(horizon=MPC_HORIZON,dynamics=dyn,cost=cost,constraints=cst)
 # create options
 qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,
               'compile_qp_dense':COMPILE_QP_DENSE,
-              'compile_jac':COMPILE_JAC}
+              'compile_jac':COMPILE_JAC,
+              'solver':'qpoases'}
 
 # create MPC
 mpc = QP(ingredients=ing,p=p,pf=pf,options=qp_options)
@@ -152,7 +160,7 @@ parameter_update, parameter_init = gradient_descent(rho=0.0001,eta=0.51,log=True
 sys_id_update, sys_id_init = rls(
     dynamics=dyn,
     horizon=UPPER_HORIZON,
-    lam=0.1,
+    lam=0,
     theta0=theta0,
     jit=False)
 

@@ -253,11 +253,14 @@ class Ingredients:
             # get slack dimension
             n_eps = self.dim['eps']
 
+            # number of slack variables per time-step
+            n_eps_t = int(n_eps/N)
+
             # linear penalty
-            s_lin = ca.vcat(processed_data['s_lin']) if 's_lin' in processed_data else ca.SX(int(n_eps*N))
+            s_lin = ca.vcat([ca.SX.ones(n_eps_t)*elem for elem in processed_data['s_lin']]) if 's_lin' in processed_data else ca.SX(int(n_eps),1)
 
             # quadratic penalty
-            s_quad = ca.vcat(processed_data['s_quad'])
+            s_quad = ca.vcat([ca.SX.ones(n_eps_t)*elem for elem in processed_data['s_quad']])
 
             # add columns associated to input and slack variables
             Hx_u = ca.hcat([Hx,ca.SX(Hx.shape[0],N*n_u),-Hx_e])
@@ -707,9 +710,10 @@ class Ingredients:
         n_eps = 0
 
         if 'Hx_e' in data:
-            assert 's_quad' in data and all([data['s_quad'] > 0]), 'Please pass a positive quadratic penalty.'
+            assert 's_quad' in data and all([elem > 0 for elem in data['s_quad']]), 'Please pass a positive quadratic penalty.'
             slack = True
-            n_eps = data['Hx_e'].shape[1]
+            assert isinstance(data['Hx_e'],list), 'Hx_e should be a list.'
+            n_eps = int(np.sum([elem.shape[1] for elem in data['Hx_e']]))
 
         if 's_quad' in data or 's_lin' in data:
             assert 'Hx_e' in data, 'Please pass a matrix specifying slack constraints.'

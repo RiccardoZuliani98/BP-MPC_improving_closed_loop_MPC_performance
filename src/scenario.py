@@ -978,7 +978,11 @@ class Scenario:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
 
             # run sys_id if needed
-            sys_id_vars = self._upper_level.sys_id_update(sim_k,running_vars,k) if sys_id else {}
+            if sys_id:
+                sys_id_vars = self._upper_level.sys_id_update(sim_k,running_vars,k)
+                sys_id_vars['pf'] = sys_id_vars['theta']
+            else:
+                sys_id_vars = {}
 
             if save_memory:
                 sim_k.save_memory()

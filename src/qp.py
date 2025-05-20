@@ -62,7 +62,7 @@ class QP:
     """
     
     # Allowed option keys
-    _OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp'],'dense_solver':['qpoases','daqp'],
+    _OPTIONS_ALLOWED_VALUES = {'solver':['qpoases','daqp','osqp'],'dense_solver':['qpoases','daqp','osqp'],
                                'warmstart':['x_lam_mu','x'],'jac_tol':int,'jac_gamma':float,
                                'compile_qp_sparse':bool,'compile_qp_dense':bool,'compile_jac':bool,
                                'ls_solver':['numpy','casadi']}
@@ -263,8 +263,10 @@ class QP:
                 S = ca.conic('S','cplex',qp,{'cplex':{'CPXPARAM_Simplex_Display': 0,'CPXPARAM_ScreenOutput': 0},'equality':is_equality})
             case 'qpoases':
                 S = ca.conic('S','qpoases',qp,options | {'printLevel':'none','equality':is_equality})
+                # S = ca.conic('S','qpoases',qp,options | {'equality':is_equality})
             case 'osqp':
                 S = ca.conic('S','osqp',qp,options | {'osqp':{'verbose':False},'equality':is_equality})
+                # S = ca.conic('S','osqp',qp,options | {'equality':is_equality})
             case 'daqp':
                 S = ca.conic('S','daqp',qp,options)
             case 'qrqp':
