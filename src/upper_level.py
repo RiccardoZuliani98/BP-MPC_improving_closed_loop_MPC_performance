@@ -56,12 +56,7 @@ class UpperLevel:
             idx_pf (Optional[Callable[[int], Union[range, np.ndarray]]], optional): Function to index into `pf` at each time step. If None, assumes `pf` is time-invariant. Defaults to None.
         Raises:
             AssertionError: If the indexing functions `idx_p` or `idx_pf` do not return the correct dimensions for the QP parameters.
-        Attributes:
-            _sym (SymbolicVar): Stores symbolic variables and their dimensions.
-            _idx (dict): Dictionary of indexing functions for parameters and optional parameters.
-            _cost: Placeholder for the cost function.
-            _J_cost: Placeholder for the Jacobian of the cost function.
-            _alg: Placeholder for the algorithm.
+        Attributes: TODO
         """
 
         # create symbolic variable
@@ -125,46 +120,61 @@ class UpperLevel:
         y_idx = False
 
         # get linearization trajectory index if one is present in mpc
-        if 'y_next' in mpc.idx['out']:
+        if 'y_lin' in mpc.idx['out']:
 
             # add index to indices of UpperLevel
-            self._idx = self._idx | {'y_next':mpc.idx['out']['y_next']}
+            self._idx = self._idx | {'y':mpc.idx['out']['y_lin']}
 
             # set flag to true
             y_idx = True
 
-        # TODO: JacVarSetup and QPVarSetup slow?
-        
+        # create local index function
+        local_idx = self._idx
+
+        # add state
+        local_idx['x'] = lambda t: range(0,mpc.dim['x'])
+
         # create function that sets up the necessary inputs to the QP
-        def qp_var_setup(x,y,p_loc,pf_loc,t):
+        def qp_var_setup(var_in:dict,t:int) -> ca.DM:
+            # var_in is a dictionary set up by scenario when calling the function _simulate.
+            # It contains all the variables necessary to set up the QP. The QP always requires
+            # the current state x, everything else is optional. Optional variables are: p, pf,
+            # y_lin, theta. Variables that are not required are not present in var_in.
+            # Note that the variables in var_in are ordered as follows: [x,y,p,pf].
 
-            # get optional input list
-            inputs = [y,p_loc,pf_loc]
-            input_names = ['y_next','p','pf']
+            # preallocate output
+            out = []
 
-            # output list
-            out = [x]
-
-            # loop through inputs
-            for inp, name in zip(inputs,input_names):
+            # loop through variables in var_in
+            for key,val in var_in.items():
                 
-                # if an idx range has been passed, it means
-                # that the k-th optional input is needed
-                if name in self._idx:
-
-                    # all inputs should be column vectors
-                    out.append(ca.DM(inp)[self._idx[name](t)])
+                # convert input to DM in case it is not DM already, and read the required entries
+                # according to the indexing function
+                if key in local_idx:
+                    out.append(ca.DM(val)[local_idx[key](t)])
 
             return ca.vcat(out)
-        
-        def jac_var_setup(j_x_p,j_y_p,t,multiplier=1):
+
+        # create function that sets up the necessary inputs to the Jacobian
+        def jac_var_setup(
+                j_x_p:Union[np.ndarray,ca.DM],
+                j_y_p:ca.DM,
+                t:int,
+                multiplier:int=1
+            ) -> ca.DM:
+            # j_x_p represents the jacobian of x with respect to p at time t, j_y_p represents the
+            # jacobian of the optimization variables y with respect to p at time t. "multiplier"
+            # denotes the number of times the jacobian should be "copied" in case multiple models
+            # are being backpropagated.
             
             # get entries of p
             j_p = ca.repmat(ca.DM.eye(self.dim['p']),1,multiplier)[self._idx['p'](t),:]
 
-            # get entries o y
-            j_y = j_y_p[self.idx['y_next'](t),:] if y_idx else ca.DM(0,self.dim['p']*multiplier)
+            # get entries of y (if y_idx is not present it means that the sensitivities of y are
+            # not being backpropagated).
+            j_y = j_y_p[self.idx['y'](t),:] if y_idx else ca.DM(0,self.dim['p']*multiplier)
 
+            # stack results vertically
             return ca.vertcat(j_x_p,j_y,j_p)
         
         # save in upperLevel
@@ -181,7 +191,7 @@ class UpperLevel:
             cost:ca.SX,
             track_cost:Optional[ca.SX]=None,
             cst_viol:Optional[ca.SX]=None
-        ):
+        ) -> None:
         """
         Set the cost function and its associated tracking and constraint violation costs for the upper-level optimization problem.
         This method performs several checks and setups:
@@ -201,13 +211,7 @@ class UpperLevel:
             AssertionError: If the cost is not a scalar expression.
             AssertionError: If the cost contains variables other than `p_cl`, `x_cl`, `u_cl`, or `y_cl`.
             AssertionError: If the helper function for extracting cost indices does not match the expected output.
-        Side Effects:
-            Sets the following attributes on the class instance:
-                - self._cost: Function to evaluate the cost given a state.
-                - self._get_cost_idx: Helper function to extract relevant indices from state variables.
-                - self._get_cost_jacobian: Helper function to extract relevant Jacobians.
-                - self._j_cost_func_temp: Temporary CasADi function for the cost Jacobian.
-                - self._J_cost: Function to evaluate the cost Jacobian given a state.
+        Side Effects: TODO (what does this function set?)
         """
 
         # check if tracking cost function is passed, if not, set it equal to cost
@@ -387,7 +391,8 @@ class UpperLevel:
     def set_alg(
             self,parameter_update:callable,
             parameter_init:Optional[callable]=None,
-            sys_id:Optional[callable]=None
+            sys_id_update:Optional[callable]=None,
+            sys_id_init:Optional[callable]=None
         ) -> None:
         """
         Sets the algorithmic functions for parameter initialization, parameter update, and system identification.
@@ -399,7 +404,8 @@ class UpperLevel:
 
         self._parameter_init = parameter_init if parameter_init is not None else lambda sim: None
         self._parameter_update = parameter_update
-        self._sys_id = sys_id if sys_id is not None else lambda sim: None
+        self._sys_id_update = sys_id_update if sys_id_update is not None else None
+        self._sys_id_init = sys_id_init if sys_id_init is not None else None
     
     @property
     def parameter_init(self):
@@ -410,8 +416,12 @@ class UpperLevel:
         return self._parameter_update
     
     @property
-    def sys_id(self):
-        return self._sys_id
+    def sys_id_update(self):
+        return self._sys_id_update
+    
+    @property
+    def sys_id_init(self):
+        return self._sys_id_init
 
     @property
     def alg(self):

@@ -222,7 +222,33 @@ class SymbolicVar:
         self._init = self.init | other.init
 
         return self
-    
+
+    @typechecked
+    def copy(self,vars2keep:Optional[list]=None):
+        """
+        Create a copy of the current object, optionally retaining only specified variables.
+        Parameters:
+            vars2keep (list, optional): A collection of variable names to retain in the copied object.
+                If None, all variables from the original object are retained.
+        Returns:
+            self_copy: A new instance of the same class as the original object, containing either all
+                variables or only the specified subset of variables.
+        """
+
+        # create copy of class
+        self_copy = self.__class__()
+
+        if vars2keep is not None:
+            self_copy._dim = {key:val for key,val in self.dim.items() if key in vars2keep}
+            self_copy._var = {key:val for key,val in self.var.items() if key in vars2keep}
+            self_copy._init = {key:val for key,val in self.init.items() if key in vars2keep}
+        else:
+            self_copy._dim = self.dim
+            self_copy._var = self.var
+            self_copy._init = self.init
+
+        return self_copy
+
     @typechecked
     def copy(self,vars2keep:Optional[list]=None):
         """

@@ -85,7 +85,7 @@ Ru = c_r**2 + 1e-6
 p = ca.vcat([c_q,c_r])
 
 # MPC terminal cost
-Qn = utils.param2terminalCost(c_q) + 0.01*ca.SX.eye(n_x)
+Qn = utils.param_2_terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
 
 # append to Qx
 Qx.append(Qn)
@@ -104,7 +104,8 @@ Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
 cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
-ing = Ingredients(horizon=mpc_horizon,dynamics=dyn,cost=cost,constraints=cst)
+# ing = Ingredients(horizon=mpc_horizon,dynamics=dyn,cost=cost,constraints=cst,options={'linearization':'initial_state'})
+ing = Ingredients(horizon=mpc_horizon,dynamics=dyn,cost=cost,constraints=cst,options={'linearization':'trajectory'})
 
 # create options
 qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,
@@ -131,7 +132,7 @@ p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
 x_cl = ca.vec(upper_level.param['x_cl'])
 u_cl = ca.vec(upper_level.param['u_cl'])
 
-track_cost, cst_viol_l1, cst_viol_l2 = utils.quadCostAndBounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
+track_cost, cst_viol_l1, cst_viol_l2 = utils.quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
 # put together
 cost = track_cost
@@ -151,6 +152,7 @@ k = upper_level.param['k']
 
 # create update function
 upper_level.set_alg(*gradient_descent(rho=0.0001,eta=0.51,log=True))
+# upper_level.set_alg(*minibatch_descent(rho=0.0001,eta=0.51,log=True,batch_size=2))
 
 # test derivatives
 # # out = tests.derivatives(mod)

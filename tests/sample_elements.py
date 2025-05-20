@@ -2,25 +2,23 @@ import sys
 import os
 import casadi as ca
 from numpy.random import randint, rand
-from typing import Optional, Union
+from typing import Optional, Tuple
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.ingredients import Ingredients
-from src.dynamics import Dynamics
 from src.qp import QP
 from src.upper_level import UpperLevel
-from src.utils import quadCostAndBounds, gradient_descent
+from src.utils import quad_cost_and_bounds, gradient_descent
 
 def sample_dynamics(
         use_d:bool=False,
         use_w:bool=False,
         use_theta:bool=False,
         nonlinear:bool=False
-    ) -> dict:
+    ) -> Tuple[dict,dict]:
     """
-    This function generates a dictionary that can be used to setup a Dynamics object.
+    This function generates a dictionary that can be used to set up a Dynamics object.
     The true dynamics are given by
 
         x_next = (A_1 + A_2@d) @ x + x**2 + B@u + c + B_d@w,
@@ -38,7 +36,7 @@ def sample_dynamics(
         nonlinear (bool, optional): if true the dynamics contain quadratic term x**2
         
     Returns:
-        dict: dictionary that can be used to setup a Dynamics object
+        dict: dictionary that can be used to set up a Dynamics object
         dict: dictionary containing A=A_1+A_2@d, A_nom=A_1+A_3@theta, B, c
     """
 
@@ -126,7 +124,7 @@ def sample_ingredients(
         pf:Optional[bool]=False,
         slack:Optional[bool]=False,
         horizon:Optional[int]=1
-    ) -> Union[Ingredients, Optional[ca.SX], Optional[ca.SX]]:
+    ) -> Tuple[Optional[ca.SX],Optional[ca.SX],Optional[dict],Optional[dict]]:
     """
     Generate sample ingredients for testing optimal control problems, including cost matrices, references, and constraints.
     Args:
@@ -179,7 +177,7 @@ def sample_ingredients(
     constraints = {'Hx':Hx, 'hx':hx, 'Hu':Hu, 'hu':hu}
     cost = {'Qx':Q, 'Ru':R, 'x_ref':x_ref, 'u_ref':u_ref}
 
-    # check if slack is required
+    # check if slack variables are required
     if slack:
 
         # create quadratic penalty
@@ -219,18 +217,16 @@ def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
     n_x, n_u = upper_level.param['x_cl'].shape[0], upper_level.param['u_cl'].shape[0]
 
     # create random cost
-    Q_temp, R_temp = ca.DM(rand(n_x,n_x)), ca.DM(rand(n_u,n_u))
-    Q = Q_temp@Q_temp.T + 0.01*ca.DM.eye(n_x)
-    R = R_temp@R_temp.T + 0.01*ca.DM.eye(n_u)
+    q_temp, r_temp = ca.DM(rand(n_x,n_x)), ca.DM(rand(n_u,n_u))
+    q = q_temp@q_temp.T + 0.01*ca.DM.eye(n_x)
+    r = r_temp@r_temp.T + 0.01*ca.DM.eye(n_u)
 
     # create random bounds
     x_max = ca.DM(rand(n_x))
     x_min = -x_max
-    u_max = ca.DM(rand(n_u))
-    u_min = -u_max
 
     # create tracking cost and constraint violation
-    track_cost, cst_viol_l1, _ =  quadCostAndBounds(Q,R,x_cl,u_cl,x_max,x_min)
+    track_cost, cst_viol_l1, _ =  quad_cost_and_bounds(q,r,x_cl,u_cl,x_max,x_min)
 
     # set cost
     upper_level.set_cost(track_cost+cst_viol_l1,track_cost,cst_viol_l1)

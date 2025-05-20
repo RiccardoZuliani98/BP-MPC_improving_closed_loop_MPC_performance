@@ -9,6 +9,7 @@ from typeguard import typechecked
 from src.options import Options
 from src.symbolic_var import SymbolicVar
 import numpy as np
+from typing import Tuple
 
 """
 TODO:
@@ -16,6 +17,7 @@ TODO:
 """
 
 class Scenario:
+    # TODO: add description
 
     _OPTIONS_ALLOWED_VALUES = {'shift_linearization': bool, 'warmstart_first_qp': bool, 'warmstart_shift': bool,
                                'epsilon': float, 'roundoff_qp': int, 'mode': ['optimize', 'simulate', 'dense'],
@@ -33,9 +35,21 @@ class Scenario:
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
+        # TODO: add description
+
+        # initialize properties
+        self._sym = None
+        self._dyn = None
+        self._qp = None
+        self._upper_level = None
+        self._options = None
+        self._trajectory_opt = None
+        self._mapped = {}
+
         self.update(dyn=dyn,qp=mpc,upper_level=upper_level)
 
     def update(self,**kwargs):
+        # TODO: add description
 
         # initialize properties
         for key, value in kwargs.items():
@@ -44,10 +58,10 @@ class Scenario:
                 setattr(self, f"_{key}", value)
 
         # check if class already possesses symbols
-        current_sym = self._sym if hasattr(self,'_sym') else SymbolicVar()
+        current_sym = self._sym if self._sym is not None else SymbolicVar()
 
         # check if class already possesses options
-        current_options = self._options if hasattr(self,'_options') else Options(self._OPTIONS_ALLOWED_VALUES, self._OPTIONS_DEFAULT_VALUES)
+        current_options = self._options if self._options is not None else Options(self._OPTIONS_ALLOWED_VALUES, self._OPTIONS_DEFAULT_VALUES)
 
         # create symbols
         self._sym = self._dyn._sym + self._qp._sym + self._upper_level._sym + current_sym
@@ -95,10 +109,11 @@ class Scenario:
         return self._trajectory_opt
     
     def make_trajectory_opt(self,theta=None):
+        # TODO: add description
   
         # extract system dynamics
         if theta is not None:
-            f = lambda state,input: self.dyn.f_nom(state,input,theta)
+            f = lambda x,u: self.dyn.f_nom(x,u,theta)
         else:
             f = self.dyn.f_nom
 
@@ -176,33 +191,93 @@ class Scenario:
 
         return solver
 
-    def _get_init_parameters(self,init=None):
+    def create_mapped_dynamics(self,n_models,jit=False):
         """
-        Processes and validates the initialization parameters for the system simulation.
+        Creates and stores mapped (vectorized or batched) versions of the system dynamics and cost
+        Jacobian functions for multiple models. This method prepares the system's nominal dynamics
+        matrices (`A_nom` and `B_nom`) and the upper-level cost Jacobian function for efficient
+        evaluation over `n_models` instances, optionally using JIT compilation for performance.
+        The mapped functions are stored in the `self._mapped` dictionary for later use.
+
         Args:
-            init (dict, optional): A dictionary containing initialization parameters. 
-                If provided, it will be used to set the initial values for the system.
-        Returns:
-            tuple: A tuple containing the following elements:
-                - p (array or None): Parameters for the system, if provided.
-                - pf (array or None): Fixed parameters for the system, if provided.
-                - w (array, list, or None): Noise values for the system, if provided.
-                - d (array, list, or None): Model uncertainty values, if provided.
-                - theta (array or None): Nominal model parameters, if provided.
-                - y (array, list, or None): Linearization trajectory, if provided or computed.
-                - x (array): Initial state of the system (required).
-        Raises:
-            AssertionError: If the lengths of initialization parameters are inconsistent.
-            Exception: If required parameters (e.g., `x`, `p`, `pf`, `w`, `d`) are missing.
-            Exception: If noise `w` dimensions do not match the prediction horizon.
-            Exception: If `y_lin` is required but not provided or cannot be computed.
-            Exception: If the "optimal" linearization trajectory mode is selected (not implemented).
+            n_models (int): The number of model instances to map the dynamics and cost Jacobian over.
+            jit (bool, optional): If True, enables JIT compilation for the mapped functions to improve
+                performance. Defaults to False.
+        Side Effects:
+            Updates `self._options` to enable compilation if `jit` is True.
+            Populates `self._mapped` with mapped versions of the system dynamics (`A`, `B`) and the
+                cost Jacobian (`j_cost`).
         Notes:
-            - If any parameter in the "dynamics" subclass is not a list and `max_length > 1`, 
-                it will be extended to a list of appropriate length.
-            - The function supports two linearization modes: "trajectory" and "initial_state".
-            - Under the "trajectory" mode, `y_lin` is computed based on `x` and `u` if not provided.
-            - Under the "initial_state" mode, `y_lin` defaults to `u` if not provided.
+            - The mapping and compilation options are configured based on the `jit` argument and the
+                `self._options['compile_mapped_dynamics']` flag.
+            - The mapped cost Jacobian function (`j_cost`) internally computes the correct cost index
+                and Jacobian components before evaluating the mapped function.
+        """
+
+        if jit:
+            self._options.update({'compile_mapped_dynamics' : True})
+
+        # check if dynamics should be compiled
+        if self._options['compile_mapped_dynamics']:
+            jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
+            compilation_options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
+        else:
+            compilation_options = {}
+
+        # create mapped dynamics
+        self._mapped['n_models'] = n_models
+        self._mapped['A'] = self.dyn.A_nom.map(n_models, [True, True, False], [False], compilation_options)
+        self._mapped['B'] = self.dyn.B_nom.map(n_models, [True, True, False], [False], compilation_options)
+
+        # create mapped cost jacobian
+        j_cost_func_temp_mapped = self.upper_level._j_cost_func_temp.map(n_models, [True, False, False, False], [False], compilation_options)
+
+        def j_cost_func(s):
+
+            # get true input cost
+            cost_in_loc = self.upper_level._get_cost_idx(s.x,s.u,s.y,s.p)
+
+            # get true Jacobian
+            j_x,j_u,j_y = self.upper_level._get_cost_jacobian(s.j_x,s.j_u,s.j_y)
+
+            return j_cost_func_temp_mapped(cost_in_loc,j_x,j_u,j_y)
+
+        self._mapped['j_cost'] = j_cost_func
+
+    def _get_init_parameters(self,init:dict=None):
+        """
+        Prepare and validate initialization parameters for the scenario.
+        This method processes the initialization dictionary or vector, ensuring that all required
+        parameters are present and correctly formatted for simulation or optimization. It handles
+        special cases for parameters such as 'theta', 'w', and 'y_lin', supporting both single
+        values and lists (trajectories), and adapts their structure as needed for the chosen
+        linearization mode.
+
+        Parameters
+            init (dict, optional): Initialization values for the scenario parameters. If provided,
+            it is used to set the initial values for the scenario variables (e.g., x, u, w, d, 
+            theta, p, pf, y_lin). If None, uses the current self.init values.
+        
+        Returns
+        
+            p (casadi.DM, list, or None): Parameters for the scenario.
+            pf (casadi.DM, list, or None): Fixed parameters for the scenario.
+            w (casadi.DM, list, or None): Noise values for the scenario.
+            d (casadi.DM, list, or None): Model uncertainty values for the scenario.
+            theta (casadi.DM, list, or None): Nominal model parameters for the scenario.
+            y (casadi.DM, list, or None): Linearization trajectory for the scenario.
+            x (casadi.DM or list): Initial state(s) for the scenario.
+        
+        Raises
+            AssertionError, If required parameters are missing or if lengths are inconsistent.
+            Exception, If required parameters for simulation are missing or if an unsupported
+                linearization mode is requested.
+        
+        Notes
+            - Handles both single-step and multi-step (trajectory) initializations.
+            - Adapts parameter shapes to match the required simulation or optimization format.
+            - Special handling for 'theta', 'w', and 'y_lin' to support lists and matrices.
+            - Ensures all required parameters are present based on the scenario configuration.
         """
 
         # pass the initialization and use the SymbolicVar.set_init function
@@ -304,7 +379,8 @@ class Scenario:
                     raise Exception('Either pass an input or a linearization trajectory.')
                 
                 # set equal to input (note that input is already either a list or a vector)
-                init_values['y_lin'] = init_values['u']
+                init_values['y_lin'] = ca.DM.zeros(self.qp.dim['y'],1)
+                init_values['y_lin'][self.upper_level.idx['y'](0)] = init_values['u']
 
         # initial condition
         assert 'x' in init_values, 'Initial state x is required to simulate the system.'
@@ -331,52 +407,6 @@ class Scenario:
         x = init_values['x']                                                # initial state
 
         return p,pf,w,d,theta,y,x
-
-    def create_mapped_dynamics(self,n_models,jit=False):
-        """
-        Creates and stores mapped (vectorized or batched) versions of the system dynamics and cost Jacobian functions for multiple models.
-        This method prepares the system's nominal dynamics matrices (`A_nom` and `B_nom`) and the upper-level cost Jacobian function for efficient evaluation over `n_models` instances, optionally using JIT compilation for performance. The mapped functions are stored in the `self._mapped` dictionary for later use.
-        Args:
-            n_models (int): The number of model instances to map the dynamics and cost Jacobian over.
-            jit (bool, optional): If True, enables JIT compilation for the mapped functions to improve performance. Defaults to False.
-        Side Effects:
-            Updates `self._options` to enable compilation if `jit` is True.
-            Populates `self._mapped` with mapped versions of the system dynamics (`A`, `B`) and the cost Jacobian (`j_cost`).
-        Notes:
-            - The mapping and compilation options are configured based on the `jit` argument and the `self._options['compile_mapped_dynamics']` flag.
-            - The mapped cost Jacobian function (`j_cost`) internally computes the correct cost index and Jacobian components before evaluating the mapped function.
-        """
-
-        if jit:
-            self._options.update({'compile_mapped_dynamics' : True})
-
-        # check if dynamics should be compiled
-        if self._options['compile_mapped_dynamics']:
-            jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
-            compilation_options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
-        else:
-            compilation_options = {}
-
-        # create mapped dynamics
-        self._mapped = {'n_models': n_models}
-        self._mapped['A'] = self.dyn.A_nom.map(n_models, [True, True, False], [False], compilation_options)
-        self._mapped['B'] = self.dyn.B_nom.map(n_models, [True, True, False], [False], compilation_options)
-
-        # create mapped cost jacobian
-        j_cost_func_temp_mapped = self.upper_level._j_cost_func_temp.map(n_models, [True, False, False, False], [False], compilation_options)
-
-        def j_cost_func(s):
-
-            # get true input cost
-            cost_in_loc = self.upper_level._get_cost_idx(s.x,s.u,s.y,s.p)
-            # cost_in = getCostIdx(S.x,S.u,S.y,S.p[:,-1])
-
-            # get true Jacobian
-            j_x,j_u,j_y = self.upper_level._get_cost_jacobian(s.j_x,s.j_u,s.j_y)
-
-            return j_cost_func_temp_mapped(cost_in_loc,j_x,j_u,j_y)
-
-        self._mapped['j_cost'] = j_cost_func
 
     def simulate(self,init=None,options=None):
         """
@@ -408,7 +438,7 @@ class Scenario:
             n_models = theta.shape[1]
 
             # check that mapped (nominal) dynamics have been created
-            if not hasattr(self,'_mapped'):
+            if not self._mapped:
                 self.create_mapped_dynamics(n_models,self._options['compile_mapped_dynamics'])
             else:
                 # if they have been created, check that n_models matches
@@ -421,45 +451,57 @@ class Scenario:
         if n_models > 1:
             self._options.update({'use_true_model':False})
 
+        # create dictionary to run simulation
+        input_vars = {'p':p,'pf':pf,'d':d,'w':w,'theta':theta,'x':x,'y':y}
+
         # simulate
-        s, out_dict, qp_failed = self._simulate(p,pf,w,d,theta,y,x,n_models)
+        s, out_dict, qp_failed = self._simulate(input_vars,n_models)
 
         return s, out_dict, qp_failed
 
-    def _simulate(self,p:ca.DM,pf:ca.DM,w:ca.DM,d:ca.DM,theta:ca.DM,y:ca.DM,x:ca.DM,n_models:int=1) -> simVar | dict | bool:
+    def _simulate(
+            self,
+            var_in,
+            n_models:int=1
+        ) -> Tuple[simVar,dict,bool]:
         """
-        Simulates the system dynamics and solves a sequence of quadratic programs (QPs) 
-        for a given set of parameters, initial conditions, and disturbances.
-        This is a low-level simulation function that requires inputs to be passed 
-        separately, as returned by `_get_init_parameters`.
-        Args:
-            p (ca.DM or None): Parameter vector for the simulation.
-            pf (ca.DM or None): Final parameter vector for the simulation.
-            w (list or None): List of disturbances for each time step. If None, 
-                disturbances are assumed to be zero.
-            d (ca.DM): Known disturbances for the system dynamics.
-            y (ca.DM): Initial guess for the optimization variables.
-            x (ca.DM): Initial state of the system.
-        Returns:
-            tuple:
-                - S (simVar): Object containing simulation variables, including 
-                  states, inputs, and optimization variables.
-                - out_dict (dict): Dictionary containing timing information and 
-                  optional debug information:
-                    - 'qp_time': List of times taken to solve each QP.
-                    - 'jac_time': List of times taken to compute conservative Jacobians.
-                    - 'qp_debug' (optional): Debug information for QPs, if enabled.
-                    - 'qp_ingredients' (optional): QP ingredients, if enabled.
-                - qp_failed (bool): Flag indicating whether any QP solver failed 
-                  during the simulation.
-        Raises:
-            Exception: If the QP solver fails at any time step.
-        Notes:
-            - The function supports different modes of operation, including 'dense', 
-              'sparse', and 'optimize', which affect the solver and Jacobian computation.
-            - Warm-starting and shifting of QP solutions are supported for improved 
-              performance.
-            - Debugging and computation of QP ingredients can be enabled via options.
+        Simulates the closed-loop system using the specified QP-based controller for a given scenario.
+        This method performs a simulation loop over the prediction horizon, solving a quadratic program
+        (QP) at each time step to compute the optimal control input, propagating the system dynamics,
+        and optionally computing Jacobians for sensitivity analysis. It supports both single and multiple
+        model scenarios, warmstarting, dense/sparse QP solvers, and various debugging and optimization options.
+        
+        Parameters
+            var_in (dict): Dictionary containing the initial conditions for the simulation. Expected keys:
+                - 'x': Initial state vector.
+                - 'y': Initial guess for optimization variables (optional).
+                - 'theta': Model parameters (optional).
+                - 'p': Parameters for the QP (optional).
+                - 'pf': Final parameters for the QP (optional).
+                - 'd': Disturbance vector (optional).
+                - 'w': Process noise matrix (optional).
+            n_models (int, optional): Number of models to simulate in parallel. Default is 1 (single model).
+        
+        Returns
+            sim (simVar): Object containing the simulation results, including state, input, slack variables,
+                and optionally Jacobians.
+            out_dict (dict): Dictionary containing additional simulation information, such as:
+                - 'qp_time': List of QP solver times per step.
+                - 'jac_time': List of Jacobian computation times per step (if applicable).
+                - 'qp_debug': Debug information for each QP (if enabled).
+                - 'qp_ingredients': QP ingredients for each step (if enabled).
+            qp_failed (bool): Flag indicating whether the QP solver failed during the simulation.
+        
+        Raises
+            Exception If the QP solver fails at any time step, the simulation loop is broken and `qp_failed
+                is set to True.
+        
+        Notes
+            - The method supports both dense and sparse QP solvers, as well as warmstarting and shifting of
+                optimization variables.
+            - Jacobians are computed if the simulation is run in 'optimize' mode.
+            - Additional debug and QP ingredient information can be collected based on options.
+            - The simulation results are stacked at the end for easier post-processing.
         """
 
         # check if multiple models have been passed
@@ -489,22 +531,27 @@ class Scenario:
         sim = simVar(n,n_models)
 
         # store p and pf if present
-        sim.p = p if p is not None else None
-        sim.pf = pf if pf is not None else None
+        sim.p = var_in['p'] if 'p' in var_in else None
+        sim.pf = var_in['pf'] if 'pf' in var_in else None
 
         # set initial conditions
-        sim.x.append(x)
-        x_t, y_t = x, y
+        x_t = var_in['x']
+        sim.x.append(x_t)
 
         # extract parameter indexing
         idx_qp = self.upper_level.idx['qp']
         idx_jac = self.upper_level.idx['jac']
 
+        # create qp variable. This variable is a "view" on the dictionary var_in.
+        # This means that if var_in is modified, then var_in_qp will access the
+        # modified variables. However, var_in_qp cannot overwrite var_in.
+        var_in_qp = {key:var_in[key] for key in ['x','y','p','pf'] if key in var_in and var_in[key] is not None}
+
         # extract solver
         if self._options['mode'] == 'dense':
 
             # if in dense mode, choose dense solver
-            solver = qp._dense_solve
+            solver = qp.dense_solve
         else:
 
             # otherwise, choose sparse solver
@@ -516,12 +563,14 @@ class Scenario:
             j_x_p_t = ca.DM(n['x'],n['p']*n_models) if single_model else np.zeros((n['x'],n['p'],n_models))
             j_y_p_t = ca.DM(n['y'],n['p']*n_models)
             sim.j_x.append(j_x_p_t)
+        else:
+            j_x_p_t, j_y_p_t = None, None
 
         # check if QP warmstart was passed
         if self._options['warmstart_first_qp']:
 
             # get qp parameter
-            p_0 = idx_qp(x_t,y_t,p,pf,0)
+            p_0 = idx_qp(var_in_qp,0)
 
             # run QP once to get better initialization
             lam_t,mu_t,y_all_t = qp.solve(p_0)
@@ -529,7 +578,7 @@ class Scenario:
             # update y0
             y0_x = y_all_t[qp.idx['out']['x'][:-n['x']]]
             y0_u = y_all_t[qp.idx['out']['u']]
-            y_t = ca.vertcat(x,y0_x,y0_u)
+            var_in_qp['y'] = ca.vertcat(x_t,y0_x,y0_u)
 
             if self._options['mode'] == 'optimize':
 
@@ -549,16 +598,11 @@ class Scenario:
                 else:
                     j_y_p_t = ca.vertcat(j_x_p_t.reshape((n['x'],n['p']*n_models),order='F'),j_y_p_t[qp.idx['out']['x'][:-n['x']],:],j_y_p_t[qp.idx['out']['u'],:])
         else:
-            lam_t = None
-            mu_t = None
-            y_all_t = None
+            lam_t, mu_t, y_all_t = None, None, None
 
         # get list of inputs to dynamics and to nominal dynamics
-        var_in_fixed = {'d':d} if d is not None else {}
-        if self._options['use_true_model']:
-            var_in_nom_fixed = var_in_fixed
-        else:
-            var_in_nom_fixed = {'theta':theta} if theta is not None else {}
+        var_in_fixed = {key:var_in[key] for key in ['x','d'] if var_in[key] is not None}
+        var_in_nom_fixed = var_in_fixed if self._options['use_true_model'] else {key:var_in[key] for key in ['x','theta'] if var_in[key] is not None}
 
         # start counting the time taken to solve the QPs
         total_qp_time = []
@@ -567,26 +611,20 @@ class Scenario:
         total_jac_time = []
 
         # create list to store debug information
-        if self._options['debug_qp']:
-            qp_debug = []
+        qp_debug = []
 
         # create list to store qp ingredients
-        if self._options['compute_qp_ingredients']:
-            qp_ingredients = []
+        qp_ingredients = []
 
         # simulation loop
         for t in range(n['T']):
             
-            # replace first entry of state with current state
-            y_lin_t = y_t
-
             # parameter to pass to the QP
-            p_t = idx_qp(x_t,y_lin_t,p,pf,t)
+            p_t = idx_qp(var_in_qp,t)
 
             # check if warm start should be shifted
-            if self._options['warmstart_shift']:
-                if t > 0:
-                    y_all_t = y_all_t[qp.idx['out']['y_shift']]
+            if self._options['warmstart_shift'] and t>0:
+                y_all_t = y_all_t[qp.idx['out']['y_shift']]
 
             # solve QP
             try:
@@ -623,10 +661,10 @@ class Scenario:
                 # shift input trajectory
                 x_qp_t = y_all_t[qp.idx['out']['x']]
                 u_qp_t = y_all_t[qp.idx['out']['u']]
-                y_t = ca.vertcat(x_qp_t,u_qp_t[n['u']:],u_qp_t[-n['u']:])
+                var_in_qp['y'] = ca.vertcat(x_qp_t,u_qp_t[n['u']:],u_qp_t[-n['u']:])
             else:
                 # do not shift
-                y_t = y_all_t[qp.idx['out']['y']]
+                var_in_qp['y'] = y_all_t[qp.idx['out']['y']]
             
             if 'eps' in qp.idx['out']:
 
@@ -646,12 +684,12 @@ class Scenario:
             current_var = {'x':x_t,'u':u_t}
             
             # update variables
-            var_in = var_in_fixed | current_var
-            var_in_nom = var_in_nom_fixed | current_var
+            var_in_dyn = var_in_fixed | current_var
+            var_in_dyn_nom = var_in_nom_fixed | current_var
 
             # check if noise is present
-            if w is not None:
-                var_in['w'] = w[:,t]
+            if var_in['w'] is not None:
+                var_in_dyn['w'] = var_in['w'][:,t]
 
             if self._options['mode'] == 'optimize':
             
@@ -684,16 +722,16 @@ class Scenario:
                 if single_model:
 
                     # propagate jacobian of closed loop state x
-                    j_x_p_t = A.call(var_in_nom)['A']@j_x_p_t + B.call(var_in_nom)['B']@j_u0_p_t
+                    j_x_p_t = A.call(var_in_dyn_nom)['A']@j_x_p_t + B.call(var_in_dyn_nom)['B']@j_u0_p_t
                     
                     # store conservative jacobians of state and input
                     sim.add_sim_jac(j_x_p_t,j_u0_p_t,j_y_p_t)
                 else:
                     j_x_p_t = np.einsum('mnr,ndr->mdr',
-                                        np.array(A.call(var_in_nom)['A']).reshape((n['x'],n['x'],n_models),order='F'),
+                                        np.array(A.call(var_in_dyn_nom)['A']).reshape((n['x'],n['x'],n_models),order='F'),
                                         j_x_p_t) \
                               + np.einsum('mnr,ndr->mdr',
-                                          np.array(B.call(var_in_nom)['B']).reshape((n['x'],n['u'],n_models),order='F'),
+                                          np.array(B.call(var_in_dyn_nom)['B']).reshape((n['x'],n['u'],n_models),order='F'),
                                           np.array(j_u0_p_t).reshape((n['u'],n['p'],n_models),order='F'))
                     
                     # store conservative jacobians of state and input
@@ -703,7 +741,10 @@ class Scenario:
                 total_jac_time.append(time.time() - cons_jac_time)
 
             # get next state
-            x_t = f.call(var_in)['x_next']
+            x_t = f.call(var_in_dyn)['x_next']
+
+            # update qp variable dictionary
+            var_in_qp['x'] = x_t
 
             # store next state
             sim.x.append(x_t)
@@ -777,6 +818,10 @@ class Scenario:
         # if only one sample is passed, turn certain parameters to length-one lists (for compatibility)
         d, w, theta, x, y = [d], [w], [theta], [x], [y]
 
+        # create running variable. This variable contains the value of each parameter for a single iteration
+        # and it gets updated automatically by the sys_id and the parameter_update subroutines.
+        running_vars = {'p':p,'pf':pf}
+
         # update options if provided
         if options is not None:
             self._options.update(options)
@@ -843,11 +888,12 @@ class Scenario:
         best_cost = ca.inf
         p_best = p
 
-        if self._options['mode'] == 'optimize':
-
-            # extract parameter update law
-            parameter_init = self.upper_level.parameter_init
-            parameter_update = self.upper_level.parameter_update
+        # check if sys_id should be performed
+        if self.upper_level.sys_id_update is not None:
+            sys_id = True
+            running_vars = running_vars | self.upper_level.sys_id_init()
+        else:
+            sys_id = False
 
         # # check if NLP was solved
         # if self.opt['sol']['cost'] is None:
@@ -878,11 +924,11 @@ class Scenario:
             # get index
             idx = randint(0,n_samples-1) if self._options['random_sampling'] else int(ca.fmod(k,batch_size))
 
-            # obain elements
-            d_k, w_k, theta_k, x_k, y_k = d[idx], w[idx], theta[idx], x[idx], y[idx]
+            # update running vars with samples for iteration k
+            running_vars = running_vars | {'d':d[idx], 'w':w[idx], 'theta':theta[idx], 'x':x[idx], 'y':y[idx]}
 
             # run simulation
-            sim_k, qp_data, qp_failed = self._simulate(p,pf,w_k,d_k,theta_k,y_k,x_k,n_models=n_models)
+            sim_k, qp_data, qp_failed = self._simulate(running_vars,n_models=n_models)
 
             # compute cost and constraint violation
             cost,track_cost,cst_viol = cost_f(sim_k)
@@ -917,13 +963,17 @@ class Scenario:
 
                 # on first iteration, initialize psi
                 if k == 0:
-                    psi = parameter_init(sim_k)
+                    running_vars = running_vars | self.upper_level.parameter_init(sim_k)
 
                 # store psi in simvar
-                sim_k.psi = psi
+                sim_k.psi = running_vars
 
                 # update parameter
-                p,psi = parameter_update(sim_k,k)
+                running_vars = running_vars | self.upper_level.parameter_update(sim_k,k)
+
+                # run sys_id if needed
+                if sys_id:
+                    running_vars = running_vars | self._upper_level.sys_id_update(sim_k,running_vars,k)
                 
             else:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
@@ -937,6 +987,9 @@ class Scenario:
                     pass
                 case 1:
                     print(f"Iteration: {k}, cost: {track_cost}, J: {ca.DM(np.linalg.norm(j_p,axis=0))}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
+
+                    if sys_id:
+                        print(f'Current theta: {running_vars['theta']}')
 
             # if self._options['figures']:
 

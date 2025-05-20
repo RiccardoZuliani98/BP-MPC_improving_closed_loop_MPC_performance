@@ -4,21 +4,105 @@ import os, glob
 
 #TODO: add descriptions
 
+def rls(dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False):
+
+    # check if dynamics should be compiled
+    if jit:
+        jit_options = {"flags": "-O3", "verbose": False, "compiler": "gcc -Ofast -march=native"}
+        compilation_options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
+    else:
+        compilation_options = {}
+
+    # check that nominal model is not fully known
+    assert 'theta' in dynamics.param_nom, 'Theta should be set as nominal parameter in dynamics.'
+
+    # check that theta is initialized
+    if theta0 is None:
+        assert 'theta' in dynamics.init, 'Theta must be initialized.'
+        theta0 = dynamics.init['theta']
+
+    # extract parameters
+    theta,x,u = dynamics.param_nom['theta'],dynamics.param_nom['x'],dynamics.param_nom['u']
+
+    # represent the model as f(x,u) = theta.T@phi(x,u)
+    phi_sym = ca.jacobian(dynamics.x_next_nom,theta)
+
+    # check that jacobian does not depend on theta
+    assert not ca.depends_on(phi_sym,theta), 'Model is not parameter affine.'
+
+    # turn into function
+    phi_single = ca.Function('phi',[x,u],[phi_sym])
+
+    # map to accept entire trajectories
+    phi = phi_single.map(horizon,[False,False],[False],compilation_options)
+
+    # precompute dimension of theta
+    n_theta = theta.shape[0]
+
+    def sys_id_update(sim,running_vars,k):
+
+        # get past a and 
+        a_k = running_vars['A']
+        b_k = running_vars['b']
+
+        # compute feature vectors
+        phi_k = np.array(phi(sim.x[:,:-1],sim.u))
+
+        # compute output vector
+        z_k = np.array(sim.x[:,1:])
+
+        # reshape to (horizon, *phi.shape)
+        phi_reshaped = phi_k.reshape(phi_k.shape[0],-1,horizon,order='F').transpose(2,1,0)
+
+        # update a and b
+        a_k_1 = ca.DM(a_k + np.einsum('nij,njk->ik', phi_reshaped, phi_reshaped.transpose(0,2,1)))
+        b_k_1 = ca.DM(b_k + np.atleast_2d(np.einsum('nij,nj->i', phi_reshaped, z_k.T)).T)
+
+        # compute new model
+        theta = ca.solve(a_k_1,b_k_1)
+
+        # # test against for loop
+        # phi_k_list = np.split(phi_k.T,horizon,axis=0)
+        # z_k_list = np.split(z_k,horizon,axis=1)
+
+        # # preallocate outer products
+        # product_1 = np.zeros((phi_k_list[0].shape[0],phi_k_list[0].shape[0]))
+        # product_2 = np.zeros((phi_k_list[0].shape[0],z_k_list[0].shape[1]))
+
+        # # test against for loop
+        # for i in range(horizon):
+        #     product_1 = product_1 + phi_k_list[i]@(phi_k_list[i].T)
+        #     product_2 = product_2 + phi_k_list[i]@z_k_list[i]
+
+        # # check that this is equal to the list above
+        # for idx, elem in enumerate(phi_k_list):
+        #     assert np.allclose(elem,phi_reshaped[idx])
+
+        # run through the horizon and perform the RLS updates
+        new_psi = {'A':a_k_1,'b':b_k_1,'theta':theta}
+
+        return sim.psi | new_psi
+    
+    def sys_id_init():
+        return {'A':ca.DM.eye(n_theta)*lam,'b':theta0}
+    
+    return sys_id_update, sys_id_init
+
 def average_gradient_descent(rho,eta,log=True):
 
     def parameter_update(sim,k):
 
-        # average all jacobians
+        # average all Jacobians
         j_p = ca.sum2(sim.j_p) / sim.j_p.shape[1]
 
         # gradient step
         p_next = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*j_p if log else sim.p - (rho/(k+1)**eta)*j_p
 
-        return p_next, None
+        return {'p':p_next}
 
-    return parameter_update, lambda sim: None
+    return parameter_update, lambda sim: {}
 
-def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False):
+def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False,verbose=False):
 
     # compilation options
     if jit:
@@ -26,6 +110,9 @@ def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False):
         options = {"jit": True, "compiler": "shell", "jit_options": jit_options}
     else:
         options = {}
+
+    if not verbose:
+        options = options | {'osqp':{'verbose':False}}
 
     # create optimization variables
     d = ca.SX.sym('d',n_p,1)
@@ -55,27 +142,24 @@ def robust_gradient_descent(rho,eta,n_models,n_p,log=True,jit=False):
         # run GD update
         p_next = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*d if log else sim.p - (rho/(k+1)**eta)*d
 
-        # no auxiliary parameter
-        psi = None
-
-        return p_next,psi
+        return {'p':p_next}
 
     # no initialization for psi
-    parameter_init = lambda sim: None
+    parameter_init = lambda sim: {}
 
     return parameter_update,parameter_init
 
 def gradient_descent(rho,eta=1,log=True):
     
     def update_log(sim,k):
-        return sim.p - (rho*ca.log(k+2)/(k+1)**eta)*sim.j_p, None
+        return {'p': sim.p - (rho*ca.log(k+2)/(k+1)**eta)*sim.j_p}
     
     def update_simple(sim,k):
-        return sim.p - (rho/(k+1)**eta)*sim.j_p, None
+        return {'p': sim.p - (rho/(k+1)**eta)*sim.j_p}
         
     parameter_update = update_log if log else update_simple
         
-    return parameter_update, lambda sim: None
+    return parameter_update, lambda sim: {}
 
 def minibatch_descent(rho,eta=1,log=True,batch_size=1):
 
@@ -85,30 +169,30 @@ def minibatch_descent(rho,eta=1,log=True,batch_size=1):
         if ca.fmod(k+1,batch_size) == 0:
 
             # construct average gradient
-            j_p = (sim.psi + sim.j_p) / batch_size
+            j_p = (sim.psi['j_p'] + sim.j_p) / batch_size
 
             # zero the running gradient
-            psi = ca.DM.zeros(*j_p.shape)
+            psi = {'j_p':ca.DM.zeros(*j_p.shape)}
             
             # run update
             p = sim.p - (rho*ca.log(k+2)/(k+1)**eta)*j_p if log else sim.p - (rho/(k+1)**eta)*j_p
 
         # else update gradient
         else:
-            psi = sim.psi + sim.j_p
+            psi = sim.psi['j_p'] + sim.j_p
             p = sim.p
 
-        return p,psi
+        return {'p':p,'psi':psi}
     
     def parameter_init(sim):
-        return ca.DM.zeros(*sim.j_p.shape)
+        return {'j_p':ca.DM.zeros(*sim.j_p.shape)}
 
     return parameter_update, parameter_init
     
-def quadCostAndBounds(Q,R,x_cl,u_cl,x_max=None,x_min=None,x_ref=None,u_ref=None):
+def quad_cost_and_bounds(Q,R,x_cl,u_cl,x_max=None,x_min=None,x_ref=None,u_ref=None):
 
     # get symbolic type
-    MSX = type(x_cl)
+    msx = type(x_cl)
 
     # ensure that x_cl and u_cl are column vectors
     x_cl = ca.vec(x_cl)
@@ -121,63 +205,58 @@ def quadCostAndBounds(Q,R,x_cl,u_cl,x_max=None,x_min=None,x_ref=None,u_ref=None)
     T = int(x_cl.shape[0]/n_x) - 1
 
     # stack all constraints
-    if x_max is not None:
-        x_max_stack = ca.repmat(x_max,T+1,1)
-    if x_min is not None:
-        x_min_stack = ca.repmat(x_min,T+1,1)
+    x_max_stack = ca.repmat(x_max,T+1,1) if x_max is not None else None
+    x_min_stack = ca.repmat(x_min,T+1,1) if x_min is not None else None
 
     if x_ref is None:
-        x_ref = MSX(*x_cl.shape)
+        x_ref = msx(*x_cl.shape)
     else:
         if x_ref.shape[0] != x_cl.shape[0]:
             raise Exception('Inconsistent dimensions for x_ref.')
     if u_ref is None:
-        u_ref = MSX(*u_cl.shape)
+        u_ref = msx(*u_cl.shape)
     else:
         if u_ref.shape[0] != u_cl.shape[0]:
             raise Exception('Inconsistent dimensions for u_ref.')
 
     # closed-loop tracking cost
-    track_cost = (x_cl-x_ref).T@ca.kron(MSX.eye(T+1),Q)@(x_cl-x_ref) + (u_cl-u_ref).T@ca.kron(MSX.eye(T),R)@(u_cl-u_ref)
+    track_cost = (x_cl-x_ref).T@ca.kron(msx.eye(T+1),Q)@(x_cl-x_ref) + (u_cl-u_ref).T@ca.kron(msx.eye(T),R)@(u_cl-u_ref)
 
-    try:
+    # sparsify if symbolic type is SX
+    if msx == ca.SX:
         track_cost = ca.cse(ca.sparsify(track_cost))
-    except:
-        pass
 
     # constraint violation (l2 and l1 norm)
     if x_max is not None:    
-        cst_viol_l1 = MSX.ones(1,x_cl.shape[0])@ca.fmax(x_cl-MSX(x_max_stack),ca.fmax(MSX(x_min_stack)-x_cl,MSX((T+1)*n_x,1)))
-        cst_viol_l2 = ca.fmax(x_cl-MSX(x_max_stack),ca.fmax(MSX(x_min_stack)-x_cl,MSX((T+1)*n_x,1))).T@ca.fmax(x_cl-MSX(x_max_stack),ca.fmax(MSX(x_min_stack)-x_cl,MSX((T+1)*n_x,1)))
-        try:
+        cst_viol_l1 = msx.ones(1,x_cl.shape[0])@ca.fmax(x_cl-msx(x_max_stack),ca.fmax(msx(x_min_stack)-x_cl,msx((T+1)*n_x,1)))
+        cst_viol_l2 = ca.fmax(x_cl-msx(x_max_stack),ca.fmax(msx(x_min_stack)-x_cl,msx((T+1)*n_x,1))).T@ca.fmax(x_cl-msx(x_max_stack),ca.fmax(msx(x_min_stack)-x_cl,msx((T+1)*n_x,1)))
+        if msx == ca.SX:
             cst_viol_l1 = ca.cse(ca.sparsify(cst_viol_l1))
             cst_viol_l2 = ca.cse(ca.sparsify(cst_viol_l2))
-        except:
-            pass
     else:
         cst_viol_l1 = None
         cst_viol_l2 = None
                     
     return track_cost, cst_viol_l1, cst_viol_l2
 
-def param2terminalCost(p):
+def param_2_terminal_cost(p):
 
     # get symbolic type
-    MSX = type(p)
+    msx = type(p)
 
     # get state dimension
     n_x = int(0.5*(ca.sqrt(8*p.shape[0]+1)-1))
 
-    # construct cholesky decomposition Qn = LL.T of terminal cost by
+    # construct Cholesky decomposition Qn = LL.T of terminal cost by
     # rearranging the entries in the parameter vector c_qx. First
     # preallocate L
-    L = MSX(n_x,n_x)
+    L = msx(n_x,n_x)
 
     # construct L row by row
-    len = 0
+    length = 0
     for i in range(n_x):
-        len = len + i
-        L[i,0:i+1] = p[len:len+i+1]
+        length = length + i
+        L[i,0:i+1] = p[length:length+i+1]
 
     if isinstance(p,ca.SX):
         out = ca.cse(ca.sparsify(L@L.T))
