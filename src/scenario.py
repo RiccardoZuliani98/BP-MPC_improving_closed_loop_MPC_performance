@@ -915,6 +915,9 @@ class Scenario:
         #     fig3, ax3 = plt.subplots()
         #     line3, = ax3.plot([], [], 'r')
 
+        # preallocate sys_id dictionary
+        sys_id_vars = {}
+
         # outer loop
         for k in range(max_k):
             
@@ -925,7 +928,7 @@ class Scenario:
             idx = randint(0,n_samples-1) if self._options['random_sampling'] else int(ca.fmod(k,batch_size))
 
             # update running vars with samples for iteration k
-            running_vars = running_vars | {'d':d[idx], 'w':w[idx], 'theta':theta[idx], 'x':x[idx], 'y':y[idx]}
+            running_vars = running_vars | {'d':d[idx], 'w':w[idx], 'x':x[idx], 'y':y[idx], 'theta':theta[idx]} | sys_id_vars
 
             # run simulation
             sim_k, qp_data, qp_failed = self._simulate(running_vars,n_models=n_models)
@@ -970,13 +973,12 @@ class Scenario:
 
                 # update parameter
                 running_vars = running_vars | self.upper_level.parameter_update(sim_k,k)
-
-                # run sys_id if needed
-                if sys_id:
-                    running_vars = running_vars | self._upper_level.sys_id_update(sim_k,running_vars,k)
                 
             else:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
+
+            # run sys_id if needed
+            sys_id_vars = self._upper_level.sys_id_update(sim_k,running_vars,k) if sys_id else {}
 
             if save_memory:
                 sim_k.save_memory()
@@ -988,8 +990,8 @@ class Scenario:
                 case 1:
                     print(f"Iteration: {k}, cost: {track_cost}, J: {ca.DM(np.linalg.norm(j_p,axis=0))}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
 
-                    if sys_id:
-                        print(f'Current theta: {running_vars['theta']}')
+                    # if sys_id:
+                        # print(f'Current theta: {running_vars['theta']}')
 
             # if self._options['figures']:
 

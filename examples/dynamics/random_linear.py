@@ -56,7 +56,7 @@ def dynamics(n_x:int=2,pole_mag:list=[0.8,1.2],use_theta:bool=True,use_w:bool=Tr
     x_next_nom = ca.cse(ca.sparsify(A_nom@x + B_nom@u))
 
     # print true theta
-    print(f'True theta: {ca.DM(ca.vec(ca.jacobian(x_next,ca.vertcat(x,u))))}')
+    true_theta = ca.DM(ca.vec(ca.jacobian(x_next,ca.vertcat(x,u))))
 
     # noise if required
     if use_w:
@@ -72,4 +72,4 @@ def dynamics(n_x:int=2,pole_mag:list=[0.8,1.2],use_theta:bool=True,use_w:bool=Tr
     out['x_next'] = x_next
     out['x_next_nom'] = x_next_nom
 
-    return out
+    return out,true_theta

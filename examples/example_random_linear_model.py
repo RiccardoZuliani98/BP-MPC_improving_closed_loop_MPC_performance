@@ -27,17 +27,19 @@ COMPILE_QP_DENSE = False
 COMPILE_JAC = False
 
 # horizons
-UPPER_HORIZON = 20
-MPC_HORIZON = 11
+UPPER_HORIZON = 50
+MPC_HORIZON = 8
+ITERATIONS = 100
 
 # decide whether to include noise or not
-NOISE = False
+NOISE = True
+NOISE_MAG = 0.4
 
 
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict = random_linear.dynamics(use_w=NOISE)
+dyn_dict,true_theta = random_linear.dynamics(n_x=5,use_w=NOISE)
 
 # model uncertainty parameter
 theta = dyn_dict['theta']
@@ -48,15 +50,13 @@ dyn = Dynamics(dyn_dict,jit=COMPILE_DYNAMICS)
 # get state and input dimensions
 n_x, n_u = dyn.dim['x'], dyn.dim['u']
 
-if NOISE:
-    n_w = dyn.dim['w']
-
 # set initial conditions
 x0 = ca.DM(np.random.rand(n_x,1))
 theta0 = ca.DM(*theta.shape)
 
+# sample noise if requested
 if NOISE:
-    w0 = ca.horzsplit(ca.DM(n_w,UPPER_HORIZON))
+    w0 = ca.horzsplit(NOISE_MAG*(2*np.random.rand(dyn.dim['w'],UPPER_HORIZON)-np.ones((dyn.dim['w'],UPPER_HORIZON))))
 
 ### CREATE MPC -----------------------------------------------------------------------------
 
@@ -182,7 +182,12 @@ if NOISE:
 scenario.set_init(init_dict)
 
 # test closed loop
-sim_list,_,p_best = scenario.closed_loop(options={'use_true_model':False,'max_k':5})
+sim_list,_,p_best = scenario.closed_loop(options={'use_true_model':False,'max_k':ITERATIONS})
+
+# retrieve thetas
+estimation_error = [ca.norm_2(ca.fabs(elem.psi['theta']-true_theta)) for elem in sim_list]
+
+print(estimation_error)
 
 # get last value of p
 # p_final = SIM[-1].p
