@@ -11,7 +11,10 @@ from ctypes import *
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from utils.sample_elements import sample_mpc
+from utils.cost_utils import bound2poly,quad_cost_and_bounds
 from src.dynamics import Dynamics
+from src.upper_level import UpperLevel
+from src.scenario import Scenario
 from src.ingredients import Ingredients
 from src.qp import QP
 
@@ -64,6 +67,102 @@ CONFIGURATIONS = [{'use_d':True,'use_w':True,'use_theta':True,'nonlinear':False,
                   {'use_d':False,'use_w':False,'use_theta':False,'nonlinear':True,'use_p':False,'use_pf':True,'use_slack':False,'linearization':'initial_state'},
                   {'use_d':False,'use_w':False,'use_theta':False,'nonlinear':True,'use_p':True,'use_pf':False,'use_slack':False,'linearization':'initial_state'},
                   {'use_d':False,'use_w':False,'use_theta':False,'nonlinear':True,'use_p':False,'use_pf':False,'use_slack':False,'linearization':'initial_state'}]
+
+def test_problem():
+
+    # define symbolic variables
+    x = ca.SX.sym('x0',1,1)
+    u = ca.SX.sym('u0',1,1)
+
+    # Construct a CasADi function for the ODE right-hand side
+    A = 1
+    B = 1
+
+    # initial condition
+    x0 = 1
+
+    # compute next state symbolically
+    x_next = A*x + B*u
+
+    # create sceanario
+    dynamics = Dynamics({'x':x, 'u':u, 'x_next':x_next})
+
+    # create constraints
+    x_max = 1000
+    x_min = -x_max
+    u_max = 1000
+    u_min = -u_max
+
+    # horizon of MPC
+    N = 2
+
+    # create parameter
+    p = ca.SX.sym('p',12,1)
+    pf = ca.SX.sym('pf',12,1)
+
+    # create parameters for MPC
+    p_qp = ca.SX.sym('p_qp',4,1)
+    pf_qp = ca.SX.sym('pf_qp',4,1)
+
+    # create reference
+    x_ref = ca.vertsplit(pf_qp[:2])
+    u_ref = ca.vertsplit(pf_qp[2:])
+
+    # MPC costs
+    Qx = ca.SX(1)
+    Ru = ca.SX(2)
+
+    # add to mpc dictionary
+    mpc_cost = {'Qx':Qx, 'Ru':Ru, 'x_ref':x_ref, 'u_ref':u_ref}
+
+    # turn bounds into polyhedral constraints
+    Hx,hx,Hu,hu = bound2poly(x_max,x_min,u_max,u_min)
+
+    # add to mpc dictionary
+    mpc_cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
+    
+    # create ingredients
+    ingredients = Ingredients(horizon=N,dynamics=dynamics,cost=mpc_cost,constraints=mpc_cst)
+
+    # create mpc
+    mpc = QP(ingredients,p=p_qp,pf=pf_qp)
+
+    # create index that selects pf for QP
+    def idx_pf(t):
+        return np.hstack([t,t+1,6+t,7+t],dtype=int)
+
+    # construct upper-level
+    upper_level = UpperLevel(p=p,pf=pf,idx_p=idx_pf,idx_pf=idx_pf,horizon=5,mpc=mpc)
+
+    # create state reference by sampling random inputs
+    u_ref = ca.DM.rand(6,1)
+    x_ref = [x0]
+    for t in range(6):
+        x_ref.append( A*x_ref[-1] + B*u_ref[t] )
+    x_ref = ca.vcat(x_ref)
+
+    # extract closed-loop variables for upper level
+    params = upper_level.param
+    x_cl = ca.vec(params['x_cl'])
+    u_cl = ca.vec(params['u_cl'])
+
+    # create upper-level cost
+    cost,_,_ = quad_cost_and_bounds(ca.SX(1),ca.SX(1),x_cl,u_cl,x_ref=x_ref[:-1],u_ref=u_ref[:-1])
+    upper_level.set_cost(cost)
+
+    # create scenario
+    scenario = Scenario(dynamics,mpc,upper_level)
+
+    # set pf
+    pf_init = ca.vertcat(x_ref[1:],u_ref)
+    scenario.set_init({'pf':pf_init,'p':pf_init,'x':x0})
+
+    # simulate
+    sim,_,_ = scenario.simulate(options={'mode':'simulate'})
+
+    # check if closed-loop trajectory is close to reference
+    assert ca.norm_2(sim.x.T - x_ref[:-1]) <= 1e-10 and  ca.norm_2(sim.u.T - u_ref[:-1]) <= 1e-10, 'Closed-loop trajectory does not match reference.'
+    
 
 def single_test_dynamics(mpc,params,x_list,u_list,configuration):
 
@@ -231,4 +330,5 @@ def test_main():
         single_test_dynamics(mpc,qp_inputs_trimmed,x_list,u_list,configuration)
 
 if __name__ == '__main__':
+    test_problem()
     test_main()
