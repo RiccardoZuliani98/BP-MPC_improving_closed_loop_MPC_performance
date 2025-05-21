@@ -8,17 +8,18 @@ from src.scenario import Scenario
 from src.dynamics import Dynamics
 from src.qp import QP
 from src.ingredients import Ingredients
-import src.utils as utils
+from utils.cleanup import cleanup
+from utils.cost_utils import quad_cost_and_bounds,bound2poly,param2terminal_cost,dare2param
 # import tests.tests as tests
 import dynamics.cart_pend as cart_pend
 import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-from src.utils import gradient_descent, minibatch_descent
+from utils.parameter_update import gradient_descent, minibatch_descent
 
 # cleanup jit files
-utils.cleanup()
+cleanup()
 
 # decide what to compile
 COMPILE_DYNAMICS = False
@@ -85,7 +86,7 @@ Ru = c_r**2 + 1e-6
 p = ca.vcat([c_q,c_r])
 
 # MPC terminal cost
-Qn = utils.param_2_terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
+Qn = param2terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
 
 # append to Qx
 Qx.append(Qn)
@@ -98,7 +99,7 @@ c_quad = 5
 cost = {'Qx': Qx, 'Ru':Ru}
 
 # turn bounds into polyhedral constraints
-Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
+Hx,hx,Hu,hu = bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
 cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
@@ -126,20 +127,20 @@ A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1))
 B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1))
 
 # compute terminal cost initialization
-p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
+p_init = ca.vertcat(dare2param(A,B,Q_true,R_true),1e-3)
 
 # extract closed-loop variables for upper level
 x_cl = ca.vec(upper_level.param['x_cl'])
 u_cl = ca.vec(upper_level.param['u_cl'])
 
-track_cost, cst_viol_l1, cst_viol_l2 = utils.quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
+track_cost, cst_viol_l1, cst_viol_l2 = quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
 # put together
 cost = track_cost
 
 # create upper-level constraints
-Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,upper_horizon+1)
-_,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,upper_horizon)
+Hx,hx,_,_ = bound2poly(x_max,x_min,u_max,u_min,upper_horizon+1)
+_,_,Hu,hu = bound2poly(x_max,x_min,u_max,u_min,upper_horizon)
 cst_viol = ca.vcat([Hx@ca.vec(x_cl)-hx,Hu@ca.vec(u_cl)-hu])
 
 # store in upper-level

@@ -8,17 +8,18 @@ from src.scenario import Scenario
 from src.dynamics import Dynamics
 from src.qp import QP
 from src.ingredients import Ingredients
-import src.utils as utils
+from utils.cleanup import cleanup
+from utils.cost_utils import quad_cost_and_bounds,bound2poly,param2terminal_cost
 # import tests.tests as tests
 import examples.dynamics.random_linear as random_linear
 import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-from src.utils import average_gradient_descent, robust_gradient_descent, gradient_descent, rls
+from utils.cost_utils import average_gradient_descent, robust_gradient_descent, gradient_descent, rls
 
 # cleanup jit files
-utils.cleanup()
+cleanup()
 
 # decide what to compile
 COMPILE_DYNAMICS = False
@@ -31,18 +32,21 @@ UPPER_HORIZON = 50
 MPC_HORIZON = 5
 ITERATIONS = 10
 
+# uncertainty on theta
+THETA_UNCERTAINTY_RANGE = 1
+
 # how spread out the initial condition is
 X0_MAG = 5
 
 # decide whether to include noise or not
-NOISE = False
+NOISE = True
 NOISE_MAG = 0.4
 
 
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict,true_theta = random_linear.dynamics(n_x=4,use_w=NOISE,pole_mag=[0.5,1])    
+dyn_dict,true_theta = random_linear.dynamics(n_x=6,use_w=NOISE,pole_mag=[0.5,1])    
 print(true_theta)
 
 # model uncertainty parameter
@@ -56,7 +60,8 @@ n_x, n_u = dyn.dim['x'], dyn.dim['u']
 
 # set initial conditions
 x0 = ca.DM.ones(n_x,1)#ca.DM( X0_MAG * (np.ones((n_x,1)) + 2*np.random.rand(n_x,1)) )
-theta0 = ca.DM( np.multiply(np.ones(theta.shape)+2*np.random.rand(*theta.shape),np.array(true_theta)) )
+theta_uncertainty = THETA_UNCERTAINTY_RANGE*(np.ones(theta.shape)+2*np.random.rand(*theta.shape))
+theta0 = ca.DM( np.multiply(theta_uncertainty,np.array(true_theta)) )
 print(f'Initial condition: {x0}')
 print(f'Initial parameter estimate: {theta0}')
 
@@ -92,19 +97,21 @@ p = ca.vcat([c_q,c_r])
 pf = theta
 
 # MPC terminal cost
-Qn = utils.param_2_terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
+Qn = param2terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
 
 # append to Qx
 Qx.append(Qn)
 
 # add to mpc dictionary
-cost = {'Qx': Qx, 'Ru':Ru, 's_quad':5, 's_lin':5}
+# cost = {'Qx': Qx, 'Ru':Ru, 's_quad':5, 's_lin':5}
+cost = {'Qx': Qx, 'Ru':Ru}
 
 # turn bounds into polyhedral constraints
-Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
+Hx,hx,Hu,hu = bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
-cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu, 'Hx_e':ca.SX.eye(hx.shape[0])}
+# cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu, 'Hx_e':ca.SX.eye(hx.shape[0])}
+cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
 ing = Ingredients(horizon=MPC_HORIZON,dynamics=dyn,cost=cost,constraints=cst)
@@ -113,7 +120,7 @@ ing = Ingredients(horizon=MPC_HORIZON,dynamics=dyn,cost=cost,constraints=cst)
 qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,
               'compile_qp_dense':COMPILE_QP_DENSE,
               'compile_jac':COMPILE_JAC,
-              'solver':'qpoases'}
+              'solver':'daqp'}
 
 # create MPC
 mpc = QP(ingredients=ing,p=p,pf=pf,options=qp_options)
@@ -135,14 +142,14 @@ p_init = ca.vertcat(ca.DM.ones(p.shape[0]-1,1)*1e-3,0.1)#ca.vertcat(utils.dare2p
 x_cl = ca.vec(upper_level.param['x_cl'])
 u_cl = ca.vec(upper_level.param['u_cl'])
 
-track_cost, cst_viol_l1, cst_viol_l2 = utils.quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
+track_cost, cst_viol_l1, cst_viol_l2 = quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
 # put together
 cost = track_cost
 
 # create upper-level constraints
-Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON+1)
-_,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON)
+Hx,hx,_,_ = bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON+1)
+_,_,Hu,hu = bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON)
 cst_viol = ca.vcat([Hx@ca.vec(x_cl)-hx,Hu@ca.vec(u_cl)-hu])
 
 # store in upper-level

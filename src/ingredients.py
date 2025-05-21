@@ -1,5 +1,5 @@
 import casadi as ca
-from src.utils import matrixify
+from utils.cost_utils import matrixify
 from src.dynamics import Dynamics
 from copy import copy
 import numpy as np
