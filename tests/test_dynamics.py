@@ -2,12 +2,12 @@ import sys
 import os
 import casadi as ca
 from numpy.random import randint, rand
-from sample_elements import sample_dynamics
+import pytest
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import pytest
+from utils.sample_elements import sample_dynamics
 from src.dynamics import Dynamics
 
 def test_affine():

@@ -7,7 +7,7 @@ import pytest
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from sample_elements import sample_dynamics, sample_ingredients
+from utils.sample_elements import sample_dynamics, sample_ingredients
 from src.dynamics import Dynamics
 from src.ingredients import Ingredients
 
