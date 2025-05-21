@@ -4,6 +4,7 @@ import casadi as ca
 from numpy.random import randint, rand
 from sample_elements import sample_dynamics, sample_ingredients, sample_upper_level
 import datetime
+import pytest
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))

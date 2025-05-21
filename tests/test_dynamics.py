@@ -271,3 +271,12 @@ def test_linearize_invalid_method():
     # Call _linearize with an invalid method
     with pytest.raises(Exception, match='unknown linearization method'):
         dynamics._linearize(horizon, method='invalid_method')
+
+if __name__ == '__main__':
+    test_affine()
+    test_nominal_and_derivatives()
+    test_nonlinear_if_d_nonzero()
+    test_linearize_affine()
+    test_linearize_initial_state()
+    test_linearize_trajectory()
+    test_linearize_invalid_method()

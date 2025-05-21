@@ -1,7 +1,7 @@
 import daqp
 import numpy as np
 from ctypes import *
-from utils.interfaces.callable_wrapper import CallableWrapper
+from utils.callable_wrapper import CallableWrapper
 
 def daqp_interface(is_equality):
 

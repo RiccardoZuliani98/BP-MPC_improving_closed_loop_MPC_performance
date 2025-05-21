@@ -5,7 +5,7 @@ from src.options import Options
 import numpy as np
 from copy import copy
 from numpy.linalg import lstsq
-from src.utils import daqp_interface
+from utils.daqp_interface import daqp_interface
 
 class QP:
     """

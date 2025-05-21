@@ -9,7 +9,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.qp import QP
 from src.upper_level import UpperLevel
-from utils.cost_utils import quad_cost_and_bounds, gradient_descent
+from utils.parameter_update import gradient_descent
+from utils.cost_utils import quad_cost_and_bounds
 
 def sample_dynamics(
         use_d:bool=False,

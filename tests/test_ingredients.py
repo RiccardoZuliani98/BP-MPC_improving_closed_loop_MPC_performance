@@ -1,7 +1,7 @@
 import sys
 import os
 import casadi as ca
-from numpy.random import randint, rand
+from numpy.random import randint
 import pytest
 
 # add source path
@@ -139,3 +139,10 @@ def test_parse_inputs_some_single_elements():
             assert all([ca.mmax(ca.fabs(elem-model[key]))==0 for elem in out[key]]), 'Element ' + key + ' does not match'
 
 # test to ensure that a quadratic penalty is imposed on slack if present
+
+if __name__ == '__main__':
+
+    test_parse_inputs_all_lists()
+    test_parse_inputs_all_single()
+    test_parse_inputs_some_single_lists()
+    test_parse_inputs_some_single_elements()
