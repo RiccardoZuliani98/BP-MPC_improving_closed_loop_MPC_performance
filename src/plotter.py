@@ -1,6 +1,8 @@
 from casadi import *
 import matplotlib.pyplot as plt
 
+# TODO: adapt to python notation convention
+
 class Plotter:
 
     def __init__(self):
