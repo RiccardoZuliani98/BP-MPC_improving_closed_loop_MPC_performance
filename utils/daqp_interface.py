@@ -3,10 +3,12 @@ import numpy as np
 from ctypes import *
 from utils.callable_wrapper import CallableWrapper
 
+# TODO: warmstart by passing a 1 for constraints that were previously active
+
 def daqp_interface(is_equality):
 
-    # convert true => 1 and false => 2
-    is_equality_converted = np.array(np.where(is_equality, 1, 2),dtype=c_int)
+    # convert true => 5 and false => 2
+    is_equality_converted = np.array(np.where(is_equality, 5, 2),dtype=c_int)
 
     def call_solver(qp_ingredients):
 

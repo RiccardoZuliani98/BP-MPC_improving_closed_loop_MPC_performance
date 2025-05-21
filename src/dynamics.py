@@ -143,7 +143,7 @@ class Dynamics:
         # create nominal dynamics
         if model_is_noisy:
             start = time.time()
-            f_nom = ca.Function('f_nom',p_nom,[self._x_next_nom],p_nom_names,['x_next_nominal'],options)
+            f_nom = ca.Function('f_nom',p_nom,[self._x_next_nom],p_nom_names,['x_next'],options)
             comp_time_dict = comp_time_dict | {'f_nom':time.time()-start}
         else:
             # otherwise, copy exact dynamics

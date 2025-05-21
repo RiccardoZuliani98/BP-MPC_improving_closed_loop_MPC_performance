@@ -211,7 +211,8 @@ def sample_mpc(
         nonlinear:bool=False,
         use_p:bool=True,
         use_pf:bool=False,
-        use_slack:bool=False
+        use_slack:bool=False,
+        linearization:str='trajectory'
     ) -> Tuple[Dynamics, Ingredients, dict, dict]:
     """
     Generate dummy dynamics and ingredients.
@@ -239,14 +240,14 @@ def sample_mpc(
     dynamics = Dynamics(dynamics_dict)
 
     # get model
-    _ = dynamics.linearize(horizon=horizon)[0]
+    _ = dynamics.linearize(horizon=horizon,method=linearization)[0]
 
     # create dictionary that can be passed to ingredients
     p,pf,cost,constraints = sample_ingredients(dynamics.dim,p=use_p,pf=use_pf,slack=use_slack,horizon=horizon)
     # ing_dict = cost | constraints | model
 
     # create ingredients
-    ingredients = Ingredients(horizon,dynamics,cost,constraints)
+    ingredients = Ingredients(horizon,dynamics,cost,constraints,options={'linearization':linearization})
 
     # create dictionary with symbolic variables
     out_dict = {'p':p,'pf':pf,'theta':dynamics_dict['theta']} if use_theta else {'p':p,'pf':pf}

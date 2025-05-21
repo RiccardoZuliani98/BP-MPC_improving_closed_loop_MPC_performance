@@ -7,6 +7,11 @@ from copy import copy
 from numpy.linalg import lstsq
 from utils.daqp_interface import daqp_interface
 
+"""
+TODO: pass parameters to QP using a dictionary for better readability
+TODO: make_dense should work without p and should allow pf!
+"""
+
 class QP:
     """
     QP: Quadratic Program Solver Class
@@ -173,12 +178,12 @@ class QP:
         self._sym.add_var('z',ca.vcat([self._sym.var['lam'],self._sym.var['mu']]))
 
         # create sparse QP
-        self._makeSparseQP()
+        self._make_sparse_qp()
 
         # create conservative jacobian
-        self._makeConsJac()
+        self._make_cons_jac()
 
-    def _makeSparseQP(self):
+    def _make_sparse_qp(self):
         """
         Constructs and compiles sparse Quadratic Programming (QP) and dual functions for the model,
         sets up the QP solver interface, and defines a local QP solver function with optional warmstarting.
@@ -449,6 +454,9 @@ class QP:
         QP_func = ca.Function('QP_dense',[self.param['p_qp_full']],out_list_symbolic,['p'],out_list_symbolic_names,options)
         comp_time_dict = {'QP_dense':time.time()-start}
 
+        # store in qp
+        self._qp_dense = QP_func
+
         # implement QP using conic interface to retrieve multipliers
         qp = {}
         qp['h'] = Q.sparsity()
@@ -508,7 +516,7 @@ class QP:
         # store computation times (if compile is true)
         self._comp_times = self._comp_times | comp_time_dict
 
-    def _makeConsJac(self):
+    def _make_cons_jac(self):
         """
         Constructs and compiles the conservative Jacobian functions for the QP constraints and primal variables.
         This method generates symbolic Jacobians using CasADi for the constraint projector and the primal variable
@@ -524,8 +532,8 @@ class QP:
               using either NumPy or CasADi solvers as specified.
             - Stores the generated functions and computation times in class attributes.
         Attributes Set:
-            self._J: CasADi Function for evaluating Jacobians.
-            self._J_y_p: Function for computing the conservative Jacobian of the primal variable.
+            self._j: CasADi Function for evaluating Jacobians.
+            self._j_y_p: Function for computing the conservative Jacobian of the primal variable.
             self._compTimes: Dictionary updated with computation times for Jacobian generation.
         Raises:
             None
