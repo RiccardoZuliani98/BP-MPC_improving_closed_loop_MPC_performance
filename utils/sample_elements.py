@@ -8,6 +8,8 @@ from typing import Optional, Tuple
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.qp import QP
+from src.dynamics import Dynamics
+from src.ingredients import Ingredients
 from src.upper_level import UpperLevel
 from utils.parameter_update import gradient_descent
 from utils.cost_utils import quad_cost_and_bounds
@@ -200,7 +202,62 @@ def sample_ingredients(
 
     return p, pf, cost, constraints
 
+def sample_mpc(
+        horizon:int=5,
+        use_d:bool=False,
+        use_w:bool=False,
+        use_theta:bool=False,
+        nonlinear:bool=False
+    ) -> Tuple[Dynamics, Ingredients, dict]:
+    """
+    Generate dummy dynamics and ingredients.
+
+    Args:
+        horizon (int, optional): Prediction horizon for the MPC. Defaults to 5.
+        use_d (bool, optional): Whether to include disturbance in the dynamics. Defaults to False.
+        use_w (bool, optional): Whether to include process noise in the dynamics. Defaults to False.
+        use_theta (bool, optional): Whether to include parameter uncertainty in the dynamics. Defaults to False.
+        nonlinear (bool, optional): Whether to use nonlinear dynamics. Defaults to False.
+
+    Returns:
+        Tuple[Dynamics, Ingredients, dict]: 
+            - Dynamics: The generated dynamics object.
+            - Ingredients: The parsed ingredients object for the MPC.
+            - dict: The dictionary containing cost, constraints, and model information.
+    """
+
+    # create dummy dynamics
+    dynamics_dict, _ = sample_dynamics(use_d=use_d,use_w=use_w,use_theta=use_theta,nonlinear=nonlinear)
+    dynamics = Dynamics(dynamics_dict)
+
+    # get model
+    model = dynamics._linearize(horizon=horizon)[0]
+
+    # create dictionary that can be passed to ingredients
+    _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
+    ing_dict = cost | constraints | model
+
+    ingredients = Ingredients._parse_inputs(ing_dict,horizon)
+
+    return dynamics, ingredients, ing_dict
+
 def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
+    """
+    Initializes and configures an upper-level optimization problem for closed-loop MPC performance improvement.
+
+    This function creates an instance of the `UpperLevel` class, optionally with an additional parameter `pf`, 
+    and sets up a random quadratic tracking cost and state constraints for the closed-loop system. 
+    It also configures a gradient descent algorithm for updating the upper-level variables.
+
+    Args:
+        p (ca.SX): Symbolic parameter for the upper-level problem.
+        mpc (QP): An instance of the lower-level QP-based MPC controller.
+        pf (ca.SX, optional): Additional symbolic parameter for the upper-level problem. Defaults to None.
+        horizon (int, optional): Prediction horizon for the upper-level problem. Defaults to 2.
+
+    Returns:
+        UpperLevel: Configured upper-level optimization problem instance.
+    """
 
     # initialize upper level
     if pf is not None:
