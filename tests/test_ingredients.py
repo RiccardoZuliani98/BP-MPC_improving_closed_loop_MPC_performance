@@ -21,7 +21,7 @@ def test_parse_inputs_all_lists():
     horizon = randint(1,5)
 
     # get model
-    model = dynamics._linearize(horizon=horizon)[0]
+    model = dynamics.linearize(horizon=horizon)[0]
 
     # create dictionary that can be passed to ingredients
     _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
@@ -52,7 +52,7 @@ def test_parse_inputs_all_single():
     horizon = randint(2,5)
 
     # get model
-    model = dynamics._linearize(horizon=1)[0]
+    model = dynamics.linearize(horizon=1)[0]
 
     # create dictionary that can be passed to ingredients
     _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=1)
@@ -83,7 +83,7 @@ def test_parse_inputs_some_single_lists():
     horizon = randint(1,5)
 
     # get model
-    model = dynamics._linearize(horizon=1)[0]
+    model = dynamics.linearize(horizon=1)[0]
 
     # create dictionary that can be passed to ingredients
     _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
@@ -114,7 +114,7 @@ def test_parse_inputs_some_single_elements():
     horizon = randint(1,5)
 
     # get model
-    model = dynamics._linearize(horizon=1)[0]
+    model = dynamics.linearize(horizon=1)[0]
     model['A'] = model['A'][0]
     model['B'] = model['B'][0]
     model['c'] = model['c'][0]

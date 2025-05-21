@@ -207,7 +207,7 @@ def single_test_dynamics(mpc,params,x_list,u_list,configuration):
     if status == 1:
 
         x_star = solver.result.x
-        assert np.linalg.norm(x_star-np.hstack((lam,mu))) / np.linalg.norm(x_star) <= 0.01
+        assert np.linalg.norm(x_star-np.vstack((lam,mu)).T) / np.linalg.norm(x_star) <= 0.01
         
     else:
         print('Dual failed')
@@ -324,7 +324,7 @@ def test_main():
         qp_inputs_trimmed = {key:val for key,val in qp_inputs.items() if val is not None}
 
         # form MPC
-        mpc = QP(ingredients=ingredients,p=p,pf=pf,options={'solver':'daqp'})
+        mpc = QP(ingredients=ingredients,p=p,pf=pf,options={'solver':'qpoases'})
 
         single_test_symbolic_order(mpc,configuration,dynamics,ingredients,horizon,p,pf)
         single_test_dynamics(mpc,qp_inputs_trimmed,x_list,u_list,configuration)
