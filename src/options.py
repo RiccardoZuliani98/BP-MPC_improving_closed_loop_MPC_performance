@@ -21,7 +21,7 @@ class Options:
 
         assert isinstance(allowed_options,dict), 'Allowed options must be a dictionary'
 
-        self._allowed_options = allowed_options
+        self._allowed_options = allowed_options.copy()
         self.update(default_options)
 
     def __add__(self,other:Options) -> Options:

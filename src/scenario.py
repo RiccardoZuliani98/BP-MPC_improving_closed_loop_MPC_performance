@@ -9,12 +9,12 @@ from typeguard import typechecked
 from src.options import Options
 from src.symbolic_var import SymbolicVar
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Optional
 
 """
-TODO:
-* trajectory optimization should be a separate class!
-* inherit methods related to options and symbolic variables that are shared across classes
+TODO: trajectory optimization should be a separate class!
+TODO: inherit methods related to options and symbolic variables that are shared across classes
+TODO: create multiple consecutive scenarios with the same variables and see what happens
 """
 
 class Scenario:
@@ -36,7 +36,16 @@ class Scenario:
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
-        # TODO: add description
+        """
+        Initializes the scenario with the given dynamics, MPC controller, and optional upper-level controller.
+
+        Args:
+            dyn (Dynamics): The system dynamics object.
+            mpc (QP): The model predictive controller (MPC) object.
+            upper_level (UpperLevel, optional): An optional upper-level controller.
+
+        Initializes internal properties and updates the scenario with the provided components.
+        """
 
         # initialize properties
         self._sym = None
@@ -47,10 +56,32 @@ class Scenario:
         self._trajectory_opt = None
         self._mapped = {}
 
+        # run update
         self.update(dyn=dyn,qp=mpc,upper_level=upper_level)
 
     def update(self,**kwargs):
-        # TODO: add description
+        """
+        Update the scenario object with new components and properties.
+
+        This method updates the internal properties of the scenario object based on the provided keyword arguments.
+        It supports updating the following components:
+            - 'dyn': The dynamics component.
+            - 'qp': The quadratic programming component.
+            - 'upper_level': The upper-level component.
+
+        For each provided component, if the value is not None, the corresponding internal attribute is updated.
+        The method also manages the symbolic variables and options associated with the scenario:
+            - If symbolic variables or options are not already set, they are initialized.
+            - The symbolic variables are updated to include those from the dynamics, QP, and (optionally) upper-level components.
+            - The options are updated by combining the QP options with the current options.
+
+        Args:
+            **kwargs: Arbitrary keyword arguments for updating scenario components.
+                Allowed keys: 'dyn', 'qp', 'upper_level'.
+
+        Raises:
+            AssertionError: If an invalid key is provided in kwargs.
+        """
 
         # initialize properties
         for key, value in kwargs.items():
@@ -65,7 +96,7 @@ class Scenario:
         current_options = self._options if self._options is not None else Options(self._OPTIONS_ALLOWED_VALUES, self._OPTIONS_DEFAULT_VALUES)
 
         # create symbols
-        self._sym = self._dyn._sym + self._qp._sym + self._upper_level._sym + current_sym
+        self._sym = self._dyn._sym + self._qp._sym + self._upper_level._sym + current_sym if self._upper_level is not None else self._dyn._sym + self._qp._sym + current_sym
 
         # create options
         self._options = self._qp.options + current_options
@@ -91,6 +122,12 @@ class Scenario:
         return self._sym.init
     
     def set_init(self, init):
+        """
+        Set the initial value for the symbolic variable.
+
+        Parameters:
+            init: The initial value to be set for the symbolic variable.
+        """
         self._sym.set_init(init)
 
     @property
@@ -110,7 +147,32 @@ class Scenario:
         return self._trajectory_opt
     
     def make_trajectory_opt(self,theta=None):
-        # TODO: add description
+        """
+        Creates and returns an optimal control trajectory solver for the system.
+        This method formulates an optimal control problem using CasADi's Opti stack,
+        based on the system dynamics and cost function defined in the class. The solver
+        can be used to compute optimal state and control trajectories given an initial
+        condition and optional warm-starts for the optimization variables.
+        Args:
+            theta (optional): Parameters for the system dynamics. If provided, the nominal
+                dynamics function is parameterized by `theta`. Default is None.
+        Returns:
+            solver (function): A function that solves the optimal control problem.
+                The solver has the following signature:
+                    solver(x0_numeric, x_init=None, u_init=None)
+                where:
+                    x0_numeric (array-like): Initial state vector.
+                    x_init (array-like, optional): Initial guess for the state trajectory.
+                    u_init (array-like, optional): Initial guess for the control trajectory.
+                The solver returns:
+                    out (simVar): An object containing the optimal state and control trajectories,
+                        as well as the optimal cost.
+                    solved (bool): True if the optimization was successful, False otherwise.
+        Notes:
+            - The optimization problem enforces system dynamics and constraints at each time step.
+            - The cost function and constraints are obtained from the upper-level cost method.
+            - The solver uses IPOPT as the backend optimizer.
+        """
   
         # extract system dynamics
         if theta is not None:
@@ -164,6 +226,21 @@ class Scenario:
 
         # create solver function
         def solver(x0_numeric,x_init=None,u_init=None):
+            """
+            Solves the optimization problem using CasADi's Opti interface, with optional warm-starting.
+            Parameters:
+                x0_numeric (array-like): The initial condition for the optimization variable x0.
+                x_init (array-like, optional): Initial guess for the state variable x. If provided, used to warm-start the solver.
+                u_init (array-like, optional): Initial guess for the control variable u. If provided, used to warm-start the solver.
+            Returns:
+                out (simVar): An object containing the solution variables:
+                    - x (ca.DM): The optimized state trajectory.
+                    - u (ca.DM): The optimized control trajectory.
+                    - cost (ca.DM): The value of the cost function at the solution.
+                solved (bool): True if the solver succeeded, False otherwise.
+            Notes:
+                Prints 'NLP failed' if the solver encounters an exception.
+            """
             
             # set initial condition
             opti.set_value(x0,x0_numeric)
