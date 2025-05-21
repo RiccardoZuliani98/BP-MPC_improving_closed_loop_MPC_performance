@@ -14,6 +14,7 @@ from typing import Tuple
 """
 TODO:
 * trajectory optimization should be a separate class!
+* inherit methods related to options and symbolic variables that are shared across classes
 """
 
 class Scenario:

@@ -265,12 +265,12 @@ class SymbolicVar:
         self_copy = self.__class__()
 
         if vars2keep is not None:
-            self_copy._dim = {key:val for key,val in self.dim.items() if key in vars2keep}
-            self_copy._var = {key:val for key,val in self.var.items() if key in vars2keep}
-            self_copy._init = {key:val for key,val in self.init.items() if key in vars2keep}
+            self_copy._dim = {key:val for key,val in self.dim.items() if key in vars2keep}.copy()
+            self_copy._var = {key:val for key,val in self.var.items() if key in vars2keep}.copy()
+            self_copy._init = {key:val for key,val in self.init.items() if key in vars2keep}.copy()
         else:
-            self_copy._dim = self.dim
-            self_copy._var = self.var
-            self_copy._init = self.init
+            self_copy._dim = self.dim.copy()
+            self_copy._var = self.var.copy()
+            self_copy._init = self.init.copy()
 
         return self_copy

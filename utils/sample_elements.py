@@ -3,6 +3,7 @@ import os
 import casadi as ca
 from numpy.random import randint, rand
 from typing import Optional, Tuple
+from copy import copy
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -154,14 +155,14 @@ def sample_ingredients(
     R = [elem@elem.T + 0.01*ca.DM.eye(dim['u']) for elem in R_half]
 
     if p:
-        p = ca.SX.sym('p',2,1)#ca.SX.sym('p',randint(1,4),1)
+        p = ca.SX.sym('p',randint(1,4),1)
         Q = [elem + ca.SX.eye(dim['x'])*ca.sum1(p) for elem in Q]
     else:
         p = None
     
     if pf:
         pf = ca.SX.sym('p',randint(1,4),1)
-        R = [elem + ca.SX.eye(dim['u'])*pf for elem in R]
+        R = [elem + ca.SX.eye(dim['u'])*ca.sum1(pf) for elem in R]
     else:
         pf = None
 
@@ -190,8 +191,8 @@ def sample_ingredients(
         s_lin = [ca.DM(rand()**2) for _ in range(horizon)]
 
         # create slack matrix
-        n_hx_e = randint(1,n_hx)
-        Hx_e = [ca.DM(rand(dim['x'],n_hx_e)) for _ in range(horizon)]
+        n_hx_e = randint(1,n_hx) if n_hx > 1 else n_hx
+        Hx_e = [ca.DM(rand(n_hx,n_hx_e)) for _ in range(horizon)]
 
         # add to constraint dictionary
         constraints['Hx_e'] = Hx_e
@@ -207,8 +208,11 @@ def sample_mpc(
         use_d:bool=False,
         use_w:bool=False,
         use_theta:bool=False,
-        nonlinear:bool=False
-    ) -> Tuple[Dynamics, Ingredients, dict]:
+        nonlinear:bool=False,
+        use_p:bool=True,
+        use_pf:bool=False,
+        use_slack:bool=False
+    ) -> Tuple[Dynamics, Ingredients, dict, dict]:
     """
     Generate dummy dynamics and ingredients.
 
@@ -218,12 +222,16 @@ def sample_mpc(
         use_w (bool, optional): Whether to include process noise in the dynamics. Defaults to False.
         use_theta (bool, optional): Whether to include parameter uncertainty in the dynamics. Defaults to False.
         nonlinear (bool, optional): Whether to use nonlinear dynamics. Defaults to False.
+        use_p (bool, optional): Whether to add a parameter p in the ingredients. Defaults to True.
+        use_pf (bool, optional): Whether to add a parameter pf in the ingredients. Defaults to True.
+        use_slack (bool, optional): Whether to include slack variables. Defaults to False.
 
     Returns:
-        Tuple[Dynamics, Ingredients, dict]: 
-            - Dynamics: The generated dynamics object.
-            - Ingredients: The parsed ingredients object for the MPC.
-            - dict: The dictionary containing cost, constraints, and model information.
+        Tuple[Dynamics, Ingredients, dict, dict]: 
+            - Dynamics: Generated dynamics object.
+            - Ingredients: Parsed ingredients object for the MPC.
+            - dict: Dictionary containing cost, constraints, and model information.
+            - dict: Dictionary containing the symbolic variables p and pf (None if not initialized).
     """
 
     # create dummy dynamics
@@ -231,15 +239,19 @@ def sample_mpc(
     dynamics = Dynamics(dynamics_dict)
 
     # get model
-    model = dynamics._linearize(horizon=horizon)[0]
+    _ = dynamics.linearize(horizon=horizon)[0]
 
     # create dictionary that can be passed to ingredients
-    _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
-    ing_dict = cost | constraints | model
+    p,pf,cost,constraints = sample_ingredients(dynamics.dim,p=use_p,pf=use_pf,slack=use_slack,horizon=horizon)
+    # ing_dict = cost | constraints | model
 
-    ingredients = Ingredients._parse_inputs(ing_dict,horizon)
+    # create ingredients
+    ingredients = Ingredients(horizon,dynamics,cost,constraints)
 
-    return dynamics, ingredients, ing_dict
+    # create dictionary with symbolic variables
+    out_dict = {'p':p,'pf':pf,'theta':dynamics_dict['theta']} if use_theta else {'p':p,'pf':pf}
+
+    return dynamics, ingredients, out_dict
 
 def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
     """
@@ -284,7 +296,7 @@ def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
     x_min = -x_max
 
     # create tracking cost and constraint violation
-    track_cost, cst_viol_l1, _ =  quad_cost_and_bounds(q,r,x_cl,u_cl,x_max,x_min)
+    track_cost, cst_viol_l1, _ = quad_cost_and_bounds(q,r,x_cl,u_cl,x_max,x_min)
 
     # set cost
     upper_level.set_cost(track_cost+cst_viol_l1,track_cost,cst_viol_l1)

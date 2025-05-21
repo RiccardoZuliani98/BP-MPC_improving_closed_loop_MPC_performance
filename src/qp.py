@@ -128,14 +128,16 @@ class QP:
 
         # create input index
         idx_in = dict()
+        
         # initialize counter that reveals the beginning index of each variable
         running_idx = 0
+
         # loop through all the symbolic variables
-        for i in range(len(p_QP)):
+        for elem,name in zip(p_QP,p_QP_names):
             # get length of current variable in p_d
-            len_current_p_d = p_QP[i].shape[0]
+            len_current_p_d = elem.shape[0]
             # store indexing of current variable
-            idx_in[p_QP_names[i]] = range(running_idx,running_idx+len_current_p_d)
+            idx_in[name] = range(running_idx,running_idx+len_current_p_d)
             # increment running index
             running_idx = running_idx + len_current_p_d
 
@@ -222,14 +224,27 @@ class QP:
         QP_outs = [A,lba,uba,Q,q]
         QP_outs_names = ['a','lba','uba','h','g']
 
+        # # list of symbolic outputs (with repeated values)
+        # sym_outputs = list(ca.symvar(ca.vcat([ca.vcat(ca.symvar(elem)) for elem in QP_outs])))
+        
+        # # turn into list and strip repeated values
+        # sym_outputs_stripped = set([str(elem) for elem in sym_outputs])
+
+        # # list of symbolic inputs (with repeated values)
+        # sym_inputs = list(ca.symvar(self._sym.var['p_qp_full']))
+
+        # # turn into list and strip repeated values
+        # sym_inputs_stripped = set([str(elem) for elem in sym_inputs])
+
+        # assert sym_outputs_stripped.issubset(sym_inputs_stripped), 'The QP ingredients depend on more inputs than the one you provided. Did you forget about p or pf? Missing symbols: ' + str(sym_outputs_stripped.difference(sym_inputs_stripped))
+
         # set of symbolic outputs
         sym_outputs = set(ca.symvar(ca.vcat([ca.vcat(ca.symvar(elem)) for elem in QP_outs])))
 
         # set of symbolic inputs
         sym_inputs = set(ca.symvar(self._sym.var['p_qp_full']))
 
-        assert sym_outputs.issubset(sym_inputs), 'The QP ingredients depend on more inputs than the one you provided. Did you forget about p or pf? Missing symbols: '
-        # sym_outputs.difference(sym_inputs)
+        assert sym_outputs.issubset(sym_inputs), 'The QP ingredients depend on more inputs than the one you provided. Did you forget about p or pf? Missing symbols: ' + str(sym_outputs.difference(sym_inputs))
 
         # create function
         start = time.time()

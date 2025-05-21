@@ -122,7 +122,7 @@ class Ingredients:
         self._options.update(options)
 
         # check if user passed a special option for linearization
-        model, symbolic_vars, used_linearization_method = dynamics_copy._linearize(horizon=horizon,method=self._options['linearization'])
+        model, symbolic_vars, used_linearization_method = dynamics_copy.linearize(horizon=horizon,method=self._options['linearization'])
 
         # store linearization method that was used
         self._options['linearization']  = used_linearization_method

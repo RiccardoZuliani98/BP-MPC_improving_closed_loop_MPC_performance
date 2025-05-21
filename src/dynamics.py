@@ -1,6 +1,7 @@
 import casadi as ca
 import time
 from src.symbolic_var import SymbolicVar
+from typing import Tuple
 
 class Dynamics:
     """
@@ -212,7 +213,7 @@ class Dynamics:
         # store computation times
         self._compTimes = comp_time_dict
 
-    def _linearize(self,horizon:int,method:str='trajectory') -> dict | SymbolicVar | str:
+    def linearize(self,horizon:int,method:str='trajectory') -> Tuple[dict, SymbolicVar, str]:
         """
         Linearizes the system dynamics based on the specified method and horizon.
         
@@ -254,7 +255,7 @@ class Dynamics:
         b = self.B_nom
 
         # extract nominal parameters
-        param_nom = self.param_nom
+        param_nom = self.param_nom.copy()
 
         # extract symbolic variables
         symbolic_vars = self._sym.copy()
@@ -298,6 +299,9 @@ class Dynamics:
 
             # store y_lin
             symbolic_vars.add_var('y_lin', y_lin)
+
+            # ensure that y_lin was not added to the symbolic variables in dynamics
+            assert 'y_lin' not in self._sym.var, 'y_lin was mistakenly added to symbolic variables in dynamics.'
                 
         # if mode is 'trajectory', linearize along a trajectory (similar to real-time iteration)
         elif method == 'trajectory':
@@ -338,6 +342,9 @@ class Dynamics:
 
             # store y_lin
             symbolic_vars.add_var('y_lin', y_lin)
+
+            # ensure that y_lin was not added to the symbolic variables in dynamics
+            assert 'y_lin' not in self._sym.var, 'y_lin was mistakenly added to symbolic variables in dynamics.'
 
         else:
             raise Exception('unknown linearization method')
