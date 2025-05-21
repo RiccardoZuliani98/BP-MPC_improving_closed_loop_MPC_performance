@@ -2,6 +2,7 @@ import daqp
 import numpy as np
 from ctypes import *
 from utils.callable_wrapper import CallableWrapper
+import casadi as ca
 
 # TODO: warmstart by passing a 1 for constraints that were previously active
 
@@ -22,6 +23,6 @@ def daqp_interface(is_equality):
 
         assert exitflag in [1,2], 'QP not solved correctly'
 
-        return {'x':x_star,'lam_a':info['lam']}
+        return {'x':ca.DM(x_star),'lam_a':ca.DM(info['lam'])}
 
     return CallableWrapper(call_solver)

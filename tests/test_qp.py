@@ -324,7 +324,7 @@ def test_main():
         qp_inputs_trimmed = {key:val for key,val in qp_inputs.items() if val is not None}
 
         # form MPC
-        mpc = QP(ingredients=ingredients,p=p,pf=pf,options={'solver':'qpoases'})
+        mpc = QP(ingredients=ingredients,p=p,pf=pf,options={'solver':'daqp'})
 
         single_test_symbolic_order(mpc,configuration,dynamics,ingredients,horizon,p,pf)
         single_test_dynamics(mpc,qp_inputs_trimmed,x_list,u_list,configuration)

@@ -2,7 +2,8 @@ import sys
 import os
 import casadi as ca
 from numpy.random import randint, rand
-from typing import Optional, Tuple
+import numpy as np
+from typing import Optional, Tuple, Callable, Union
 from copy import copy
 
 # add source path
@@ -120,7 +121,6 @@ def sample_dynamics(
         x_next_nom = x_next_nom + x**2
 
     return out | {'x_next':x_next, 'x_next_nom':x_next_nom}, {'A':A,'A_nom':A_nom,'B':B,'c':c}
-
 
 def sample_ingredients(
         dim:dict,
@@ -254,7 +254,14 @@ def sample_mpc(
 
     return dynamics, ingredients, out_dict
 
-def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
+def sample_upper_level(
+        p:ca.SX,
+        mpc:QP,
+        pf:ca.SX=None,
+        horizon:int=2,
+        idx_p:Optional[Callable[[int],Union[np.array,range]]]=None,
+        idx_pf:Optional[Callable[[int],Union[np.array,range]]]=None
+    ) -> UpperLevel:
     """
     Initializes and configures an upper-level optimization problem for closed-loop MPC performance improvement.
 
@@ -267,6 +274,8 @@ def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
         mpc (QP): An instance of the lower-level QP-based MPC controller.
         pf (ca.SX, optional): Additional symbolic parameter for the upper-level problem. Defaults to None.
         horizon (int, optional): Prediction horizon for the upper-level problem. Defaults to 2.
+        idx_p (callable, optional): indexing of p vector.
+        idx_pf (callable, optional): indexing of pf vector.
 
     Returns:
         UpperLevel: Configured upper-level optimization problem instance.
@@ -275,10 +284,10 @@ def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
     # initialize upper level
     if pf is not None:
         # create upper level with parameter
-        upper_level = UpperLevel(p=p,pf=pf,horizon=horizon,mpc=mpc)
+        upper_level = UpperLevel(p=p,pf=pf,horizon=horizon,mpc=mpc,idx_p=idx_p,idx_pf=idx_pf)
     else:
         # create upper level without parameter
-        upper_level = UpperLevel(p=p,horizon=horizon,mpc=mpc)
+        upper_level = UpperLevel(p=p,horizon=horizon,mpc=mpc,idx_p=idx_p)
 
     # extract closed-loop variables for upper level
     x_cl = ca.vec(upper_level.param['x_cl'])
