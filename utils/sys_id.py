@@ -1,11 +1,15 @@
 import casadi as ca
 import numpy as np
-from src.sim_var import SimVar
-from typing import Callable, Tuple
-from src.dynamics import Dynamics
-from typeguard import Union, Optional
+from typing import Callable, Tuple, Union, Optional
 from scipy.linalg import solve,lstsq
 import time
+import os,sys
+
+# add source path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from src.sim_var import SimVar
+from src.dynamics import Dynamics
 
 def get_phi(dynamics:Dynamics, horizon:int, jit:Optional[bool]=False) -> ca.Function:
     """
@@ -30,11 +34,6 @@ def get_phi(dynamics:Dynamics, horizon:int, jit:Optional[bool]=False) -> ca.Func
 
     # check that nominal model is not fully known
     assert 'theta' in dynamics.param_nom, 'Theta should be set as nominal parameter in dynamics.'
-
-    # check that theta is initialized
-    if theta0 is None:
-        assert 'theta' in dynamics.init, 'Theta must be initialized.'
-        theta0 = dynamics.init['theta']
 
     # extract parameters
     theta,x,u = dynamics.param_nom['theta'],dynamics.param_nom['x'],dynamics.param_nom['u']
@@ -92,6 +91,7 @@ def ls(dynamics:Dynamics,horizon:int,lam:float,theta0:Optional[ca.DM]=None,jit:O
 
     # precompute dimension of theta
     n_theta = dynamics.param_nom['theta'].shape[0]
+    n_x = dynamics.dim['x']
 
     def sys_id_update(sim:Union[list,SimVar],running_vars:dict,k:int) -> dict:
 
@@ -105,27 +105,27 @@ def ls(dynamics:Dynamics,horizon:int,lam:float,theta0:Optional[ca.DM]=None,jit:O
             z = np.array(sim.x[:,1:]).T
 
         # compute feature vectors
-        phi = np.array(phi_func(x,u)).T
+        phi = np.array(phi_func(x,u)).reshape((n_x,n_theta,horizon),order='F').transpose(2,1,0)
 
         # form linear system
-        LHS = phi.T@phi + lam*np.eye(n_theta)
-        RHS = phi.T@z
+        LHS = ca.DM(lam*np.eye(n_theta) + np.einsum('nij,njk->ik', phi, phi.transpose(0,2,1)))
+        RHS = ca.DM(np.atleast_2d(np.einsum('nij,nj->i', phi, z)).T)
 
         # compute new model
-        start = time.time()
-        theta = ca.solve(LHS,RHS)
-        print(f'Casadi csparse, elapsed: {time.time()-start}')
-        start = time.time()
-        theta = lstsq(LHS,RHS)[0]
-        print(f'Scipy lstsq, elapsed: {time.time()-start}')
-        start = time.time()
+        # start = time.time()
+        # theta = ca.solve(LHS,RHS)
+        # print(f'Casadi csparse, elapsed: {time.time()-start}')
+        # start = time.time()
+        # theta = lstsq(LHS,RHS)[0]
+        # print(f'Scipy lstsq, elapsed: {time.time()-start}')
+        # start = time.time()
         theta = solve(LHS,RHS,assume_a='pos')
-        print(f'Scipy solve, elapsed: {time.time()-start}')
+        # print(f'Scipy solve, elapsed: {time.time()-start}')
         
         # run through the horizon and perform the RLS updates
         new_psi = {'theta':theta}
 
-        return sim.psi | new_psi
+        return new_psi
     
     def sys_id_init() -> dict:
         """
@@ -177,8 +177,14 @@ def rls(dynamics:Dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False
     # obtain phi function
     phi = get_phi(dynamics,horizon,jit)
 
+    # check that theta is initialized
+    if theta0 is None:
+        assert 'theta' in dynamics.init, 'Theta must be initialized.'
+        theta0 = dynamics.init['theta']
+
     # precompute dimension of theta
     n_theta = dynamics.param_nom['theta'].shape[0]
+    n_x = dynamics.dim['x']
 
     def sys_id_update(sim:SimVar,running_vars:dict,k:int) -> dict:
         """
@@ -208,8 +214,8 @@ def rls(dynamics:Dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False
         # compute output vector
         z_k = np.array(sim.x[:,1:])
 
-        # reshape to (horizon, *phi.shape)
-        phi_reshaped = phi_k.reshape(phi_k.shape[0],-1,horizon,order='F').transpose(2,1,0)
+        # reshape
+        phi_reshaped = phi_k.reshape(n_x,n_theta,horizon,order='F').transpose(2,1,0)
 
         # update a and b
         a_k_1 = ca.DM(a_k + np.einsum('nij,njk->ik', phi_reshaped, phi_reshaped.transpose(0,2,1)))
@@ -221,7 +227,7 @@ def rls(dynamics:Dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False
         # run through the horizon and perform the RLS updates
         new_psi = {'A':a_k_1,'b':b_k_1,'theta':theta}
 
-        return sim.psi | new_psi
+        return new_psi
     
     def sys_id_init() -> dict:
         """
@@ -236,7 +242,7 @@ def rls(dynamics:Dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False
     
     return sys_id_update, sys_id_init, phi
 
-def rls_update_debug(results:dict,horizon:int,phi:ca.Function,sim:SimVar,running_vars:dict,k:int) -> None:
+def rls_update_debug(horizon:int,phi:ca.Function,sim:SimVar,running_vars:dict,k:int) -> None:
         """
         Debugs and verifies the system identification update step by comparing computed feature and output vectors,
         as well as their outer products, against reference results.
@@ -253,11 +259,6 @@ def rls_update_debug(results:dict,horizon:int,phi:ca.Function,sim:SimVar,running
             AssertionError: If the reshaped feature vectors or their outer products do not match the reference results.
         """
         
-        # extract results
-        phi_reshaped = results['phi']
-        a_k_1 = results['A']
-        b_k_1 = results['b']
-        
         # get past a and 
         a_k = running_vars['A']
         b_k = running_vars['b']
@@ -272,10 +273,6 @@ def rls_update_debug(results:dict,horizon:int,phi:ca.Function,sim:SimVar,running
         phi_k_list = np.split(phi_k.T,horizon,axis=0)
         z_k_list = np.split(z_k,horizon,axis=1)
 
-        # check that this is equal to the list above
-        for idx, elem in enumerate(phi_k_list):
-            assert np.allclose(elem,phi_reshaped[idx]), 'Reshaped phi_k does not match.'
-
         # preallocate outer products
         product_1 = a_k #np.zeros((phi_k_list[0].shape[0],phi_k_list[0].shape[0]))
         product_2 = b_k #np.zeros((phi_k_list[0].shape[0],z_k_list[0].shape[1]))
@@ -285,8 +282,4 @@ def rls_update_debug(results:dict,horizon:int,phi:ca.Function,sim:SimVar,running
             product_1 = product_1 + phi_k_list[i]@(phi_k_list[i].T)
             product_2 = product_2 + phi_k_list[i]@z_k_list[i]
 
-        # check accuracy
-        assert np.allclose(a_k_1,product_1), 'Outer product of phi_k does not match.'
-        assert np.allclose(b_k_1,product_2), 'Outer product of phi_k does not match.'
-
-        
+        return ca.solve(product_1,product_2)

@@ -11,6 +11,7 @@ from src.dynamics import Dynamics
 from src.scenario import Scenario
 from src.ingredients import Ingredients
 from src.qp import QP
+from src.sim_var import SimVar
 from src.upper_level import UpperLevel
 from utils.cost_utils import param2terminal_cost,bound2poly,quad_cost_and_bounds
 from utils.sys_id import ls,rls,rls_update_debug
@@ -166,7 +167,7 @@ def random_linear_scenario(
 
     return scenario
 
-def test_rls_vs_ls():
+def test_rls_vs_ls_single():
 
     # generate random linear scenario
     scenario = random_linear_scenario()
@@ -179,12 +180,87 @@ def test_rls_vs_ls():
     # upper_horizon:int=None,
     # mpc_horizon:int=None
 
-    # create system identification
-    sys_id_update, sys_id_init, phi = rls(
+    # create system identification using rls
+    rls_update, rls_init, phi = rls(
         dynamics=scenario.dyn,
         horizon=scenario.dim['T'],
         lam=0,
-        theta0=scenario.init['theta'],
+        theta0=ca.DM.zeros(scenario.init['theta'].shape[0],1),
         jit=False)
-
     
+    # create system identification using ls
+    ls_update, ls_init, phi = ls(
+        dynamics=scenario.dyn,
+        horizon=scenario.dim['T'],
+        lam=0,
+        theta0=ca.DM.zeros(scenario.init['theta'].shape[0],1),
+        jit=False)
+    
+    # run simulation
+    sim,out_dict,qp_failed = scenario.simulate(options={'mode':'simulate','solver':'daqp'})
+
+    # run recursive least squares
+    rls_param = rls_update(sim=sim,running_vars=rls_init(),k=0)['theta']
+
+    # run least squares
+    ls_param = ls_update(sim,ls_init(),0)['theta']
+
+    # run rls using list comprehension
+    rls_debug_param = rls_update_debug(scenario.dim['T'],phi,sim,rls_init(),0)
+
+    e1 = ca.norm_2(rls_param-ls_param)
+    e2 = ca.norm_2(rls_param-rls_debug_param)
+
+    assert e1 <= 1e-8, 'LS and RLS do not match.'
+    assert e2 <= 1e-8, 'RLS and list-comprehension RLS do not match.'
+
+def test_rls_vs_ls_multiple():
+
+    # generate random linear scenario
+    scenario = random_linear_scenario()
+
+    # noise:bool=True,
+    # noise_mag:float=0.5,
+    # n_x:int=3,
+    # theta_uncertainty_range:float=0.5,
+    # verbose:bool=False,
+    # upper_horizon:int=None,
+    # mpc_horizon:int=None
+
+    # create system identification using rls
+    rls_update, rls_init, phi = rls(
+        dynamics=scenario.dyn,
+        horizon=scenario.dim['T'],
+        lam=0,
+        theta0=ca.DM.zeros(scenario.init['theta'].shape[0],1),
+        jit=False)
+    
+    # create system identification using ls
+    ls_update, ls_init, phi = ls(
+        dynamics=scenario.dyn,
+        horizon=scenario.dim['T'],
+        lam=0,
+        theta0=ca.DM.zeros(scenario.init['theta'].shape[0],1),
+        jit=False)
+    
+    # run simulation
+    sim,out_dict,qp_failed = scenario.simulate(options={'mode':'simulate','solver':'daqp'})
+
+    # run recursive least squares
+    rls_param = rls_update(sim=sim,running_vars=rls_init(),k=0)['theta']
+
+    # run least squares
+    ls_param = ls_update(sim,ls_init(),0)['theta']
+
+    # run rls using list comprehension
+    rls_debug_param = rls_update_debug(scenario.dim['T'],phi,sim,rls_init(),0)
+
+    e1 = ca.norm_2(rls_param-ls_param)
+    e2 = ca.norm_2(rls_param-rls_debug_param)
+
+    assert e1 <= 1e-8, 'LS and RLS do not match.'
+    assert e2 <= 1e-8, 'RLS and list-comprehension RLS do not match.'
+
+if __name__ == '__main__':
+    test_rls_vs_ls_single()
+    test_rls_vs_ls_multiple()

@@ -2,14 +2,14 @@ import casadi as ca
 from src.dynamics import Dynamics
 from src.qp import QP
 from src.upper_level import UpperLevel
-from src.sim_var import simVar
+from src.sim_var import SimVar
 import time
 from numpy.random import randint
 from typeguard import typechecked
 from src.options import Options
 from src.symbolic_var import SymbolicVar
 import numpy as np
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 
 """
 TODO: trajectory optimization should be a separate class!
@@ -203,7 +203,7 @@ class Scenario:
             opti.subject_to( x[:,t] == f(x[:,t-1],u[:,t-1]) )
 
         # to get cost, create fake simVar and pass it through the cost function
-        s = simVar(n)
+        s = SimVar(n)
 
         # add optimization variables (p and y are set to zero by default)
         s.x = x
@@ -260,7 +260,7 @@ class Scenario:
                 solved = False
 
             # create output simVar
-            out = simVar(n)
+            out = SimVar(n)
             out.x = ca.DM(np.atleast_2d(opti.value(x)))
             out.u = ca.DM(np.atleast_2d(opti.value(u)))
             out.cost = ca.DM(opti.value(cost))
@@ -486,7 +486,7 @@ class Scenario:
 
         return p,pf,w,d,theta,y,x
 
-    def simulate(self,init=None,options=None):
+    def simulate(self,init:dict=None,options:dict=None) -> Union[SimVar,dict,bool]:
         """
         Simulates the system dynamics based on the provided initial parameters and options.
         Args:
@@ -541,7 +541,7 @@ class Scenario:
             self,
             var_in,
             n_models:int=1
-        ) -> Tuple[simVar,dict,bool]:
+        ) -> Tuple[SimVar,dict,bool]:
         """
         Simulates the closed-loop system using the specified QP-based controller for a given scenario.
         This method performs a simulation loop over the prediction horizon, solving a quadratic program
@@ -606,7 +606,7 @@ class Scenario:
             B = self._mapped['B']
 
         # create simVar for current simulation
-        sim = simVar(n,n_models)
+        sim = SimVar(n,n_models)
 
         # store p and pf if present
         sim.p = var_in['p'] if 'p' in var_in else None
