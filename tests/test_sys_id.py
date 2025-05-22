@@ -197,7 +197,7 @@ def test_rls_vs_ls_single():
         jit=False)
     
     # run simulation
-    sim,out_dict,qp_failed = scenario.simulate(options={'mode':'simulate','solver':'daqp'})
+    sim,_,_ = scenario.simulate(options={'mode':'simulate','solver':'daqp'})
 
     # run recursive least squares
     rls_param = rls_update(sim=sim,running_vars=rls_init(),k=0)['theta']
@@ -216,6 +216,9 @@ def test_rls_vs_ls_single():
 
 def test_rls_vs_ls_multiple():
 
+    # randomly generate number of iterations
+    iter_number = np.random.randint(5,10)
+
     # generate random linear scenario
     scenario = random_linear_scenario()
 
@@ -228,7 +231,7 @@ def test_rls_vs_ls_multiple():
     # mpc_horizon:int=None
 
     # create system identification using rls
-    rls_update, rls_init, phi = rls(
+    rls_update, rls_init, _ = rls(
         dynamics=scenario.dyn,
         horizon=scenario.dim['T'],
         lam=0,
@@ -236,30 +239,37 @@ def test_rls_vs_ls_multiple():
         jit=False)
     
     # create system identification using ls
-    ls_update, ls_init, phi = ls(
+    ls_update, ls_init, _ = ls(
         dynamics=scenario.dyn,
-        horizon=scenario.dim['T'],
+        horizon=scenario.dim['T']*iter_number,
         lam=0,
         theta0=ca.DM.zeros(scenario.init['theta'].shape[0],1),
         jit=False)
     
-    # run simulation
-    sim,out_dict,qp_failed = scenario.simulate(options={'mode':'simulate','solver':'daqp'})
+    # initialize
+    rls_param = rls_init()
 
-    # run recursive least squares
-    rls_param = rls_update(sim=sim,running_vars=rls_init(),k=0)['theta']
+    # preallocate list of simulations
+    sim_list = []
+    
+    # run simulation
+    for _ in range(iter_number):
+
+        # simulate
+        sim,_,_ = scenario.simulate(options={'mode':'simulate','solver':'qpoases'})
+
+        # add to list
+        sim_list.append(sim)
+
+        # run recursive least squares
+        rls_param = rls_param | rls_update(sim=sim,running_vars=rls_param,k=0)
 
     # run least squares
-    ls_param = ls_update(sim,ls_init(),0)['theta']
+    ls_param = ls_update(sim=sim_list,running_vars=ls_init(),k=0)
 
-    # run rls using list comprehension
-    rls_debug_param = rls_update_debug(scenario.dim['T'],phi,sim,rls_init(),0)
-
-    e1 = ca.norm_2(rls_param-ls_param)
-    e2 = ca.norm_2(rls_param-rls_debug_param)
+    e1 = ca.norm_2(rls_param['theta']-ls_param['theta'])
 
     assert e1 <= 1e-8, 'LS and RLS do not match.'
-    assert e2 <= 1e-8, 'RLS and list-comprehension RLS do not match.'
 
 if __name__ == '__main__':
     test_rls_vs_ls_single()

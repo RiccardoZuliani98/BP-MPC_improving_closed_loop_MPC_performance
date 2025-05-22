@@ -96,9 +96,9 @@ def ls(dynamics:Dynamics,horizon:int,lam:float,theta0:Optional[ca.DM]=None,jit:O
     def sys_id_update(sim:Union[list,SimVar],running_vars:dict,k:int) -> dict:
 
         if isinstance(sim,list):
-            x = ca.vcat([elem.x[:,:-1] for elem in sim])
-            u = ca.vcat([elem.u for elem in sim])
-            z = np.array(ca.vcat([elem.x[:,1:] for elem in sim])).T
+            x = ca.hcat([elem.x[:,:-1] for elem in sim])
+            u = ca.hcat([elem.u for elem in sim])
+            z = np.array(ca.hcat([elem.x[:,1:] for elem in sim])).T
         else:
             x = sim.x[:,:-1]
             u = sim.u
@@ -136,7 +136,7 @@ def ls(dynamics:Dynamics,horizon:int,lam:float,theta0:Optional[ca.DM]=None,jit:O
                 - 'A': A square diagonal matrix of size n_theta, scaled by lam (ca.DM.eye(n_theta) * lam).
                 - 'b': The initial parameter vector theta0.
         """
-        return {'A':ca.DM.eye(n_theta)*lam,'b':theta0}
+        return {}
     
     return sys_id_update, sys_id_init, phi_func
     
