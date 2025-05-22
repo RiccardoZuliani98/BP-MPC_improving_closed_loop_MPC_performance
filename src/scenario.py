@@ -25,14 +25,14 @@ class Scenario:
                                'gd_type': ['gd', 'sgd'], 'figures': bool, 'random_sampling': bool, 'debug_qp': bool,
                                'compute_qp_ingredients': bool, 'verbosity': [0, 1, 2], 'max_k': int,
                                'use_true_model': bool, 'simulate_parallel_models': bool,
-                               'compile_mapped_dynamics':bool}
+                               'compile_mapped_dynamics':bool,'true_theta':np.ndarray}
 
     _OPTIONS_DEFAULT_VALUES = {'shift_linearization': True, 'warmstart_first_qp': True, 'warmstart_shift': True,
                                'epsilon': 1e-6, 'roundoff_qp': 10, 'mode': 'optimize', 'gd_type': 'gd',
                                'figures': False, 'random_sampling': False, 'debug_qp': False,
                                'compute_qp_ingredients': False, 'verbosity': 1, 'max_k': 200,
                                'use_true_model': True, 'simulate_parallel_models': False,
-                               'compile_mapped_dynamics':False}
+                               'compile_mapped_dynamics':False,'true_theta':np.zeros(1)}
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
@@ -1056,11 +1056,7 @@ class Scenario:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
 
             # run sys_id if needed
-            if sys_id:
-                sys_id_vars = self._upper_level.sys_id_update(sim_k,running_vars,k)
-                sys_id_vars['pf'] = sys_id_vars['theta']
-            else:
-                sys_id_vars = {}
+            sys_id_vars = sys_id_vars | self._upper_level.sys_id_update(sim_k,running_vars,k) if sys_id else {}
 
             if save_memory:
                 sim_k.save_memory()
@@ -1070,10 +1066,16 @@ class Scenario:
                 case 0:
                     pass
                 case 1:
-                    print(f"Iteration: {k}, cost: {track_cost}, J: {ca.DM(np.linalg.norm(j_p,axis=0))}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
+                    to_print = f"Iteration: {k}, cost: {track_cost}, J: {ca.DM(np.linalg.norm(j_p,axis=0))}, e : {ca.sum1(ca.fmax(cst_viol,0))}"
 
-                    # if sys_id:
-                        # print(f'Current theta: {running_vars['theta']}')
+                    if sys_id and self.options['true_theta'] is not np.zeros(1):
+
+                        # compute estimation error
+                        est_error = np.linalg.norm(running_vars['theta']-self.options['true_theta'])
+
+                        to_print += f', Current estimation error: {est_error}'
+                    
+                    print(to_print)
 
             # if self._options['figures']:
 

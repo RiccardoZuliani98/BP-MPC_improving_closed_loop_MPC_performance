@@ -4,6 +4,7 @@ from typing import Callable, Tuple, Union, Optional
 from scipy.linalg import solve,lstsq
 import time
 import os,sys
+from typeguard import typechecked
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -140,8 +141,8 @@ def ls(dynamics:Dynamics,horizon:int,lam:float,theta0:Optional[ca.DM]=None,jit:O
     
     return sys_id_update, sys_id_init, phi_func
     
-
-def rls(dynamics:Dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False) -> Tuple[Callable, Callable, ca.Function]:
+@typechecked
+def rls(dynamics:Dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False,idx_pf:Optional[range]=None) -> Tuple[Callable, Callable, ca.Function]:
     """
     Recursive Least Squares (RLS) system identification for parameter-affine models.
     This function constructs RLS update and initialization routines for online system identification
@@ -156,6 +157,8 @@ def rls(dynamics:Dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False
         lam (float): Regularization parameter (typically a large positive value) for the initial covariance matrix.
         theta0 (ca.DM, optional): Initial guess for the parameter vector theta. If None, uses dynamics.init['theta'].
         jit (bool, optional): If True, compiles the feature mapping function for improved performance.
+        idx_pf (range, optional): specifies the entries of pf that represent theta, by default, it assumes that theta
+            is not present in pf.
     
     Returns:
         sys_id_update (function): Function to perform a single RLS update step.
@@ -226,6 +229,18 @@ def rls(dynamics:Dynamics,horizon:int,lam:float,theta0:ca.DM=None,jit:bool=False
 
         # run through the horizon and perform the RLS updates
         new_psi = {'A':a_k_1,'b':b_k_1,'theta':theta}
+
+        # check if pf should be updated too
+        if idx_pf is not None:
+
+            # get current pf
+            pf_new = sim.pf
+
+            # update entries
+            pf_new[idx_pf] = theta
+
+            # add to dictionary
+            new_psi['pf'] = pf_new
 
         return new_psi
     
