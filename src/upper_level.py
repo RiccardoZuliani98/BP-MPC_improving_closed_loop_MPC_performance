@@ -402,6 +402,8 @@ class UpperLevel:
             sys_id (callable, optional): Function for system identification during simulation. Must accept a simulation object as input. Defaults to a no-op function if not provided.
         """
 
+        # TODO: write tests here!!! For example idx_pf in sys_id
+
         self._parameter_init = parameter_init if parameter_init is not None else lambda sim: None
         self._parameter_update = parameter_update
         self._sys_id_update = sys_id_update if sys_id_update is not None else None

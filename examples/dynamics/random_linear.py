@@ -1,7 +1,8 @@
 import casadi as ca
 import numpy as np
+from scipy.linalg import expm,eig
 
-def dynamics(n_x:int=2,pole_mag:list=[0.5,1.2],use_theta:bool=True,use_w:bool=True) -> dict:
+def dynamics(Ts:float=0.1,n_x:int=2,pole_mag:list=[0.5,1.2],use_theta:bool=True,use_w:bool=True) -> dict:
 
     assert pole_mag[1] >= pole_mag[0], 'Pole magnitude bounds should be given as [mag_min, mag_max] with mag_min <= mag_max.'
 
@@ -12,28 +13,41 @@ def dynamics(n_x:int=2,pole_mag:list=[0.5,1.2],use_theta:bool=True,use_w:bool=Tr
     x = ca.SX.sym('x',n_x,1)
     u = ca.SX.sym('u',n_u,1)
 
-    # generate random floats between -1 and 1
-    random_units = 2*np.random.rand(1,n_x)-np.ones((1,n_x))
-
-    # generate random signs
-    random_signs = np.sign(0.5*np.ones((1,n_x))-np.random.rand(1,n_x))
-
-    # adapt to specified range
-    poles = random_units*(pole_mag[1]-pole_mag[0]) + random_signs*pole_mag[0]
+    # generate random continuous-time poles
+    poles = np.random.rand(n_x)*(pole_mag[1]-pole_mag[0]) + np.ones(n_x)*pole_mag[0]
     
     # put ones in the off-diagonal of A
-    A = ca.SX(np.diag(np.ones(n_x-1),k=1))
+    A_cont = np.diag(np.ones(n_x-1),k=1)
 
-    # substitute last row of A with randomly generated poles (with flipped sign)
-    A[-1,:] = -ca.DM(poles)
+    # substitute last row of A with characteristic polynomial
+    A_cont[-1,:] = -np.array(np.flip(np.poly(poles)[1:]))
 
     # B matrix in controllable canonical form
-    B = ca.vcat([ca.SX(n_x-1,1),1])
+    B_cont = ca.vcat([ca.DM(n_x-1,1),1])
+
+    # check eigenvalues of A_cont
+    eig_a_cont = eig(A_cont)[0]
+    
+    # check that poles match
+    assert np.allclose(np.sort(eig_a_cont),np.sort(poles),rtol=1e-12), 'Poles do not match'
+
+    # # Euler
+    # A_euler = ca.SX.eye(n_x) + Ts*ca.SX(A_cont)
+    # B_euler = Ts*B_cont
+
+    # # second order
+    # A_second_order = ca.SX.eye(n_x) + Ts*ca.SX(A_cont) + Ts**2/2*ca.SX(A_cont@A_cont)
+
+    # discretize
+    A = ca.cse(ca.sparsify(ca.SX(expm(Ts*A_cont))))
+    B = ca.cse(ca.sparsify(ca.SX(ca.pinv(A_cont)@(A-ca.SX.eye(n_x))@B_cont)))
+
+    # check eigenvalues of A
+    eig_a = eig(expm(Ts*A_cont))[0]
+    print(f'Eigenvalues of A: {np.absolute(eig_a)}')
 
     # create output dictionary
     out = {'x':x, 'u':u}
-    func_in = [x,u]
-    func_in_nom = [x,u]
     
     # nominal model is the entire A and B matrices
     if use_theta:
@@ -43,7 +57,6 @@ def dynamics(n_x:int=2,pole_mag:list=[0.5,1.2],use_theta:bool=True,use_w:bool=Tr
 
         # append to dictionaries
         out['theta'] = theta
-        func_in_nom.append(theta)
 
         # create nominal dynamics
         A_nom = ca.reshape(theta[:n_x*n_x],n_x,n_x)

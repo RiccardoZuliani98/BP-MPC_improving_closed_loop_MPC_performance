@@ -2,7 +2,7 @@ from casadi import hcat,vcat,DM
 from numpy import hstack,vstack,ndarray
 from typing import Union
 
-class simVar:
+class SimVar:
     """
     simVar is a class designed to store and manage the results of closed-loop simulations in model predictive 
     control (MPC) frameworks. It provides structured storage for system states, inputs, slack variables, 

@@ -2,7 +2,6 @@ import sys
 import os
 import casadi as ca
 from numpy.random import randint, rand
-from sample_elements import sample_dynamics, sample_ingredients, sample_upper_level
 import datetime
 
 # add source path
@@ -12,6 +11,7 @@ from src.dynamics import Dynamics
 from src.scenario import Scenario
 from src.qp import QP
 from src.ingredients import Ingredients
+from utils.sample_elements import sample_dynamics, sample_ingredients, sample_upper_level
 
 def test_parallel_derivatives(mpc_horizon=None,upper_horizon=None,n_models=5,tol=1e-5):
 

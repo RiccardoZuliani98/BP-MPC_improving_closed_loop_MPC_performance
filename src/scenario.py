@@ -2,18 +2,19 @@ import casadi as ca
 from src.dynamics import Dynamics
 from src.qp import QP
 from src.upper_level import UpperLevel
-from src.sim_var import simVar
+from src.sim_var import SimVar
 import time
 from numpy.random import randint
 from typeguard import typechecked
 from src.options import Options
 from src.symbolic_var import SymbolicVar
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Optional, Union
 
 """
-TODO:
-* trajectory optimization should be a separate class!
+TODO: trajectory optimization should be a separate class!
+TODO: inherit methods related to options and symbolic variables that are shared across classes
+TODO: create multiple consecutive scenarios with the same variables and see what happens
 """
 
 class Scenario:
@@ -24,18 +25,27 @@ class Scenario:
                                'gd_type': ['gd', 'sgd'], 'figures': bool, 'random_sampling': bool, 'debug_qp': bool,
                                'compute_qp_ingredients': bool, 'verbosity': [0, 1, 2], 'max_k': int,
                                'use_true_model': bool, 'simulate_parallel_models': bool,
-                               'compile_mapped_dynamics':bool}
+                               'compile_mapped_dynamics':bool,'true_theta':np.ndarray}
 
     _OPTIONS_DEFAULT_VALUES = {'shift_linearization': True, 'warmstart_first_qp': True, 'warmstart_shift': True,
                                'epsilon': 1e-6, 'roundoff_qp': 10, 'mode': 'optimize', 'gd_type': 'gd',
                                'figures': False, 'random_sampling': False, 'debug_qp': False,
                                'compute_qp_ingredients': False, 'verbosity': 1, 'max_k': 200,
                                'use_true_model': True, 'simulate_parallel_models': False,
-                               'compile_mapped_dynamics':False}
+                               'compile_mapped_dynamics':False,'true_theta':np.zeros(1)}
 
     @typechecked
     def __init__(self,dyn:Dynamics,mpc:QP,upper_level:UpperLevel):
-        # TODO: add description
+        """
+        Initializes the scenario with the given dynamics, MPC controller, and optional upper-level controller.
+
+        Args:
+            dyn (Dynamics): The system dynamics object.
+            mpc (QP): The model predictive controller (MPC) object.
+            upper_level (UpperLevel, optional): An optional upper-level controller.
+
+        Initializes internal properties and updates the scenario with the provided components.
+        """
 
         # initialize properties
         self._sym = None
@@ -46,10 +56,32 @@ class Scenario:
         self._trajectory_opt = None
         self._mapped = {}
 
+        # run update
         self.update(dyn=dyn,qp=mpc,upper_level=upper_level)
 
     def update(self,**kwargs):
-        # TODO: add description
+        """
+        Update the scenario object with new components and properties.
+
+        This method updates the internal properties of the scenario object based on the provided keyword arguments.
+        It supports updating the following components:
+            - 'dyn': The dynamics component.
+            - 'qp': The quadratic programming component.
+            - 'upper_level': The upper-level component.
+
+        For each provided component, if the value is not None, the corresponding internal attribute is updated.
+        The method also manages the symbolic variables and options associated with the scenario:
+            - If symbolic variables or options are not already set, they are initialized.
+            - The symbolic variables are updated to include those from the dynamics, QP, and (optionally) upper-level components.
+            - The options are updated by combining the QP options with the current options.
+
+        Args:
+            **kwargs: Arbitrary keyword arguments for updating scenario components.
+                Allowed keys: 'dyn', 'qp', 'upper_level'.
+
+        Raises:
+            AssertionError: If an invalid key is provided in kwargs.
+        """
 
         # initialize properties
         for key, value in kwargs.items():
@@ -64,7 +96,7 @@ class Scenario:
         current_options = self._options if self._options is not None else Options(self._OPTIONS_ALLOWED_VALUES, self._OPTIONS_DEFAULT_VALUES)
 
         # create symbols
-        self._sym = self._dyn._sym + self._qp._sym + self._upper_level._sym + current_sym
+        self._sym = self._dyn._sym + self._qp._sym + self._upper_level._sym + current_sym if self._upper_level is not None else self._dyn._sym + self._qp._sym + current_sym
 
         # create options
         self._options = self._qp.options + current_options
@@ -90,6 +122,12 @@ class Scenario:
         return self._sym.init
     
     def set_init(self, init):
+        """
+        Set the initial value for the symbolic variable.
+
+        Parameters:
+            init: The initial value to be set for the symbolic variable.
+        """
         self._sym.set_init(init)
 
     @property
@@ -109,7 +147,32 @@ class Scenario:
         return self._trajectory_opt
     
     def make_trajectory_opt(self,theta=None):
-        # TODO: add description
+        """
+        Creates and returns an optimal control trajectory solver for the system.
+        This method formulates an optimal control problem using CasADi's Opti stack,
+        based on the system dynamics and cost function defined in the class. The solver
+        can be used to compute optimal state and control trajectories given an initial
+        condition and optional warm-starts for the optimization variables.
+        Args:
+            theta (optional): Parameters for the system dynamics. If provided, the nominal
+                dynamics function is parameterized by `theta`. Default is None.
+        Returns:
+            solver (function): A function that solves the optimal control problem.
+                The solver has the following signature:
+                    solver(x0_numeric, x_init=None, u_init=None)
+                where:
+                    x0_numeric (array-like): Initial state vector.
+                    x_init (array-like, optional): Initial guess for the state trajectory.
+                    u_init (array-like, optional): Initial guess for the control trajectory.
+                The solver returns:
+                    out (simVar): An object containing the optimal state and control trajectories,
+                        as well as the optimal cost.
+                    solved (bool): True if the optimization was successful, False otherwise.
+        Notes:
+            - The optimization problem enforces system dynamics and constraints at each time step.
+            - The cost function and constraints are obtained from the upper-level cost method.
+            - The solver uses IPOPT as the backend optimizer.
+        """
   
         # extract system dynamics
         if theta is not None:
@@ -140,7 +203,7 @@ class Scenario:
             opti.subject_to( x[:,t] == f(x[:,t-1],u[:,t-1]) )
 
         # to get cost, create fake simVar and pass it through the cost function
-        s = simVar(n)
+        s = SimVar(n)
 
         # add optimization variables (p and y are set to zero by default)
         s.x = x
@@ -163,6 +226,21 @@ class Scenario:
 
         # create solver function
         def solver(x0_numeric,x_init=None,u_init=None):
+            """
+            Solves the optimization problem using CasADi's Opti interface, with optional warm-starting.
+            Parameters:
+                x0_numeric (array-like): The initial condition for the optimization variable x0.
+                x_init (array-like, optional): Initial guess for the state variable x. If provided, used to warm-start the solver.
+                u_init (array-like, optional): Initial guess for the control variable u. If provided, used to warm-start the solver.
+            Returns:
+                out (simVar): An object containing the solution variables:
+                    - x (ca.DM): The optimized state trajectory.
+                    - u (ca.DM): The optimized control trajectory.
+                    - cost (ca.DM): The value of the cost function at the solution.
+                solved (bool): True if the solver succeeded, False otherwise.
+            Notes:
+                Prints 'NLP failed' if the solver encounters an exception.
+            """
             
             # set initial condition
             opti.set_value(x0,x0_numeric)
@@ -182,7 +260,7 @@ class Scenario:
                 solved = False
 
             # create output simVar
-            out = simVar(n)
+            out = SimVar(n)
             out.x = ca.DM(np.atleast_2d(opti.value(x)))
             out.u = ca.DM(np.atleast_2d(opti.value(u)))
             out.cost = ca.DM(opti.value(cost))
@@ -408,7 +486,7 @@ class Scenario:
 
         return p,pf,w,d,theta,y,x
 
-    def simulate(self,init=None,options=None):
+    def simulate(self,init:dict=None,options:dict=None) -> Union[SimVar,dict,bool]:
         """
         Simulates the system dynamics based on the provided initial parameters and options.
         Args:
@@ -463,7 +541,7 @@ class Scenario:
             self,
             var_in,
             n_models:int=1
-        ) -> Tuple[simVar,dict,bool]:
+        ) -> Tuple[SimVar,dict,bool]:
         """
         Simulates the closed-loop system using the specified QP-based controller for a given scenario.
         This method performs a simulation loop over the prediction horizon, solving a quadratic program
@@ -528,7 +606,7 @@ class Scenario:
             B = self._mapped['B']
 
         # create simVar for current simulation
-        sim = simVar(n,n_models)
+        sim = SimVar(n,n_models)
 
         # store p and pf if present
         sim.p = var_in['p'] if 'p' in var_in else None
@@ -978,11 +1056,7 @@ class Scenario:
                 j_p = np.zeros((2,1)) # I need a vector for compatibility with the printout
 
             # run sys_id if needed
-            if sys_id:
-                sys_id_vars = self._upper_level.sys_id_update(sim_k,running_vars,k)
-                sys_id_vars['pf'] = sys_id_vars['theta']
-            else:
-                sys_id_vars = {}
+            sys_id_vars = sys_id_vars | self._upper_level.sys_id_update(sim_k,running_vars,k) if sys_id else {}
 
             if save_memory:
                 sim_k.save_memory()
@@ -992,10 +1066,16 @@ class Scenario:
                 case 0:
                     pass
                 case 1:
-                    print(f"Iteration: {k}, cost: {track_cost}, J: {ca.DM(np.linalg.norm(j_p,axis=0))}, e : {ca.sum1(ca.fmax(cst_viol,0))}")#, slacks: {slack} ")
+                    to_print = f"Iteration: {k}, cost: {track_cost}, J: {ca.DM(np.linalg.norm(j_p,axis=0))}, e : {ca.sum1(ca.fmax(cst_viol,0))}"
 
-                    # if sys_id:
-                        # print(f'Current theta: {running_vars['theta']}')
+                    if sys_id and self.options['true_theta'] is not np.zeros(1):
+
+                        # compute estimation error
+                        est_error = np.linalg.norm(running_vars['theta']-self.options['true_theta'])
+
+                        to_print += f', Current estimation error: {est_error}'
+                    
+                    print(to_print)
 
             # if self._options['figures']:
 

@@ -5,6 +5,12 @@ from src.options import Options
 import numpy as np
 from copy import copy
 from numpy.linalg import lstsq
+from utils.daqp_interface import daqp_interface
+
+"""
+TODO: pass parameters to QP using a dictionary for better readability
+TODO: make_dense should work without p and should allow pf!
+"""
 
 class QP:
     """
@@ -127,14 +133,16 @@ class QP:
 
         # create input index
         idx_in = dict()
+        
         # initialize counter that reveals the beginning index of each variable
         running_idx = 0
+
         # loop through all the symbolic variables
-        for i in range(len(p_QP)):
+        for elem,name in zip(p_QP,p_QP_names):
             # get length of current variable in p_d
-            len_current_p_d = p_QP[i].shape[0]
+            len_current_p_d = elem.shape[0]
             # store indexing of current variable
-            idx_in[p_QP_names[i]] = range(running_idx,running_idx+len_current_p_d)
+            idx_in[name] = range(running_idx,running_idx+len_current_p_d)
             # increment running index
             running_idx = running_idx + len_current_p_d
 
@@ -170,12 +178,12 @@ class QP:
         self._sym.add_var('z',ca.vcat([self._sym.var['lam'],self._sym.var['mu']]))
 
         # create sparse QP
-        self._makeSparseQP()
+        self._make_sparse_qp()
 
         # create conservative jacobian
-        self._makeConsJac()
+        self._make_cons_jac()
 
-    def _makeSparseQP(self):
+    def _make_sparse_qp(self):
         """
         Constructs and compiles sparse Quadratic Programming (QP) and dual functions for the model,
         sets up the QP solver interface, and defines a local QP solver function with optional warmstarting.
@@ -221,14 +229,27 @@ class QP:
         QP_outs = [A,lba,uba,Q,q]
         QP_outs_names = ['a','lba','uba','h','g']
 
+        # # list of symbolic outputs (with repeated values)
+        # sym_outputs = list(ca.symvar(ca.vcat([ca.vcat(ca.symvar(elem)) for elem in QP_outs])))
+        
+        # # turn into list and strip repeated values
+        # sym_outputs_stripped = set([str(elem) for elem in sym_outputs])
+
+        # # list of symbolic inputs (with repeated values)
+        # sym_inputs = list(ca.symvar(self._sym.var['p_qp_full']))
+
+        # # turn into list and strip repeated values
+        # sym_inputs_stripped = set([str(elem) for elem in sym_inputs])
+
+        # assert sym_outputs_stripped.issubset(sym_inputs_stripped), 'The QP ingredients depend on more inputs than the one you provided. Did you forget about p or pf? Missing symbols: ' + str(sym_outputs_stripped.difference(sym_inputs_stripped))
+
         # set of symbolic outputs
         sym_outputs = set(ca.symvar(ca.vcat([ca.vcat(ca.symvar(elem)) for elem in QP_outs])))
 
         # set of symbolic inputs
         sym_inputs = set(ca.symvar(self._sym.var['p_qp_full']))
 
-        assert sym_outputs.issubset(sym_inputs), 'The QP ingredients depend on more inputs than the one you provided. Did you forget about p or pf? Missing symbols: '
-        # sym_outputs.difference(sym_inputs)
+        assert sym_outputs.issubset(sym_inputs), 'The QP ingredients depend on more inputs than the one you provided. Did you forget about p or pf? Missing symbols: ' + str(sym_outputs.difference(sym_inputs))
 
         # create function
         start = time.time()
@@ -268,7 +289,10 @@ class QP:
                 S = ca.conic('S','osqp',qp,options | {'osqp':{'verbose':False},'equality':is_equality})
                 # S = ca.conic('S','osqp',qp,options | {'equality':is_equality})
             case 'daqp':
-                S = ca.conic('S','daqp',qp,options)
+
+                S = daqp_interface(is_equality)
+
+                # S = ca.conic('S','daqp',qp,options)
             case 'qrqp':
                 S = ca.conic('S','qrqp',qp,options | {'print_iter':False,'equality':is_equality})
         comp_time_dict['S_sparse'] = time.time()-start
@@ -430,6 +454,9 @@ class QP:
         QP_func = ca.Function('QP_dense',[self.param['p_qp_full']],out_list_symbolic,['p'],out_list_symbolic_names,options)
         comp_time_dict = {'QP_dense':time.time()-start}
 
+        # store in qp
+        self._qp_dense = QP_func
+
         # implement QP using conic interface to retrieve multipliers
         qp = {}
         qp['h'] = Q.sparsity()
@@ -489,7 +516,7 @@ class QP:
         # store computation times (if compile is true)
         self._comp_times = self._comp_times | comp_time_dict
 
-    def _makeConsJac(self):
+    def _make_cons_jac(self):
         """
         Constructs and compiles the conservative Jacobian functions for the QP constraints and primal variables.
         This method generates symbolic Jacobians using CasADi for the constraint projector and the primal variable
@@ -505,8 +532,8 @@ class QP:
               using either NumPy or CasADi solvers as specified.
             - Stores the generated functions and computation times in class attributes.
         Attributes Set:
-            self._J: CasADi Function for evaluating Jacobians.
-            self._J_y_p: Function for computing the conservative Jacobian of the primal variable.
+            self._j: CasADi Function for evaluating Jacobians.
+            self._j_y_p: Function for computing the conservative Jacobian of the primal variable.
             self._compTimes: Dictionary updated with computation times for Jacobian generation.
         Raises:
             None

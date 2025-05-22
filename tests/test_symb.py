@@ -125,5 +125,14 @@ def test_set_init_single_element_list():
     assert "x" in symbolic_var.init
     assert ca.mmin(symbolic_var.init["x"] == ca.DM([1, 2, 3])) == 1
 
-
-
+if __name__ == "__main__":
+    test_check_and_convert_scalar()
+    test_check_and_convert_vector()
+    test_check_and_convert_nested_list()
+    test_check_and_convert_matrix()
+    test_check_and_convert_invalid_shape()
+    test_set_init_valid_data()
+    test_set_init_nonexistent_variable()
+    test_set_init_invalid_dimension()
+    test_set_init_nested_list()
+    test_set_init_single_element_list()

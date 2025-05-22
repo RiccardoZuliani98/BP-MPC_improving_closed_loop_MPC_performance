@@ -2,12 +2,12 @@ import sys
 import os
 import casadi as ca
 from numpy.random import randint, rand
-from sample_elements import sample_dynamics
+import pytest
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import pytest
+from utils.sample_elements import sample_dynamics
 from src.dynamics import Dynamics
 
 def test_affine():
@@ -123,12 +123,12 @@ def test_nonlinear_if_d_nonzero():
     assert dynamics._is_nominal_affine, 'Nominal model was not recognized as affine'
 
     # run linearization and check that linearization method == 'affine'
-    *_, linearization_method = dynamics._linearize(3, method='trajectory')
+    *_, linearization_method = dynamics.linearize(3, method='trajectory')
     assert linearization_method == 'affine', 'linearize method did not choose the affine linearization option'
     
-def test_linearize_affine():
+def testlinearize_affine():
     """
-    Test the _linearize method for affine dynamics.
+    Test the linearize method for affine dynamics.
     """
     # Generate affine dynamics
     dynamics_dict, dynamics_matrices = sample_dynamics()
@@ -137,8 +137,8 @@ def test_linearize_affine():
     # Set horizon
     horizon = 5
 
-    # Call _linearize
-    model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='trajectory')
+    # Call linearize
+    model, symbolic_vars, linearization_method = dynamics.linearize(horizon, method='trajectory')
 
     # Check linearization method
     assert linearization_method == 'affine', 'Linearization method should be affine.'
@@ -155,9 +155,9 @@ def test_linearize_affine():
         assert ca.DM(ca.mmin(c == ca.DM(dynamics_matrices['c']))), 'c vector does not match.'
 
 
-def test_linearize_initial_state():
+def testlinearize_initial_state():
     """
-    Test the _linearize method for initial_state linearization.
+    Test the linearize method for initial_state linearization.
     """
     # Generate affine dynamics
     dynamics_dict, _ = sample_dynamics(nonlinear=True)
@@ -169,8 +169,8 @@ def test_linearize_initial_state():
     # Set horizon
     horizon = randint(2,5)
 
-    # Call _linearize
-    model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='initial_state')
+    # Call linearize
+    model, symbolic_vars, linearization_method = dynamics.linearize(horizon, method='initial_state')
 
     # Check linearization method
     assert linearization_method == 'initial_state', 'Linearization method should be initial_state.'
@@ -204,9 +204,9 @@ def test_linearize_initial_state():
         assert ca.norm_2(error) <= 1e-12, 'Linearized dynamics are incorrect'
 
 
-def test_linearize_trajectory():
+def testlinearize_trajectory():
     """
-    Test the _linearize method for trajectory linearization.
+    Test the linearize method for trajectory linearization.
     """
     # Generate affine dynamics
     dynamics_dict, _ = sample_dynamics(nonlinear=True)
@@ -215,8 +215,8 @@ def test_linearize_trajectory():
     # Set horizon
     horizon = randint(2,5)
 
-    # Call _linearize
-    model, symbolic_vars, linearization_method = dynamics._linearize(horizon, method='trajectory')
+    # Call linearize
+    model, symbolic_vars, linearization_method = dynamics.linearize(horizon, method='trajectory')
 
     # get nominal dynamics
     f = dynamics.f_nom
@@ -257,9 +257,9 @@ def test_linearize_trajectory():
         assert ca.norm_2(error) <= 1e-12, 'Linearized dynamics are incorrect'
 
 
-def test_linearize_invalid_method():
+def testlinearize_invalid_method():
     """
-    Test the _linearize method with an invalid method.
+    Test the linearize method with an invalid method.
     """
     # Generate affine dynamics
     dynamics_dict, _ = sample_dynamics(nonlinear=True)
@@ -268,6 +268,15 @@ def test_linearize_invalid_method():
     # Set horizon
     horizon = 3
 
-    # Call _linearize with an invalid method
+    # Call linearize with an invalid method
     with pytest.raises(Exception, match='unknown linearization method'):
-        dynamics._linearize(horizon, method='invalid_method')
+        dynamics.linearize(horizon, method='invalid_method')
+
+if __name__ == '__main__':
+    test_affine()
+    test_nominal_and_derivatives()
+    test_nonlinear_if_d_nonzero()
+    testlinearize_affine()
+    testlinearize_initial_state()
+    testlinearize_trajectory()
+    testlinearize_invalid_method()

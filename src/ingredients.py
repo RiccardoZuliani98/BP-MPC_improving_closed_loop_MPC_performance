@@ -1,5 +1,5 @@
 import casadi as ca
-from src.utils import matrixify
+from utils.cost_utils import matrixify
 from src.dynamics import Dynamics
 from copy import copy
 import numpy as np
@@ -122,7 +122,7 @@ class Ingredients:
         self._options.update(options)
 
         # check if user passed a special option for linearization
-        model, symbolic_vars, used_linearization_method = dynamics_copy._linearize(horizon=horizon,method=self._options['linearization'])
+        model, symbolic_vars, used_linearization_method = dynamics_copy.linearize(horizon=horizon,method=self._options['linearization'])
 
         # store linearization method that was used
         self._options['linearization']  = used_linearization_method
@@ -720,7 +720,7 @@ class Ingredients:
             slack = True
 
         if 's_lin' in data:
-            assert all(data['s_lin']>0), 'The linear slack penalty must be positive'
+            assert all([elem > 0 for elem in data['s_lin']]), 'The linear slack penalty must be positive'
             slack = True
 
         return slack,n_eps

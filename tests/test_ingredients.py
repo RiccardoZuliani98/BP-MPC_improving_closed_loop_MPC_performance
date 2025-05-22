@@ -1,45 +1,14 @@
 import sys
 import os
 import casadi as ca
-from numpy.random import randint, rand
-import pytest
+from numpy.random import randint
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from sample_elements import sample_dynamics, sample_ingredients
+from utils.sample_elements import sample_dynamics, sample_ingredients
 from src.dynamics import Dynamics
 from src.ingredients import Ingredients
-
-# def test_init():
-
-#     # generate sample affine dynamics
-#     dynamics_dict, dynamics_matrices = sample_dynamics(use_d=True,use_w=True,use_theta=True,nonlinear=False)
-    
-#     # create dynamics
-#     dynamics = Dynamics(dynamics_dict)
-
-#     # create sample QP
-#     ingredients, *_ = sample_ingredients(dynamics,p=False,horizon=1)
-
-#     # check that dynamics are correct
-#     print('me')
-
-#     # construct dynamics from matrices
-#     A,B,c = dynamics_matrices['A_nom'],dynamics_matrices['B'],dynamics_matrices['c']
-
-#     # get equality constraints (sparse) from ingredients
-#     F = ingredients.sparse['F']
-#     f = ingredients.sparse['f']
-
-#     # create symbolic variable for x and u
-#     x = ca.SX.sym('x',A.shape[0],1)
-#     u = ca.SX.sym('x',B.shape[1],1)
-
-#     # get next state
-#     x_next = A@x+B@u+c
-
-#     # apply to equality constraints
 
 def test_parse_inputs_all_lists():
 
@@ -51,7 +20,7 @@ def test_parse_inputs_all_lists():
     horizon = randint(1,5)
 
     # get model
-    model = dynamics._linearize(horizon=horizon)[0]
+    model = dynamics.linearize(horizon=horizon)[0]
 
     # create dictionary that can be passed to ingredients
     _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
@@ -82,7 +51,7 @@ def test_parse_inputs_all_single():
     horizon = randint(2,5)
 
     # get model
-    model = dynamics._linearize(horizon=1)[0]
+    model = dynamics.linearize(horizon=1)[0]
 
     # create dictionary that can be passed to ingredients
     _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=1)
@@ -113,7 +82,7 @@ def test_parse_inputs_some_single_lists():
     horizon = randint(1,5)
 
     # get model
-    model = dynamics._linearize(horizon=1)[0]
+    model = dynamics.linearize(horizon=1)[0]
 
     # create dictionary that can be passed to ingredients
     _,_,cost,constraints = sample_ingredients(dynamics.dim,p=False,horizon=horizon)
@@ -144,7 +113,7 @@ def test_parse_inputs_some_single_elements():
     horizon = randint(1,5)
 
     # get model
-    model = dynamics._linearize(horizon=1)[0]
+    model = dynamics.linearize(horizon=1)[0]
     model['A'] = model['A'][0]
     model['B'] = model['B'][0]
     model['c'] = model['c'][0]
@@ -169,3 +138,10 @@ def test_parse_inputs_some_single_elements():
             assert all([ca.mmax(ca.fabs(elem-model[key]))==0 for elem in out[key]]), 'Element ' + key + ' does not match'
 
 # test to ensure that a quadratic penalty is imposed on slack if present
+
+if __name__ == '__main__':
+
+    test_parse_inputs_all_lists()
+    test_parse_inputs_all_single()
+    test_parse_inputs_some_single_lists()
+    test_parse_inputs_some_single_elements()

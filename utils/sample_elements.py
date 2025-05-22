@@ -2,14 +2,19 @@ import sys
 import os
 import casadi as ca
 from numpy.random import randint, rand
-from typing import Optional, Tuple
+import numpy as np
+from typing import Optional, Tuple, Callable, Union
+from copy import copy
 
 # add source path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.qp import QP
+from src.dynamics import Dynamics
+from src.ingredients import Ingredients
 from src.upper_level import UpperLevel
-from src.utils import quad_cost_and_bounds, gradient_descent
+from utils.parameter_update import gradient_descent
+from utils.cost_utils import quad_cost_and_bounds
 
 def sample_dynamics(
         use_d:bool=False,
@@ -117,7 +122,6 @@ def sample_dynamics(
 
     return out | {'x_next':x_next, 'x_next_nom':x_next_nom}, {'A':A,'A_nom':A_nom,'B':B,'c':c}
 
-
 def sample_ingredients(
         dim:dict,
         p:Optional[bool]=True,
@@ -151,14 +155,14 @@ def sample_ingredients(
     R = [elem@elem.T + 0.01*ca.DM.eye(dim['u']) for elem in R_half]
 
     if p:
-        p = ca.SX.sym('p',2,1)#ca.SX.sym('p',randint(1,4),1)
+        p = ca.SX.sym('p',randint(1,4),1)
         Q = [elem + ca.SX.eye(dim['x'])*ca.sum1(p) for elem in Q]
     else:
         p = None
     
     if pf:
         pf = ca.SX.sym('p',randint(1,4),1)
-        R = [elem + ca.SX.eye(dim['u'])*pf for elem in R]
+        R = [elem + ca.SX.eye(dim['u'])*ca.sum1(pf) for elem in R]
     else:
         pf = None
 
@@ -187,8 +191,8 @@ def sample_ingredients(
         s_lin = [ca.DM(rand()**2) for _ in range(horizon)]
 
         # create slack matrix
-        n_hx_e = randint(1,n_hx)
-        Hx_e = [ca.DM(rand(dim['x'],n_hx_e)) for _ in range(horizon)]
+        n_hx_e = randint(1,n_hx) if n_hx > 1 else n_hx
+        Hx_e = [ca.DM(rand(n_hx,n_hx_e)) for _ in range(horizon)]
 
         # add to constraint dictionary
         constraints['Hx_e'] = Hx_e
@@ -199,15 +203,91 @@ def sample_ingredients(
 
     return p, pf, cost, constraints
 
-def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
+def sample_mpc(
+        horizon:int=5,
+        use_d:bool=False,
+        use_w:bool=False,
+        use_theta:bool=False,
+        nonlinear:bool=False,
+        use_p:bool=True,
+        use_pf:bool=False,
+        use_slack:bool=False,
+        linearization:str='trajectory'
+    ) -> Tuple[Dynamics, Ingredients, dict, dict]:
+    """
+    Generate dummy dynamics and ingredients.
+
+    Args:
+        horizon (int, optional): Prediction horizon for the MPC. Defaults to 5.
+        use_d (bool, optional): Whether to include disturbance in the dynamics. Defaults to False.
+        use_w (bool, optional): Whether to include process noise in the dynamics. Defaults to False.
+        use_theta (bool, optional): Whether to include parameter uncertainty in the dynamics. Defaults to False.
+        nonlinear (bool, optional): Whether to use nonlinear dynamics. Defaults to False.
+        use_p (bool, optional): Whether to add a parameter p in the ingredients. Defaults to True.
+        use_pf (bool, optional): Whether to add a parameter pf in the ingredients. Defaults to True.
+        use_slack (bool, optional): Whether to include slack variables. Defaults to False.
+
+    Returns:
+        Tuple[Dynamics, Ingredients, dict, dict]: 
+            - Dynamics: Generated dynamics object.
+            - Ingredients: Parsed ingredients object for the MPC.
+            - dict: Dictionary containing cost, constraints, and model information.
+            - dict: Dictionary containing the symbolic variables p and pf (None if not initialized).
+    """
+
+    # create dummy dynamics
+    dynamics_dict, _ = sample_dynamics(use_d=use_d,use_w=use_w,use_theta=use_theta,nonlinear=nonlinear)
+    dynamics = Dynamics(dynamics_dict)
+
+    # get model
+    _ = dynamics.linearize(horizon=horizon,method=linearization)[0]
+
+    # create dictionary that can be passed to ingredients
+    p,pf,cost,constraints = sample_ingredients(dynamics.dim,p=use_p,pf=use_pf,slack=use_slack,horizon=horizon)
+    # ing_dict = cost | constraints | model
+
+    # create ingredients
+    ingredients = Ingredients(horizon,dynamics,cost,constraints,options={'linearization':linearization})
+
+    # create dictionary with symbolic variables
+    out_dict = {'p':p,'pf':pf,'theta':dynamics_dict['theta']} if use_theta else {'p':p,'pf':pf}
+
+    return dynamics, ingredients, out_dict
+
+def sample_upper_level(
+        p:ca.SX,
+        mpc:QP,
+        pf:ca.SX=None,
+        horizon:int=2,
+        idx_p:Optional[Callable[[int],Union[np.array,range]]]=None,
+        idx_pf:Optional[Callable[[int],Union[np.array,range]]]=None
+    ) -> UpperLevel:
+    """
+    Initializes and configures an upper-level optimization problem for closed-loop MPC performance improvement.
+
+    This function creates an instance of the `UpperLevel` class, optionally with an additional parameter `pf`, 
+    and sets up a random quadratic tracking cost and state constraints for the closed-loop system. 
+    It also configures a gradient descent algorithm for updating the upper-level variables.
+
+    Args:
+        p (ca.SX): Symbolic parameter for the upper-level problem.
+        mpc (QP): An instance of the lower-level QP-based MPC controller.
+        pf (ca.SX, optional): Additional symbolic parameter for the upper-level problem. Defaults to None.
+        horizon (int, optional): Prediction horizon for the upper-level problem. Defaults to 2.
+        idx_p (callable, optional): indexing of p vector.
+        idx_pf (callable, optional): indexing of pf vector.
+
+    Returns:
+        UpperLevel: Configured upper-level optimization problem instance.
+    """
 
     # initialize upper level
     if pf is not None:
         # create upper level with parameter
-        upper_level = UpperLevel(p=p,pf=pf,horizon=horizon,mpc=mpc)
+        upper_level = UpperLevel(p=p,pf=pf,horizon=horizon,mpc=mpc,idx_p=idx_p,idx_pf=idx_pf)
     else:
         # create upper level without parameter
-        upper_level = UpperLevel(p=p,horizon=horizon,mpc=mpc)
+        upper_level = UpperLevel(p=p,horizon=horizon,mpc=mpc,idx_p=idx_p)
 
     # extract closed-loop variables for upper level
     x_cl = ca.vec(upper_level.param['x_cl'])
@@ -226,7 +306,7 @@ def sample_upper_level(p:ca.SX,mpc:QP,pf:ca.SX=None,horizon:int=2):
     x_min = -x_max
 
     # create tracking cost and constraint violation
-    track_cost, cst_viol_l1, _ =  quad_cost_and_bounds(q,r,x_cl,u_cl,x_max,x_min)
+    track_cost, cst_viol_l1, _ = quad_cost_and_bounds(q,r,x_cl,u_cl,x_max,x_min)
 
     # set cost
     upper_level.set_cost(track_cost+cst_viol_l1,track_cost,cst_viol_l1)

@@ -8,17 +8,19 @@ from src.scenario import Scenario
 from src.dynamics import Dynamics
 from src.qp import QP
 from src.ingredients import Ingredients
-import src.utils as utils
+from utils.cleanup import cleanup
+from utils.cost_utils import quad_cost_and_bounds,bound2poly,param2terminal_cost,dare2param
 # import tests.tests as tests
 import examples.dynamics.random_linear as random_linear
 import casadi as ca
 from src.plotter import Plotter
 from src.upper_level import UpperLevel
 import numpy as np
-from src.utils import average_gradient_descent, robust_gradient_descent, gradient_descent, rls
+from utils.parameter_update import average_gradient_descent, robust_gradient_descent, gradient_descent
+from utils.sys_id import rls
 
 # cleanup jit files
-utils.cleanup()
+cleanup()
 
 # decide what to compile
 COMPILE_DYNAMICS = False
@@ -27,22 +29,29 @@ COMPILE_QP_DENSE = False
 COMPILE_JAC = False
 
 # horizons
-UPPER_HORIZON = 50
+UPPER_HORIZON = 20
 MPC_HORIZON = 10
-ITERATIONS = 10
+ITERATIONS = 100
+
+# penalties on constraint violation (closed-loop)
+L2_PENALTY = 10
+L1_PENALTY = 15
+
+# uncertainty on theta
+THETA_UNCERTAINTY_RANGE = 1
 
 # how spread out the initial condition is
-X0_MAG = 5
+X0_MAG = 2
 
 # decide whether to include noise or not
 NOISE = True
-NOISE_MAG = 0.4
+NOISE_MAG = 0.5
 
 
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict,true_theta = random_linear.dynamics(n_x=3,use_w=NOISE,pole_mag=[0.5,1])
+dyn_dict,true_theta = random_linear.dynamics(Ts=0.3,n_x=4,use_w=NOISE,pole_mag=[-2,1])
 print(true_theta)
 
 # model uncertainty parameter
@@ -55,8 +64,9 @@ dyn = Dynamics(dyn_dict,jit=COMPILE_DYNAMICS)
 n_x, n_u = dyn.dim['x'], dyn.dim['u']
 
 # set initial conditions
-x0 = ca.DM( X0_MAG * (np.ones((n_x,1)) + 2*np.random.rand(n_x,1)) )
-theta0 = ca.DM( np.multiply(np.ones(theta.shape)+2*np.random.rand(*theta.shape),np.array(true_theta)) )
+x0 = ca.DM.ones(n_x,1)#ca.DM( X0_MAG * (np.ones((n_x,1)) + 2*np.random.rand(n_x,1)) )
+theta_uncertainty = THETA_UNCERTAINTY_RANGE*(np.ones(theta.shape)+2*np.random.rand(*theta.shape))
+theta0 = ca.DM( np.multiply(theta_uncertainty,np.array(true_theta)) )
 print(f'Initial condition: {x0}')
 print(f'Initial parameter estimate: {theta0}')
 
@@ -69,12 +79,12 @@ if NOISE:
 
 # upper level cost
 Q_true = 10*ca.DM.eye(n_x)
-R_true = 0.1
+R_true = 1
 
 # constraints are simple bounds on state and input
-x_max = 500*ca.DM.ones(n_x,1)
+x_max = 5*ca.DM.ones(n_x,1)
 x_min = -x_max
-u_max = 0.5
+u_max = 1.5
 u_min = -u_max
 
 # parameter = terminal state cost and input cost
@@ -92,19 +102,21 @@ p = ca.vcat([c_q,c_r])
 pf = theta
 
 # MPC terminal cost
-Qn = utils.param_2_terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
+Qn = param2terminal_cost(c_q) + 0.01*ca.SX.eye(n_x)
 
 # append to Qx
 Qx.append(Qn)
 
 # add to mpc dictionary
-cost = {'Qx': Qx, 'Ru':Ru, 's_quad':100}
+cost = {'Qx': Qx, 'Ru':Ru, 's_quad':5, 's_lin':5}
+# cost = {'Qx': Qx, 'Ru':Ru}
 
 # turn bounds into polyhedral constraints
-Hx,hx,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min)
+Hx,hx,Hu,hu = bound2poly(x_max,x_min,u_max,u_min)
 
 # add to mpc dictionary
 cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu, 'Hx_e':ca.SX.eye(hx.shape[0])}
+# cst = {'hx':hx, 'Hx':Hx, 'hu':hu, 'Hu':Hu}
 
 # create QP ingredients
 ing = Ingredients(horizon=MPC_HORIZON,dynamics=dyn,cost=cost,constraints=cst)
@@ -113,7 +125,7 @@ ing = Ingredients(horizon=MPC_HORIZON,dynamics=dyn,cost=cost,constraints=cst)
 qp_options = {'compile_qp_sparse':COMPILE_QP_SPARSE,
               'compile_qp_dense':COMPILE_QP_DENSE,
               'compile_jac':COMPILE_JAC,
-              'solver':'qpoases'}
+              'solver':'daqp'}
 
 # create MPC
 mpc = QP(ingredients=ing,p=p,pf=pf,options=qp_options)
@@ -129,20 +141,20 @@ A = dyn.A_nom(ca.DM(n_x,1),ca.DM(n_u,1),theta0)
 B = dyn.B_nom(ca.DM(n_x,1),ca.DM(n_u,1),theta0)
 
 # compute terminal cost initialization
-p_init = ca.vertcat(utils.dare2param(A,B,Q_true,R_true),1e-3)
+p_init = ca.vertcat(ca.DM.ones(p.shape[0]-1,1)*1e-3,1)#ca.vertcat(dare2param(A,B,Q_true,R_true),1e-1)
 
 # extract closed-loop variables for upper level
 x_cl = ca.vec(upper_level.param['x_cl'])
 u_cl = ca.vec(upper_level.param['u_cl'])
 
-track_cost, cst_viol_l1, cst_viol_l2 = utils.quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
+track_cost, cst_viol_l1, cst_viol_l2 = quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
 # put together
-cost = track_cost
+cost = track_cost + L2_PENALTY*cst_viol_l2 + L1_PENALTY*cst_viol_l1
 
 # create upper-level constraints
-Hx,hx,_,_ = utils.bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON+1)
-_,_,Hu,hu = utils.bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON)
+Hx,hx,_,_ = bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON+1)
+_,_,Hu,hu = bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON)
 cst_viol = ca.vcat([Hx@ca.vec(x_cl)-hx,Hu@ca.vec(u_cl)-hu])
 
 # store in upper-level
@@ -154,15 +166,16 @@ j_p = upper_level.param['J_p']
 k = upper_level.param['k']
 
 # create update function
-parameter_update, parameter_init = gradient_descent(rho=0.0001,eta=0.51,log=True)
+parameter_update, parameter_init = gradient_descent(rho=0.0001,eta=0.8,log=True)
 
 # create system identification
-sys_id_update, sys_id_init = rls(
+sys_id_update, sys_id_init, _ = rls(
     dynamics=dyn,
     horizon=UPPER_HORIZON,
-    lam=0,
+    lam=0.1,
     theta0=theta0,
-    jit=False)
+    jit=False,
+    idx_pf=range(theta0.shape[0]))
 
 # update upper-level algorithm
 upper_level.set_alg(
@@ -190,7 +203,7 @@ if NOISE:
 scenario.set_init(init_dict)
 
 # test closed loop
-sim_list,_,p_best = scenario.closed_loop(options={'use_true_model':False,'max_k':ITERATIONS})
+sim_list,_,p_best = scenario.closed_loop(options={'use_true_model':False,'max_k':ITERATIONS,'true_theta':np.array(true_theta)})
 
 # retrieve thetas
 estimation_error = [ca.norm_2(ca.fabs(elem.psi['theta']-true_theta)) for elem in sim_list]
