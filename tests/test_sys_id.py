@@ -53,7 +53,7 @@ def random_linear_scenario(
         upper_horizon = np.random.randint(20,30)
 
     # create dictionary with parameters of cart pendulum
-    dyn_dict,true_theta = random_linear.dynamics(n_x=6,use_w=noise,pole_mag=[0.5,1])
+    dyn_dict,true_theta = random_linear.dynamics(n_x=6,use_w=noise,pole_mag=[-2,0.5])
     if verbose:
         print(true_theta)
 
