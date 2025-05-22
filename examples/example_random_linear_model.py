@@ -33,6 +33,10 @@ UPPER_HORIZON = 20
 MPC_HORIZON = 10
 ITERATIONS = 100
 
+# penalties on constraint violation (closed-loop)
+L2_PENALTY = 10
+L1_PENALTY = 15
+
 # uncertainty on theta
 THETA_UNCERTAINTY_RANGE = 1
 
@@ -47,7 +51,7 @@ NOISE_MAG = 0.5
 ### CREATE DYNAMICS ------------------------------------------------------------------------
 
 # create dictionary with parameters of cart pendulum
-dyn_dict,true_theta = random_linear.dynamics(Ts=0.3,n_x=4,use_w=NOISE,pole_mag=[-2,0.5])
+dyn_dict,true_theta = random_linear.dynamics(Ts=0.3,n_x=4,use_w=NOISE,pole_mag=[-2,1])
 print(true_theta)
 
 # model uncertainty parameter
@@ -80,7 +84,7 @@ R_true = 1
 # constraints are simple bounds on state and input
 x_max = 5*ca.DM.ones(n_x,1)
 x_min = -x_max
-u_max = 1
+u_max = 1.5
 u_min = -u_max
 
 # parameter = terminal state cost and input cost
@@ -146,7 +150,7 @@ u_cl = ca.vec(upper_level.param['u_cl'])
 track_cost, cst_viol_l1, cst_viol_l2 = quad_cost_and_bounds(Q_true,R_true,x_cl,u_cl,x_max,x_min)
 
 # put together
-cost = track_cost
+cost = track_cost + L2_PENALTY*cst_viol_l2 + L1_PENALTY*cst_viol_l1
 
 # create upper-level constraints
 Hx,hx,_,_ = bound2poly(x_max,x_min,u_max,u_min,UPPER_HORIZON+1)
@@ -162,13 +166,13 @@ j_p = upper_level.param['J_p']
 k = upper_level.param['k']
 
 # create update function
-parameter_update, parameter_init = gradient_descent(rho=0,eta=0.51,log=True)
+parameter_update, parameter_init = gradient_descent(rho=0.0001,eta=0.8,log=True)
 
 # create system identification
 sys_id_update, sys_id_init, _ = rls(
     dynamics=dyn,
     horizon=UPPER_HORIZON,
-    lam=0.01,
+    lam=0.1,
     theta0=theta0,
     jit=False,
     idx_pf=range(theta0.shape[0]))
